@@ -1,0 +1,129 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 2 }}
+  name: {{ include "gpuControlPlane.controllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+spec:
+  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 2 .Values.gpuControlPlane.runtime.controller.replicas) 1) }}
+  {{- if (include "helm_lib_ha_enabled" .) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      {{- include "gpuControlPlane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gpuControlPlane.podLabels" . | nindent 8 }}
+      annotations:
+        {{- include "gpuControlPlane.podAnnotations" . | nindent 8 }}
+    spec:
+      {{ include "helm_lib_pod_anti_affinity_for_ha" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 6 }}
+      serviceAccountName: {{ include "gpuControlPlane.controllerName" . }}
+      containers:
+        - name: controller
+          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          image: {{ include "helm_lib_module_image" (list . "controller" (include "gpuControlPlane.moduleName" .)) }}
+          imagePullPolicy: IfNotPresent
+          {{- $args := default (list) .Values.gpuControlPlane.runtime.controller.extraArgs }}
+          {{- if $args }}
+          args:
+            {{- range $arg := $args }}
+            - {{ $arg | quote }}
+            {{- end }}
+          {{- end }}
+          env:
+            - name: LEADER_ELECTION
+              value: {{ if (include "helm_lib_ha_enabled" .) }}"true"{{ else }}"false"{{ end }}
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LEADER_ELECTION_ID
+              value: {{ include "gpuControlPlane.controllerName" . }}-leader-election
+            - name: TLS_CERT_FILE
+              value: /var/lib/gpu-control-plane/tls/tls.crt
+            - name: TLS_PRIVATE_KEY_FILE
+              value: /var/lib/gpu-control-plane/tls/tls.key
+            - name: TLS_CA_FILE
+              value: /var/lib/gpu-control-plane/tls/ca.crt
+            - name: CONFIG_PATH
+              value: /etc/gpu-control-plane/config.yaml
+            {{- range $item := default (list) .Values.gpuControlPlane.runtime.controller.env }}
+            - name: {{ $item.name }}
+              {{- if hasKey $item "valueFrom" }}
+              valueFrom:
+                {{- toYaml $item.valueFrom | nindent 16 }}
+              {{- else if hasKey $item "value" }}
+              value: {{ $item.value | quote }}
+              {{- else }}
+              value: ""
+              {{- end }}
+            {{- end }}
+          volumeMounts:
+            - name: controller-tls
+              mountPath: /var/lib/gpu-control-plane/tls
+              readOnly: true
+            - name: controller-config
+              mountPath: /etc/gpu-control-plane
+              readOnly: true
+          ports:
+            - name: metrics
+              containerPort: {{ include "gpuControlPlane.metricsPort" . | int }}
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- if .Values.gpuControlPlane.runtime.controller.resources }}
+            {{- toYaml .Values.gpuControlPlane.runtime.controller.resources | nindent 12 }}
+            {{- else }}
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
+            limits:
+              memory: 256Mi
+            {{- end }}
+      {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      {{- if .Values.gpuControlPlane.runtime.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.gpuControlPlane.runtime.controller.nodeSelector | nindent 8 }}
+      {{- else }}
+      {{ include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
+      {{- end }}
+      {{- if .Values.gpuControlPlane.runtime.controller.tolerations }}
+      tolerations:
+        {{- toYaml .Values.gpuControlPlane.runtime.controller.tolerations | nindent 8 }}
+      {{- else }}
+      {{ include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      {{- end }}
+      {{ include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
+      volumes:
+        - name: controller-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.controllerTLSSecretName" . }}
+        - name: controller-config
+          configMap:
+            name: {{ include "gpuControlPlane.controllerConfigName" . }}
+{{- end }}

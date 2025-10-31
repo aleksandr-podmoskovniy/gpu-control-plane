@@ -1,0 +1,72 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Ресурс, описывающий логический пул GPU, управляющий выбором устройств,
+            стратегией нарезки и правилами доступа для рабочих нагрузок.
+          properties:
+            spec:
+              description: Желаемая конфигурация пула.
+              properties:
+                resource:
+                  description: Имя ресурса device-plugin и единица измерения, публикуемая пулом.
+                  properties:
+                    name:
+                      description: Полное имя ресурса (например, gpu.deckhouse.io/a100-full).
+                    unit:
+                      description: Единица измерения («device», «mig-partition» и т.п.).
+                nodeSelector:
+                  description: Ограничение узлов, которые могут предоставлять карты в пул.
+                deviceSelector:
+                  description: Фильтр устройств, разрешённых к использованию в пуле.
+                allocation:
+                  description: Стратегия выделения GPU (Exclusive, MIG, TimeSlice) и её параметры.
+                  properties:
+                    mode:
+                      description: Режим распределения ресурсов (Exclusive/MIG/TimeSlice).
+                    migProfile:
+                      description: MIG-профиль, используемый в режиме MIG.
+                    maxDevicesPerNode:
+                      description: Лимит устройств, который может предоставить один узел.
+                    timeSlice:
+                      description: Настройки тайм-шеринга (количество срезов на устройство).
+                deviceAssignment:
+                  description: Правила автоматического или ручного утверждения устройств.
+                  properties:
+                    requireAnnotation:
+                      description: Требуется ли ручная аннотация для выдачи устройства.
+                    autoApproveSelector:
+                      description: Селектор устройств, которые разрешено утверждать автоматически.
+                access:
+                  description: Ограничения доступа потребителей к пулу.
+                  properties:
+                    namespaces:
+                      description: Список пространств имён, которым разрешён доступ.
+                    serviceAccounts:
+                      description: Допустимые service account'ы.
+                    dexGroups:
+                      description: Группы Dex, которым разрешено использовать пул.
+                scheduling:
+                  description: Подсказки для планировщика (стратегия, топология, тейнты).
+                  properties:
+                    strategy:
+                      description: Стратегия распределения по узлам (BinPack или Spread).
+                    topologyKey:
+                      description: Ключ топологии для режима Spread.
+                    taints:
+                      description: Тейнты, которые нужно добавлять узлам, задействованным пулом.
+            status:
+              description: Сводная информация об использовании пула и его состоянии.
+              properties:
+                capacity:
+                  description: Текущая ёмкость пула (всего/использовано/доступно).
+                nodes:
+                  description: Статистика по узлам, участвующим в пуле.
+                candidates:
+                  description: Узлы или устройства, ожидающие принятия в пул.
+                devices:
+                  description: Перечень устройств пула и их состояние.
+                conditions:
+                  description: Список агрегированных условий готовности пула.

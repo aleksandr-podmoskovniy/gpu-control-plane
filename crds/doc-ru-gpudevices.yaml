@@ -1,0 +1,95 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Ресурс, описывающий отдельный физический GPU-адаптер NVIDIA, найденный
+            в кластере и сопровождаемый контроллерами Deckhouse.
+          properties:
+            status:
+              description: >
+                Текущее состояние карты, собранное контроллерами (инвентаризация,
+                телеметрия, привязка к пулам и условия готовности).
+              properties:
+                nodeName:
+                  description: Имя узла Kubernetes, на котором установлена карта.
+                inventoryID:
+                  description: Стабильный идентификатор устройства (узел + PCI-адрес).
+                managed:
+                  description: Признак того, что карта управляется контроллерами Deckhouse.
+                state:
+                  description: Текущее состояние жизненного цикла (Unassigned, Reserved, Assigned, Faulted).
+                autoAttach:
+                  description: Автоматически ли можно привязывать карту к пулам без ручного подтверждения.
+                poolRef:
+                  description: Ссылка на GPUPool, которому сейчас принадлежит устройство.
+                  properties:
+                    name:
+                      description: Имя пула, использующего карту.
+                    resource:
+                      description: Полное имя ресурса device-plugin, опубликованного для пула.
+                hardware:
+                  description: Набор аппаратных характеристик, полученных от инвентаризации.
+                  properties:
+                    product:
+                      description: Читаемое название модели GPU (например, NVIDIA A100-PCIE-40GB).
+                    pci:
+                      description: PCI-идентификаторы устройства.
+                      properties:
+                        vendor:
+                          description: Идентификатор вендора в шестнадцатеричном формате (например, 10de).
+                        device:
+                          description: Идентификатор устройства в шестнадцатеричном формате.
+                        class:
+                          description: Класс PCI-устройства в шестнадцатеричном формате.
+                    memoryMiB:
+                      description: Объём видеопамяти в MiB.
+                    computeCapability:
+                      description: Версия CUDA Compute Capability.
+                      properties:
+                        major:
+                          description: Основная версия Compute Capability.
+                        minor:
+                          description: Дополнительная версия Compute Capability.
+                    precision:
+                      description: Список поддерживаемых типов точности вычислений (fp32/fp16/bf16 и т.д.).
+                      properties:
+                        supported:
+                          description: Перечень поддерживаемых математических точностей.
+                    mig:
+                      description: Возможности NVIDIA MIG (Multi-Instance GPU) для устройства.
+                      properties:
+                        capable:
+                          description: Поддерживает ли устройство режим MIG.
+                        strategy:
+                          description: Текущая стратегия MIG на узле (None, Single, Mixed).
+                        profilesSupported:
+                          description: Список MIG-профилей, которые могут быть созданы на карте.
+                        types:
+                          description: Текущая ёмкость по каждому профилю MIG.
+                          items:
+                            properties:
+                              name:
+                                description: Имя MIG-профиля (например, 1g.10gb).
+                              count:
+                                description: Количество партиций данного профиля.
+                              memoryMiB:
+                                description: Объём памяти одной партиции в MiB.
+                              multiprocessors:
+                                description: Число SM, выделенных профилю.
+                              partition:
+                                description: Идентификаторы GPU- и Compute-инстансов.
+                              engines:
+                                description: Количество доступных движков (copy, NVENC, NVDEC, OFA).
+                health:
+                  description: Последняя телеметрия DCGM по устройству (температуры, ECC и т.п.).
+                  properties:
+                    temperatureC:
+                      description: Температура GPU в градусах Цельсия.
+                    eccErrorsTotal:
+                      description: Суммарное количество ошибок ECC.
+                    lastUpdated:
+                      description: Время последнего обновления телеметрии.
+                    metrics:
+                      description: Произвольные ключи/значения с дополнительными показателями от драйвера.

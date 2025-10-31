@@ -1,0 +1,17 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+apiVersion: v1
+kind: Service
+metadata:
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 2 }}
+  name: {{ include "gpuControlPlane.controllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+spec:
+  selector:
+    {{- include "gpuControlPlane.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ include "gpuControlPlane.metricsPort" . | int }}
+      protocol: TCP
+      targetPort: metrics
+{{- end }}

@@ -1,0 +1,129 @@
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+project: gpu-control-plane
+configVersion: 1
+build:
+  imageSpec:
+    author: "Deckhouse Kubernetes Platform <contact@deckhouse.io>"
+    clearHistory: true
+    config:
+      keepEssentialWerfLabels: true
+      removeLabels:
+        - /.*/
+---
+# Base Images
+{{- include "parse_base_images_map" . }}
+---
+
+# Source repository mirrors (defaults to GitHub)
+{{- $_ := set . "SOURCE_REPO" (env "SOURCE_REPO" "https://github.com") }}
+{{- $_ := set . "SOURCE_REPO_GIT" (env "SOURCE_REPO_GIT" "https://github.com") }}
+
+# Define packages proxy settings
+{{- $_ := set . "DISTRO_PACKAGES_PROXY" (env "DISTRO_PACKAGES_PROXY" "") }}
+
+# Debug component toggle
+{{- $_ := set . "DEBUG_COMPONENT" (env "DEBUG_COMPONENT" "") }}
+
+# svace analyze toggler
+{{- $_ := set . "SVACE_ENABLED" (env "SVACE_ENABLED" "false") }}
+{{- $_ := set . "SVACE_ANALYZE_HOST" (env "SVACE_ANALYZE_HOST" "example.host") }}
+{{- $_ := set . "SVACE_ANALYZE_SSH_USER" (env "SVACE_ANALYZE_SSH_USER" "user") }}
+
+{{- $_ := set . "ImagesIDList" list }}
+
+{{- range $path, $content := .Files.Glob ".werf/*.yaml" }}
+  {{- tpl $content $ }}
+{{- end }}
+
+---
+image: images-digests
+fromImage: builder/alpine
+dependencies:
+  {{- range $ImageID := $.ImagesIDList }}
+  {{- $ImageNameCamel := $ImageID | splitList "/" | last | camelcase | untitle }}
+- image: {{ $ImageID }}
+  before: setup
+  imports:
+    - type: ImageDigest
+      targetEnv: MODULE_IMAGE_DIGEST_{{ $ImageNameCamel }}
+  {{- end }}
+shell:
+  beforeInstall:
+    - apk add --no-cache jq
+  setup:
+    - |
+      env | grep MODULE_IMAGE_DIGEST | jq -Rn '
+        reduce inputs as $i (
+          {};
+          . * (
+            $i | ltrimstr("MODULE_IMAGE_DIGEST_") | sub("=";"_") |
+            split("_") as [$imageName, $digest] |
+            {($imageName): $digest}
+          )
+        )
+      ' > /images_digests.json
+      cat images_digests.json
+{{-  if .DEBUG_COMPONENT }}
+    - |
+      cat <<EOF>> /delve.yaml
+      debug:
+        component: "{{ .DEBUG_COMPONENT }}"
+      EOF
+{{-  end }}
+---
+image: bundle
+fromImage: builder/scratch
+import:
+- image: images-digests
+  add: /
+  to: /
+  after: setup
+  includePaths:
+    - images_digests.json
+  {{-  if .DEBUG_COMPONENT }}
+    - delve.yaml
+  {{-  end }}
+- image: go-hooks-artifact
+  add: /go-hooks
+  to: /hooks/go
+  after: setup
+git:
+  - add: /
+    to: /
+    excludePaths:
+      - hooks
+    includePaths:
+      - .helmignore
+      - docs
+      - charts
+      - crds
+      - debug
+      - openapi
+      - templates
+      - images
+      - src
+      - build
+      - oss.yaml
+      - module.yaml
+      - README.md
+      - README.ru.md
+      - Chart.yaml
+---
+image: release-channel-version
+fromImage: builder/scratch
+shell:
+  install:
+    - echo '{"version":"{{ env "MODULES_MODULE_TAG" "dev" }}"}' > version.json

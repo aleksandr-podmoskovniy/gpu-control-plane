@@ -1,0 +1,86 @@
+global:
+  clusterConfiguration:
+    apiVersion: deckhouse.io/v1
+    clusterType: Static
+    kubernetesVersion: "1.30"
+    podSubnetCIDR: 10.111.0.0/16
+    serviceSubnetCIDR: 10.222.0.0/16
+  clusterIsBootstrapped: true
+  deckhouseEdition: EE
+  deckhouseVersion: dev
+  discovery:
+    clusterControlPlaneIsHighlyAvailable: false
+    d8IsBootstrapped: true
+    d8SpecificNodeCountByRole:
+      master: 1
+  modulesImages:
+    registry:
+      address: registry.example.com
+      path: sys/deckhouse
+      scheme: HTTPS
+      dockercfg: ZmFrZQ==
+    tags: {}
+    digests:
+      common:
+        kubeRbacProxy: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      gpuControlPlane:
+        controller: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        goHooks: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  modules:
+    placement:
+      customTolerationKeys: []
+  internal:
+    modules:
+      kubeRBACProxyCA:
+        cert: |
+          -----BEGIN CERTIFICATE-----
+          KUBE-RBAC-PROXY-CA
+          -----END CERTIFICATE-----
+moduleConfig:
+  enabled: true
+  settings:
+    highAvailability: true
+    managedNodes:
+      labelKey: gpu.deckhouse.io/enabled
+      enabledByDefault: true
+    deviceApproval:
+      mode: Manual
+    scheduling:
+      defaultStrategy: Spread
+      topologyKey: topology.kubernetes.io/zone
+    inventory:
+      resyncPeriod: "30s"
+values:
+  global:
+    enabledModules:
+      - node-feature-discovery
+  gpuControlPlane:
+    highAvailability: true
+    managedNodes:
+      labelKey: gpu.deckhouse.io/enabled
+      enabledByDefault: true
+    deviceApproval:
+      mode: Manual
+    scheduling:
+      defaultStrategy: Spread
+      topologyKey: topology.kubernetes.io/zone
+    inventory:
+      resyncPeriod: "30s"
+    runtime:
+      controller:
+        replicas: 1
+      inventory:
+        resyncPeriod: "30s"
+    internal:
+      moduleConfig:
+        enabled: true
+      certificates:
+        root:
+          crt: ROOT-CA-CRT
+          key: ROOT-CA-KEY
+      controller:
+        config: {}
+        cert:
+          ca: CONTROLLER-CA-CRT
+          crt: CONTROLLER-CRT
+          key: CONTROLLER-KEY

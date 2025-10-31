@@ -1,0 +1,45 @@
+#
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: gpu-control-plane
+stage: Experimental
+weight: 960
+requirements:
+  deckhouse: ">= 1.71.0"
+  modules:
+    node-feature-discovery: ">= 0.0.0"
+subsystems:
+  - gpu
+  - ai
+namespace: d8-gpu-operator
+descriptions:
+  en: GPU control plane that discovers hardware, keeps inventory and prepares nodes for AI workloads in Deckhouse.
+  ru: GPU control plane, отвечающий за инвентаризацию оборудования и подготовку узлов для AI-нагрузок в Deckhouse.
+tags: ["gpu", "ai"]
+disable:
+  confirmation: true
+  message: |
+    Attention!
+
+    Disabling this module will stop controllers maintaining GPU inventory and bootstrap resources.
+    Before disabling the module, make sure that GPU workloads are drained, NodeFeatureRule manifests are no longer needed
+    and GPU-specific policies are cleaned up. Removing the module without cleanup may leave stale GPUDevice objects and
+    orphan resources in the cluster.
+accessibility:
+  editions:
+    _default:
+      available: true
+      enabledInBundles:
+        - Default

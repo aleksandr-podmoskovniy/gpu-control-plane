@@ -1,0 +1,70 @@
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Project-local glide cache, RE: https://github.com/Masterminds/glide/issues/736
+.glide/
+
+# vim
+*.swp
+
+# IDE
+.project
+.settings
+.idea/
+.vscode
+venv/
+bin/
+.bin/
+
+# macOS Finder files
+*.DS_Store
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+#werf
+.codex/
+.cache/
+
+# runtimegen build artifact
+tools/runtimegen/runtimegen
+tools/kubeconform/kubeconform.git/
+tools/kubeconform/helm-template-render.yaml
+tools/kubeconform/kubeconform-report.json
+tools/kubeconform/schemas/
+
+
+# Local planning notes
+docs/tasks/
+debug/webhook-certs/
+tools/kubeconform/kubeconform.git
+tools/kubeconform/schemas
+tools/kubeconform/helm-template-render.yaml
+tools/kubeconform/kubeconform-report.json

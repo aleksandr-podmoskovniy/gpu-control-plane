@@ -1,0 +1,9 @@
+core:
+  node-feature-discovery: v0.15.0
+  controller-runtime: v0.18.7
+  prometheus-client-golang: v1.19.0
+package:
+  golang: go1.25.2
+  module-sdk: v0.3.7
+  kubernetes-api: v0.30.11
+  golangci-lint: v1.64.8

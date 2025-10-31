@@ -1,0 +1,419 @@
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+x-extend:
+  schema: config-values.yaml
+type: object
+description: Internal values rendered by the GPU Control Plane module.
+properties:
+  gpuControlPlane:
+    type: object
+    description: User configuration merged with module-computed defaults and runtime state.
+    default:
+      managedNodes:
+        labelKey: gpu.deckhouse.io/enabled
+        enabledByDefault: true
+      deviceApproval:
+        mode: Manual
+        selector: {}
+      scheduling:
+        defaultStrategy: Spread
+        topologyKey: topology.kubernetes.io/zone
+      inventory:
+        resyncPeriod: "30s"
+      runtime:
+        controller:
+          replicas: 1
+          nodeSelector: {}
+          tolerations: []
+          resources: {}
+          extraArgs: []
+          env: []
+          image: {}
+        inventory:
+          resyncPeriod: "30s"
+        webhook:
+          replicas: 1
+          nodeSelector: {}
+          tolerations: []
+          resources: {}
+          env: []
+          image: {}
+      bootstrap:
+        namespace: d8-gpu-operator
+        nodeFeatureRuleName: deckhouse-gpu-kernel-os
+        gfd:
+          daemonSetName: nvidia-gpu-feature-discovery
+          image: {}
+        dcgm:
+          daemonSetName: nvidia-dcgm-exporter
+          image: {}
+      devicePlugin:
+        socketDir: /var/lib/kubelet/device-plugins
+        image: {}
+        migManager:
+          image: {}
+      admission:
+        serviceName: gpu-admission-webhook
+        port: 443
+        image: {}
+      monitoring:
+        serviceMonitor: true
+        prometheusRules: true
+        grafanaDashboards: true
+      internal:
+        certificates: {}
+        controller:
+          config: {}
+        webhook: {}
+        nodeFeatureRule: {}
+    properties:
+      managedNodes:
+        type: object
+        description: Node management policy describing the label that toggles GPU lifecycle handling.
+        properties:
+          labelKey:
+            type: string
+            description: Node label key that enables management when its value is not equal to `false`.
+          enabledByDefault:
+            type: boolean
+            description: Treat nodes as managed until the label is explicitly set to `false`.
+        additionalProperties: false
+      deviceApproval:
+        type: object
+        description: Control how newly discovered devices are approved by default.
+        properties:
+          mode:
+            type: string
+            description: "Approval strategy: manual, fully automatic or selector-based."
+            enum:
+              - Manual
+              - Automatic
+              - Selector
+          selector:
+            type: object
+            description: Label selector applied when `mode=Selector` to limit automatic approvals.
+            properties:
+              matchLabels:
+                type: object
+                description: Exact label matches required on a device.
+                additionalProperties:
+                  type: string
+              matchExpressions:
+                type: array
+                description: Expression-based predicates evaluated against device labels.
+                items:
+                  type: object
+                  description: Single selector expression evaluated against device metadata.
+                  properties:
+                    key:
+                      type: string
+                      description: Label key inspected by the selector.
+                    operator:
+                      type: string
+                      enum:
+                        - In
+                        - NotIn
+                        - Exists
+                        - DoesNotExist
+                      description: Operator used to evaluate the selector values.
+                    values:
+                      type: array
+                      description: Set of label values used with `In`/`NotIn` operators.
+                      items:
+                        type: string
+                  additionalProperties: false
+            additionalProperties: false
+        additionalProperties: false
+      scheduling:
+        type: object
+        description: Default placement hints inherited by GPU pools that omit explicit settings.
+        properties:
+          defaultStrategy:
+            type: string
+            description: Scheduling strategy assigned to new GPU pools.
+            enum:
+              - BinPack
+              - Spread
+          topologyKey:
+            type: string
+            description: Topology key used for pod spreading when the strategy is `Spread`.
+        additionalProperties: false
+      inventory:
+        type: object
+        description: Inventory controller runtime options.
+        properties:
+          resyncPeriod:
+            type: string
+            description: Reconciliation resync interval expressed as Go duration string.
+        additionalProperties: false
+      runtime:
+        type: object
+        description: Runtime overrides for controller and admission components.
+        properties:
+          controller:
+            type: object
+            description: Controller Deployment tunables.
+            properties:
+              replicas:
+                type: integer
+                minimum: 1
+                description: Desired number of controller replicas.
+              nodeSelector:
+                type: object
+                description: Node selector applied to controller Pods.
+                additionalProperties:
+                  type: string
+              tolerations:
+                type: array
+                description: Additional tolerations for controller Pods.
+                items:
+                  type: object
+                  description: Kubernetes Toleration structure applied verbatim to the controller Pod spec.
+              resources:
+                type: object
+                description: Custom resource requests and limits for the controller container.
+              extraArgs:
+                type: array
+                description: Extra command-line flags passed to the controller binary.
+                items:
+                  type: string
+              env:
+                type: array
+                description: Additional environment variables for controller Pods.
+                items:
+                  type: object
+                  description: Kubernetes EnvVar definition appended to the controller container.
+              image:
+                type: object
+                description: Controller image override.
+                properties:
+                  repository:
+                    type: string
+                    description: Container registry hosting the controller image.
+                  tag:
+                    type: string
+                    description: Tag or digest used for the controller image.
+                  pullPolicy:
+                    type: string
+                    description: Kubernetes pull policy applied to the controller image.
+                additionalProperties: false
+            additionalProperties: false
+          webhook:
+            type: object
+            description: GPU admission webhook Deployment tunables.
+            properties:
+              replicas:
+                type: integer
+                minimum: 1
+                description: Desired number of webhook replicas.
+              nodeSelector:
+                type: object
+                description: Node selector applied to webhook Pods.
+                additionalProperties:
+                  type: string
+              tolerations:
+                type: array
+                description: Additional tolerations for webhook Pods.
+                items:
+                  type: object
+                  description: Kubernetes Toleration structure applied to the webhook Pod spec.
+              resources:
+                type: object
+                description: Custom resource requests and limits for the webhook container.
+              env:
+                type: array
+                description: Additional environment variables for the webhook Pods.
+                items:
+                  type: object
+                  description: Kubernetes EnvVar definition appended to the webhook container.
+              image:
+                type: object
+                description: Webhook image override.
+                properties:
+                  repository:
+                    type: string
+                    description: Container registry hosting the webhook image.
+                  tag:
+                    type: string
+                    description: Tag or digest used for the webhook image.
+                  pullPolicy:
+                    type: string
+                    description: Kubernetes pull policy applied to the webhook image.
+                additionalProperties: false
+            additionalProperties: false
+        additionalProperties: false
+      bootstrap:
+        type: object
+        description: Internal bootstrap artefacts managed by hooks (namespace, NodeFeatureRule, DaemonSet references).
+        properties:
+          namespace:
+            type: string
+            description: Namespace where module workloads and bootstrap resources reside.
+          nodeFeatureRuleName:
+            type: string
+            description: Name of the NodeFeatureRule applied to GPU nodes.
+          gfd:
+            type: object
+            description: Metadata for the GPU Feature Discovery DaemonSet.
+            properties:
+              daemonSetName:
+                type: string
+                description: Name of the DaemonSet responsible for GPU Feature Discovery.
+              image:
+                type: object
+                description: Image override applied to the GPU Feature Discovery DaemonSet.
+                properties:
+                  repository:
+                    type: string
+                    description: Container registry hosting the GPU Feature Discovery image.
+                  tag:
+                    type: string
+                    description: Tag or digest used for the GPU Feature Discovery image.
+                  pullPolicy:
+                    type: string
+                    description: Kubernetes pull policy for the GPU Feature Discovery container.
+                additionalProperties: false
+            additionalProperties: false
+          dcgm:
+            type: object
+            description: Metadata for the NVIDIA DCGM exporter DaemonSet.
+            properties:
+              daemonSetName:
+                type: string
+                description: Name of the DaemonSet responsible for DCGM metrics export.
+              image:
+                type: object
+                description: Image override applied to the DCGM exporter.
+                properties:
+                  repository:
+                    type: string
+                    description: Container registry hosting the DCGM exporter image.
+                  tag:
+                    type: string
+                    description: Tag or digest used for the DCGM exporter image.
+                  pullPolicy:
+                    type: string
+                    description: Kubernetes pull policy for the DCGM exporter container.
+                additionalProperties: false
+            additionalProperties: false
+        additionalProperties: false
+      devicePlugin:
+        type: object
+        description: Runtime configuration for the NVIDIA device plugin and accompanying components.
+        properties:
+          socketDir:
+            type: string
+            description: Path to the device plugin socket directory on GPU nodes.
+          image:
+            type: object
+            description: Image override for the device plugin DaemonSet.
+            properties:
+              repository:
+                type: string
+                description: Container registry hosting the device plugin image.
+              tag:
+                type: string
+                description: Tag or digest used for the device plugin image.
+              pullPolicy:
+                type: string
+                description: Kubernetes pull policy for the device plugin container.
+            additionalProperties: false
+          migManager:
+            type: object
+            description: Configuration block for the MIG manager sidecar.
+            properties:
+              image:
+                type: object
+                description: Image override for the MIG manager container.
+                properties:
+                  repository:
+                    type: string
+                    description: Container registry hosting the MIG manager image.
+                  tag:
+                    type: string
+                    description: Tag or digest used for the MIG manager image.
+                  pullPolicy:
+                    type: string
+                    description: Kubernetes pull policy for the MIG manager container.
+                additionalProperties: false
+            additionalProperties: false
+        additionalProperties: false
+      admission:
+        type: object
+        description: Internal settings for the GPU admission webhook deployment and service.
+        properties:
+          serviceName:
+            type: string
+            description: Service name that exposes the admission webhook.
+          port:
+            type: integer
+            description: HTTPS port used by the webhook Service.
+          image:
+            type: object
+            description: Image override for the webhook Deployment.
+            properties:
+              repository:
+                type: string
+                description: Container registry hosting the webhook image.
+              tag:
+                type: string
+                description: Tag or digest used for the webhook image.
+              pullPolicy:
+                type: string
+                description: Kubernetes pull policy for the webhook container.
+            additionalProperties: false
+        additionalProperties: false
+      monitoring:
+        type: object
+        description: Flags that control optional monitoring artefacts.
+        properties:
+          serviceMonitor:
+            type: boolean
+            description: Render a ServiceMonitor targeting GPU telemetry exporters.
+          prometheusRules:
+            type: boolean
+            description: Render PrometheusRule alerts delivered with the module.
+          grafanaDashboards:
+            type: boolean
+            description: Render Grafana dashboards that visualise GPU inventory data.
+        additionalProperties: false
+      internal:
+        type: object
+        description: Computed values populated by module hooks (certificates, rendered manifests, runtime flags).
+        properties:
+          certificates:
+            type: object
+            description: Certificates and private keys rendered by hooks (TLS, root CA).
+            additionalProperties: true
+          controller:
+            type: object
+            description: Controller-specific computed values.
+            properties:
+              config:
+                type: object
+                description: Controller-runtime configuration rendered into `config.yaml` and mounted into the Deployment.
+                additionalProperties: true
+            additionalProperties: true
+          webhook:
+            type: object
+            description: Admission webhook internal data (certificates, service references).
+            additionalProperties: true
+          nodeFeatureRule:
+            type: object
+            description: Bootstrap data for NodeFeatureRule rendering.
+            additionalProperties: true
+        additionalProperties: true
+    additionalProperties: false
+additionalProperties: false

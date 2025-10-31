@@ -1,0 +1,14 @@
+# version=v0.5.27
+# REGISTRY_PATH is a special key which is concatenated with other base images
+REGISTRY_PATH: registry.deckhouse.io/base_images
+
+base/distroless: "sha256:6181c0922d240f806ed69842e0c35b2881db7e28f936b00241969fbe39545cde" # fromImage: builder/scratch
+base/scratch: "sha256:cfac1c6b53f9365ee59ffe94c90211253f2a85ece372a6a9dfad61f4e0ab0bea" # from: scratch
+
+builder/alpine: "sha256:590dc522ebb14efc901a9f232fa285d04808bfeb834b9dfeddcbec0a6e45a6bd" # from: alpine:3.22.1
+builder/scratch: "sha256:cfac1c6b53f9365ee59ffe94c90211253f2a85ece372a6a9dfad61f4e0ab0bea" # from: scratch
+builder/alt: "sha256:c98763944cc1d54cc0804dc9c2cd0b60f91186f48e53b984ff4b4befed796d28" # from: registry.altlinux.org/p11/alt:20250625
+builder/alt-go-svace: "sha256:15f8067534281275f4e4a0bb07a0ae59e17c6a107d64ca8244878f5728461b0b" # fromImage: builder/alt
+builder/golang-alpine-1.24: "sha256:6585b83e81bbffe3c273f61580a04073291a02c3a4e6114be040722be97f736e" # from: golang:1.24.6-alpine3.21
+builder/golang-bookworm-1.24: "sha256:f4dd8f0eeeb4c0ede56677cbd249af8c797933be830cb3d10ed4d472aca0f569" # from: golang:1.24.6-bookworm
+builder/src: "sha256:63eb0ebb701e5e19077f10a43243bfde02b1713960e94c75113e317ad145522b" # fromImage: builder/alt

@@ -1,0 +1,63 @@
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+{{/*
+Template for ease of use of multiple image imports
+Default stage "install".
+Important! To render properly in "embedded module" mode, ensure that caller passes context with "ModuleNamePrefix" variable.
+
+Usage:
+{{- $images := list "swtpm" "numactl" "libfuse3" -}}
+{{- include "importPackageImages" (list . $images "install") -}}  # install stage (default)
+Result:
+...
+ - image: packages/binaries/libfuse3
+   add: /libfuse3
+   to: /libfuse3
+   before: install
+...
+
+{{- include "importPackageImages" (list . $images "setup") -}}    # setup stage
+Result:
+...
+ - image: packages/binaries/libfuse3
+   add: /libfuse3
+   to: /libfuse3
+   before: setup
+...
+*/}}
+
+{{ define "importPackageImages" }}
+{{-   if not (eq (kindOf .) "slice") }}
+{{-      fail "importPackageImages: invalid type of argument, slice is expected" }}
+{{-   end }}
+{{-   $context := index . 0 }}
+{{-   $ImageNameList := index . 1 }}
+{{-   $stage := "install" }}
+{{-   if gt (len .) 2 }}
+{{-     $stage = index . 2 }}
+{{-   end }}
+{{-   range $imageName := $ImageNameList }}
+{{-     $packages := splitList " " $imageName -}}
+{{-     range $packages -}}
+{{-       $image := trim . -}}
+{{-       if ne $image "" }}
+- image: {{ $context.ModuleNamePrefix }}packages/{{ $image }}
+  add: /{{ $image }}
+  to: /{{ $image }}
+  before: {{ $stage }}
+{{-       end }}
+{{-     end -}}
+{{-   end }}
+{{ end }}

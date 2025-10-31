@@ -1,0 +1,84 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Ресурс, агрегирующий всю GPU-информацию по узлу Kubernetes: обнаруженные
+            устройства, версию драйвера, готовность мониторинга и участие в пулах.
+          properties:
+            spec:
+              description: Настройка связывает инвентарь с конкретным узлом.
+              properties:
+                nodeName:
+                  description: Имя узла Kubernetes, для которого ведётся инвентаризация.
+            status:
+              description: Текущие сведения об оборудовании узла, драйвере и пулах.
+              properties:
+                hw:
+                  description: Список GPU устройств, обнаруженных на узле.
+                  properties:
+                    present:
+                      description: Есть ли поддерживаемые карты на узле.
+                    devices:
+                      description: Детальные данные по каждой карте.
+                      items:
+                        properties:
+                          inventoryID:
+                            description: Стабильный идентификатор карты (совпадает с GPUDevice.status.inventoryID).
+                          product:
+                            description: Название модели GPU.
+                          pci:
+                            description: PCI-идентификаторы устройства.
+                          memoryMiB:
+                            description: Объём видеопамяти в MiB.
+                          mig:
+                            description: Возможности и конфигурация MIG.
+                          uuid:
+                            description: UUID устройства по данным NVML/DCGM.
+                          computeCapability:
+                            description: Версия CUDA Compute Capability.
+                          precision:
+                            description: Поддерживаемые типы точности вычислений.
+                          state:
+                            description: Текущее состояние карты на узле.
+                          autoAttach:
+                            description: Включена ли автоматическая привязка карты к пулам.
+                          reason:
+                            description: Причина ожидания/непривязки устройства.
+                          health:
+                            description: Телеметрия DCGM для карты.
+                driver:
+                  description: Версии драйвера и CUDA toolkits, установленные на узле.
+                  properties:
+                    version:
+                      description: Версия драйвера NVIDIA.
+                    cudaVersion:
+                      description: Версия CUDA Runtime.
+                    toolkitInstalled:
+                      description: Пройдена ли подготовка CUDA toolkit на узле.
+                monitoring:
+                  description: Состояние сервисов мониторинга (GFD/DCGM).
+                  properties:
+                    dcgmReady:
+                      description: Запущен и отвечает ли DCGM Exporter.
+                    lastHeartbeat:
+                      description: Время последнего успешного heartbeat от мониторинга.
+                bootstrap:
+                  description: Результаты проверки узла bootstrap-контроллером.
+                  properties:
+                    gfdReady:
+                      description: Установка GPU Feature Discovery завершена успешно.
+                    toolkitReady:
+                      description: Установка необходимых CUDA-компонентов завершена успешно.
+                    lastRun:
+                      description: Последнее время запуска bootstrap-процедуры.
+                pools:
+                  description: Участие узла и его устройств в пулах.
+                  properties:
+                    assigned:
+                      description: Пулы, которые уже используют ресурсы узла.
+                    pending:
+                      description: Пулы, ожидающие подтверждения или автоматического назначения.
+                conditions:
+                  description: Список агрегированных условий готовности узла.

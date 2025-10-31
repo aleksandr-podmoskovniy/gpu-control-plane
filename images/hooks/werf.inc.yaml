@@ -1,0 +1,58 @@
+{{/*
+Copyright 2025 Flant JSC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/}}
+---
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
+final: false
+fromImage: builder/src
+git:
+  - add: {{ .ModuleDir }}/hooks
+    to: /app/hooks
+    stageDependencies:
+      install:
+        - hooks/go.mod
+        - hooks/go.sum
+      setup:
+        - hooks/**/*.go
+---
+image: {{ .ModuleNamePrefix }}go-hooks-artifact
+final: false
+fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/alt-go-svace" }}
+import:
+  - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
+    add: /app
+    to: /app
+    before: install
+mount:
+  - fromPath: "~/go-pkg-cache"
+    to: /go/pkg
+secrets:
+  - id: GOPROXY
+    value: "{{ .GOPROXY }}"
+shell:
+  install:
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - export GOTOOLCHAIN=go1.25.1
+    - cd /app/hooks
+    - go mod download
+  setup:
+    - export GOTOOLCHAIN=go1.25.1
+    - cd /app/hooks
+    - export GOOS=linux
+    - export GOARCH=amd64
+    - export CGO_ENABLED=0
+    - |
+      {{- $_ := set $ "ProjectName" (list $.ImageName "hooks" | join "/") -}}
+      {{- include "image-build.build" (set $ "BuildCommand" `go build -ldflags="-s -w" -a -o /go-hooks/gpu-control-plane-module-hooks ./cmd/gpu-control-plane-module-hooks`) | nindent 6 }}

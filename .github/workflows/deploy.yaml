@@ -1,0 +1,57 @@
+# Copyright 2025 Flant JSC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+   inputs:
+      release_channel:
+        description: "Select the release channel"
+        type: choice
+        default: alpha
+        options:
+          - "alpha"
+          - "beta"
+          - "early-access"
+          - "stable"
+          - "rock-solid"
+      tag:
+        description: "Tag of the module, e.g., v1.21.1"
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy the module
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: deckhouse/modules-actions/setup@main
+        with:
+          registry: ghcr.io
+          registry_login: ${{ github.actor }}
+          registry_password: ${{ secrets.TOKEN }}
+
+      - name: Get the repository name
+        id: repo_name
+        run: echo "REPO_NAME=$(echo '${{ github.repository }}' | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
+      - uses: deckhouse/modules-actions/deploy@main
+        with:
+          module_source: ghcr.io/${{ github.actor }}/modules
+          module_name: ${{ steps.repo_name.outputs.REPO_NAME }}
+          module_tag: ${{ github.event.inputs.tag }}
+          release_channel: ${{ github.event.inputs.release_channel }}

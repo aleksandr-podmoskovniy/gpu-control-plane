@@ -1,0 +1,501 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+  name: gpupools.gpu.deckhouse.io
+spec:
+  group: gpu.deckhouse.io
+  names:
+    kind: GPUPool
+    listKind: GPUPoolList
+    plural: gpupools
+    singular: gpupool
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: GPUPool defines a logical pool of GPU capacity exposed to workloads.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec declares desired rules for selecting and slicing devices.
+            properties:
+              access:
+                description: Access lists namespaces/service accounts allowed to consume
+                  the pool.
+                properties:
+                  dexGroups:
+                    description: DexGroups lists Dex groups that receive access.
+                    items:
+                      type: string
+                    type: array
+                  namespaces:
+                    description: Namespaces enumerates Kubernetes namespaces allowed
+                      to request the pool.
+                    items:
+                      type: string
+                    type: array
+                  serviceAccounts:
+                    description: ServiceAccounts restricts access to specific service
+                      accounts.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              allocation:
+                description: Allocation configures the way devices are sliced and
+                  presented (exclusive/MIG/time-slice).
+                properties:
+                  maxDevicesPerNode:
+                    description: MaxDevicesPerNode caps number of devices contributed
+                      per node.
+                    format: int32
+                    type: integer
+                  migProfile:
+                    description: MIGProfile specifies the MIG profile to use when
+                      Mode=MIG.
+                    type: string
+                  mode:
+                    description: Mode selects allocation strategy (Exclusive, MIG,
+                      TimeSlice).
+                    enum:
+                    - Exclusive
+                    - MIG
+                    - TimeSlice
+                    type: string
+                  timeSlice:
+                    description: TimeSlice configures time-slicing specific parameters.
+                    properties:
+                      maxSlicesPerDevice:
+                        description: MaxSlicesPerDevice is the maximum number of slices
+                          cut from a single device.
+                        format: int32
+                        type: integer
+                    type: object
+                required:
+                - mode
+                type: object
+              deviceAssignment:
+                description: DeviceAssignment controls manual vs automatic assignment
+                  flows.
+                properties:
+                  autoApproveSelector:
+                    description: AutoApproveSelector lists nodes/devices that may
+                      be auto-approved.
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  requireAnnotation:
+                    description: RequireAnnotation forces manual approval before attaching
+                      devices to the pool.
+                    type: boolean
+                type: object
+              deviceSelector:
+                description: DeviceSelector filters devices that may join the pool.
+                properties:
+                  exclude:
+                    description: Exclude defines negative selection rules that remove
+                      devices from the pool.
+                    properties:
+                      indexes:
+                        description: Indexes matches by user-defined device indices
+                          (e.g. 0-1, 1).
+                        items:
+                          type: string
+                        type: array
+                      inventoryIDs:
+                        description: InventoryIDs matches specific devices by inventory
+                          identifier.
+                        items:
+                          type: string
+                        type: array
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels matches by GPUDevice labels.
+                        type: object
+                      pciIDs:
+                        description: PCIIDs matches devices by vendor/device PCI identifiers.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  include:
+                    description: Include defines positive selection rules for devices.
+                    properties:
+                      indexes:
+                        description: Indexes matches by user-defined device indices
+                          (e.g. 0-1, 1).
+                        items:
+                          type: string
+                        type: array
+                      inventoryIDs:
+                        description: InventoryIDs matches specific devices by inventory
+                          identifier.
+                        items:
+                          type: string
+                        type: array
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: Labels matches by GPUDevice labels.
+                        type: object
+                      pciIDs:
+                        description: PCIIDs matches devices by vendor/device PCI identifiers.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
+              nodeSelector:
+                description: NodeSelector limits the pool to specific nodes.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              resource:
+                description: Resource defines the custom resource name and unit exposed
+                  to workloads.
+                properties:
+                  name:
+                    description: Name is the fully-qualified resource name users reference
+                      in Pod specs.
+                    type: string
+                  unit:
+                    description: Unit describes the resource unit (e.g. device, mig-partition).
+                    type: string
+                required:
+                - name
+                - unit
+                type: object
+              scheduling:
+                description: Scheduling configures topology spreading, taints and
+                  other scheduling hints.
+                properties:
+                  strategy:
+                    description: Strategy controls balancing strategy among nodes
+                      (BinPack or Spread).
+                    enum:
+                    - BinPack
+                    - Spread
+                    type: string
+                  taints:
+                    description: Taints enumerates taints applied to nodes that host
+                      workloads from this pool.
+                    items:
+                      properties:
+                        effect:
+                          description: Effect is the Kubernetes taint effect.
+                          type: string
+                        key:
+                          description: Key is the taint key applied to nodes hosting
+                            the pool.
+                          type: string
+                        value:
+                          description: Value is the taint value.
+                          type: string
+                      required:
+                      - key
+                      type: object
+                    type: array
+                  topologyKey:
+                    description: TopologyKey configures topology spreading key when
+                      strategy=Spread.
+                    type: string
+                type: object
+            required:
+            - allocation
+            - resource
+            type: object
+          status:
+            description: Status reports aggregated usage, candidates and conditions
+              for the pool.
+            properties:
+              candidates:
+                description: Candidates enumerates nodes/devices pending for acceptance.
+                items:
+                  properties:
+                    lastEvent:
+                      description: LastEvent records when candidate state last changed.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the node or device awaiting assignment.
+                      type: string
+                    pools:
+                      description: Pools lists pending pool assignments for this candidate.
+                      items:
+                        properties:
+                          annotationHint:
+                            description: AnnotationHint suggests annotation to apply
+                              for manual approval.
+                            type: string
+                          autoApproved:
+                            description: AutoApproved indicates whether assignment
+                              will be granted automatically.
+                            type: boolean
+                          pool:
+                            description: Pool is the GPUPool name awaiting assignment.
+                            type: string
+                          reason:
+                            description: Reason describes why the assignment is pending
+                              or rejected.
+                            type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              capacity:
+                description: Capacity summarises total/used/available capacity inside
+                  the pool.
+                properties:
+                  available:
+                    description: Available is free capacity that may still be assigned.
+                    format: int32
+                    type: integer
+                  total:
+                    description: Total is total pool capacity expressed in declared
+                      units.
+                    format: int32
+                    type: integer
+                  unit:
+                    description: Unit repeats the resource unit for clarity.
+                    type: string
+                  used:
+                    description: Used is currently consumed capacity.
+                    format: int32
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions surfaces pool-level status conditions.
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              devices:
+                description: Devices mirrors per-device state for quick pool-centric
+                  lookups.
+                items:
+                  properties:
+                    autoAttach:
+                      description: AutoAttach mirrors the auto-attach flag for the
+                        device.
+                      type: boolean
+                    inventoryID:
+                      description: InventoryID references the GPUDevice included in
+                        the pool.
+                      type: string
+                    node:
+                      description: Node is the node hosting the device.
+                      type: string
+                    state:
+                      description: State is the current state of the device inside
+                        the pool.
+                      enum:
+                      - Unassigned
+                      - Reserved
+                      - Assigned
+                      - Faulted
+                      type: string
+                  type: object
+                type: array
+              nodes:
+                description: Nodes lists per-node usage statistics.
+                items:
+                  properties:
+                    assignedDevices:
+                      description: AssignedDevices counts devices from this node currently
+                        in use.
+                      format: int32
+                      type: integer
+                    health:
+                      description: Health summarises node-level readiness (e.g. Healthy/Misconfigured).
+                      type: string
+                    lastEvent:
+                      description: LastEvent points to the latest significant event
+                        impacting the node in context of the pool.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the node identifier.
+                      type: string
+                    totalDevices:
+                      description: TotalDevices is the number of devices contributing
+                        to the pool on this node.
+                      format: int32
+                      type: integer
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

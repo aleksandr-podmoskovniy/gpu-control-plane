@@ -1,0 +1,36 @@
+{{/*
+Copyright 2025 Flant JSC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/}}
+
+{{- define "image-build.build" }}
+{{-   if ne $.SVACE_ENABLED "false" }}
+svace build --init --clear-build-dir {{ .BuildCommand }}
+attempt=0
+retries=5
+success=0
+set +e
+while [[ $attempt -lt $retries ]]; do
+  ssh -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=12 {{ $.SVACE_ANALYZE_SSH_USER }}@{{ $.SVACE_ANALYZE_HOST }} mkdir -p /svace-analyze/{{ $.Commit.Hash }}/{{ $.ProjectName }}/.svace-dir
+  rsync -zr --timeout=10 --compress-choice=zstd --partial --append-verify .svace-dir {{ $.SVACE_ANALYZE_SSH_USER }}@{{ $.SVACE_ANALYZE_HOST }}:/svace-analyze/{{ $.Commit.Hash }}/{{ $.ProjectName }}/ && success=1 && break
+  sleep 10
+  attempt=$((attempt + 1))
+done
+set -e
+[[ $success == 1 ]] && rm -rf .svace-dir || exit 1
+{{ .BuildCommand }}
+{{-   else }}
+{{ .BuildCommand }}
+{{-   end }}
+{{- end }}

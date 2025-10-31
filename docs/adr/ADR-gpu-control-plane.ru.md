@@ -19,6 +19,7 @@ limitations under the License.
 ## Описание
 
 Строим модуль GPU control plane, который:
+
 1. Автоматически обнаруживает GPU на узлах кластера, используя существующий модуль Node Feature Discovery.
 2. Инициирует необходимые сервисы (GFD, DCGM, device plugin, MIG manager) только на тех узлах, где они нужны.
 3. Управляет конфигурацией GPU через декларативный CR `GPUPool`, описывающий правила нарезки, доступ и алгоритм подготовки карты.
@@ -63,25 +64,27 @@ limitations under the License.
 ## Пользовательские сценарии
 
 - **Кластерный администратор.**
-    - Включает модуль, заполняет минимальный `ModuleConfig`; все обнаруженные узлы считаются управляемыми, если их явно не отключить.
-    - Проектирует и сопровождает `GPUPool`: задаёт `deviceSelector`, режим выделения (`Exclusive/MIG/TimeSlice`), политики `deviceAssignment`, проверяет работу auto-attach.
-    - Добавляет новые GPU-узлы: достаточно дождаться `ReadyForPooling`; при необходимости исключить узел - задаёт `gpu.deckhouse.io/enabled=false`.
-    - Перераспределяет карты: анализирует `GPUNodeInventory.status.pools.pending[]`/`assigned[]` и события `GPUNodeWithoutPool`, при необходимости обновляет `deviceSelector` или создаёт новые пулы.
-    - Выводит узлы из эксплуатации: переводит пул/узел в `Maintenance`, устанавливает `gpu.deckhouse.io/enabled=false`, дожидается освобождения workloads, остановки DaemonSet’ов и очистки ресурсов.
-    - Обновляет драйверы/toolkit: реагирует на `DriverMissing`, координирует обновления, подтверждает возвращение узлов в пулы.
-    - Управляет аварийными ситуациями (например, критические Xid (ошибки драйвера NVIDIA)): помечает узлы на обслуживание, координирует замену карт; `UnassignedDevice` после восстановления исчезает автоматически, когда контроллер подтверждает готовность устройства.
+
+  - Включает модуль, заполняет минимальный `ModuleConfig`; все обнаруженные узлы считаются управляемыми, если их явно не отключить.
+  - Проектирует и сопровождает `GPUPool`: задаёт `deviceSelector`, режим выделения (`Exclusive/MIG/TimeSlice`), политики `deviceAssignment`, проверяет работу auto-attach.
+  - Добавляет новые GPU-узлы: достаточно дождаться `ReadyForPooling`; при необходимости исключить узел - задаёт `gpu.deckhouse.io/enabled=false`.
+  - Перераспределяет карты: анализирует `GPUNodeInventory.status.pools.pending[]`/`assigned[]` и события `GPUNodeWithoutPool`, при необходимости обновляет `deviceSelector` или создаёт новые пулы.
+  - Выводит узлы из эксплуатации: переводит пул/узел в `Maintenance`, устанавливает `gpu.deckhouse.io/enabled=false`, дожидается освобождения workloads, остановки DaemonSet’ов и очистки ресурсов.
+  - Обновляет драйверы/toolkit: реагирует на `DriverMissing`, координирует обновления, подтверждает возвращение узлов в пулы.
+  - Управляет аварийными ситуациями (например, критические Xid (ошибки драйвера NVIDIA)): помечает узлы на обслуживание, координирует замену карт; `UnassignedDevice` после восстановления исчезает автоматически, когда контроллер подтверждает готовность устройства.
 
 - **Разработчик приложения.**
-    - Создаёт workload, указывая `resources.limits` с нужным пулом, и проверяет, что admission добавил подсказки и Pod запустился.
-    - Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.
-    - Переключает модель на другой пул (например, MIG ←→ Exclusive), обновляет deployment, следит за событиями и алертами при миграции.
-    - Диагностирует проблемы: читает условия Pod и события (`UnassignedDevice`, `ManagedDisabled`), обращается к платформенной команде при нехватке ресурсов.
+
+  - Создаёт workload, указывая `resources.limits` с нужным пулом, и проверяет, что admission добавил подсказки и Pod запустился.
+  - Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.
+  - Переключает модель на другой пул (например, MIG ←→ Exclusive), обновляет deployment, следит за событиями и алертами при миграции.
+  - Диагностирует проблемы: читает условия Pod и события (`UnassignedDevice`, `ManagedDisabled`), обращается к платформенной команде при нехватке ресурсов.
 
 - **SRE.**
-    - Работает с мониторингом: использует автоматически включённые дашборды по `gpupool_capacity_*`, `gpu_device_unassigned_total`, следит за трендами utilization.
-    - Реагирует на алерты (`GPUUnassignedDevice`, `GPUNodeWithoutPool`, `GPUPoolCapacityLow`, `GPUDeviceDegraded`): связывается с платформенной командой, помогает оценить влияние.
-    - Проводит post-mortem: анализирует события/статусы `GPUDevice` и `GPUPool` после инцидента, фиксирует рекомендации (например, автоматизировать метки).
-    - Поддерживает SLO: собирает метрики availability пулов, планирует capacity, инициирует расширение кластера или перераспределение workload’ов.
+  - Работает с мониторингом: использует автоматически включённые дашборды по `gpupool_capacity_*`, `gpu_device_unassigned_total`, следит за трендами utilization.
+  - Реагирует на алерты (`GPUUnassignedDevice`, `GPUNodeWithoutPool`, `GPUPoolCapacityLow`, `GPUDeviceDegraded`): связывается с платформенной командой, помогает оценить влияние.
+  - Проводит post-mortem: анализирует события/статусы `GPUDevice` и `GPUPool` после инцидента, фиксирует рекомендации (например, автоматизировать метки).
+  - Поддерживает SLO: собирает метрики availability пулов, планирует capacity, инициирует расширение кластера или перераспределение workload’ов.
 
 ## Решение
 
@@ -97,32 +100,44 @@ limitations under the License.
   создаёт/обновляет CR `NodeFeatureRule`, который помечает устройства
   vendor=0x10de/class=0x0300, фиксирует версии драйверов/ОС и публикует
   вспомогательные метаданные.
-    - Лейблы и их назначение:
-      | Лейбл | Что означает | Кем используется |
-      | --- | --- | --- |
-      | `gpu.deckhouse.io/present` | На узле обнаружен хотя бы один поддерживаемый адаптер | `gpu-bootstrap-controller` (решение о подготовке), `gpupool-controller` (фильтрация кандидатов), DaemonSet'ы (affinity) |
-      | `gpu.deckhouse.io/device-count` | Количество найденных адаптеров | `gpupool-controller` (расчёт слотов), admission-webhook (валидация запросов) |
-      | `gpu.deckhouse.io/device.<NN>.vendor` / `device` / `class` | PCI-идентификаторы конкретного устройства | `gpupool-controller` (сопоставление с `spec.deviceSelector`), `gpu-bootstrap-controller` (условия `DriverMissing`, диагностика) |
-      | `gpu.deckhouse.io/driver.name` | Тип установленного драйвера (по умолчанию `nvidia`) | Мониторинг, расследование инцидентов, подготовка к поддержке других вендоров |
-      | `feature.node.kubernetes.io/kernel-version.*` / `system-os_release.*` | Версии ядра и ОС, транслируемые в стандартные feature-лейблы | Bootstrap/diagnostics, чтобы эти признаки были доступны даже там, где NFD не публикует их по умолчанию |
-    - В `ModuleConfig` GPU control plane оператор управляет только прикладными
-      параметрами (метка управляемых узлов, авто-аппрув кандидатов, дефолтные
-      стратегии планирования). Сервисные компоненты (GFD, DCGM, device-plugin)
-      включаются модулем автоматически и не требуют ручных флагов.
-    - Если на узле нет подходящих PCI-устройств, правило не срабатывает: лейблы
-      `gpu.deckhouse.io/*` не появляются, что позволяет выбирать только GPU-ноды.
+  - Лейблы и их назначение:
+    | Лейбл | Что означает | Кем используется |
+    | --- | --- | --- |
+    | `gpu.deckhouse.io/present` | На узле обнаружен хотя бы один поддерживаемый адаптер | `gpu-bootstrap-controller` (решение о подготовке), `gpupool-controller` (фильтрация кандидатов), DaemonSet'ы (affinity) |
+    | `gpu.deckhouse.io/device-count` | Количество найденных адаптеров | `gpupool-controller` (расчёт слотов), admission-webhook (валидация запросов) |
+    | `gpu.deckhouse.io/device.<NN>.vendor` / `device` / `class` | PCI-идентификаторы конкретного устройства | `gpupool-controller` (сопоставление с `spec.deviceSelector`), `gpu-bootstrap-controller` (условия `DriverMissing`, диагностика) |
+    | `gpu.deckhouse.io/driver.name` | Тип установленного драйвера (по умолчанию `nvidia`) | Мониторинг, расследование инцидентов, подготовка к поддержке других вендоров |
+    | `feature.node.kubernetes.io/kernel-version.*` / `system-os_release.*` | Версии ядра и ОС, транслируемые в стандартные feature-лейблы | Bootstrap/diagnostics, чтобы эти признаки были доступны даже там, где NFD не публикует их по умолчанию |
+  - В `ModuleConfig` GPU control plane оператор управляет только прикладными
+    параметрами (метка управляемых узлов, авто-аппрув кандидатов, дефолтные
+    стратегии планирования). Сервисные компоненты (GFD, DCGM, device-plugin)
+    включаются модулем автоматически и не требуют ручных флагов.
+  - Если на узле нет подходящих PCI-устройств, правило не срабатывает: лейблы
+    `gpu.deckhouse.io/*` не появляются, что позволяет выбирать только GPU-ноды.
 - Процесс включения:
-    1. Администратор применяет `ModuleConfig` с обязательными полями.
-    2. Контроллер NFD подтягивает правила и начинает навешивать лейблы/NodeFeature.
-    3. `gpu-inventory-controller` на их основе создаёт/обновляет `GPUDevice` и `GPUNodeInventory`.
-    4. Bootstrap-контроллер видит готовые устройства и запускает подготовку узлов.
+  1. Администратор применяет `ModuleConfig` с обязательными полями.
+  2. Контроллер NFD подтягивает правила и начинает навешивать лейблы/NodeFeature.
+  3. `gpu-inventory-controller` на их основе создаёт/обновляет `GPUDevice` и `GPUNodeInventory`.
+  4. Bootstrap-контроллер видит готовые устройства и запускает подготовку узлов.
 
 #### 1.1 ModuleConfig (включение)
 
 `ModuleConfig` включает модуль GPU control plane и управляет только прикладными
-параметрами: какой меткой помечать управляемые узлы, как автоматически
-подтверждать кандидатов и какую стратегию выдачи использовать по умолчанию.
-Если оставить настройки пустыми, модуль применяет значения по умолчанию.
+параметрами: какой меткой помечать управляемые узлы
+(`spec.settings.managedNodes.labelKey`), включать ли узлы по умолчанию
+(`enabledByDefault`), как подтверждать новые устройства
+(`spec.settings.deviceApproval.mode` и селектор при режиме `Selector`), какие
+подсказки планировщику задавать (`spec.settings.scheduling.*`) и какой
+интервал пересинхронизации использовать
+(`spec.settings.inventory.resyncPeriod`). Если оставить настройки пустыми,
+модуль применяет значения по умолчанию.
+
+При необходимости оператор может явно задать режим высокой доступности через
+`spec.settings.highAvailability`. Когда параметр не указан, модуль следует
+глобальным правилам Deckhouse (по доступности control-plane). Значение `true`
+принудительно включает HA (две реплики контроллера и активный leader election), значение
+`false` — фиксирует одиночный экземпляр даже в кластере с распределённым
+control-plane.
 
 ##### 1.1.1 Минимальная конфигурация
 
@@ -130,17 +145,30 @@ limitations under the License.
 apiVersion: deckhouse.io/v1alpha1
 kind: ModuleConfig
 metadata:
-  name: gpu-control-plane      # имя модуля фиксированное
+  name: gpu-control-plane # имя модуля фиксированное
 spec:
-  enabled: true                # запускаем GPU control plane с настройками по умолчанию
+  enabled: true # запускаем GPU control plane с настройками по умолчанию
+  settings:
+    highAvailability: true
+    managedNodes:
+      labelKey: gpu.deckhouse.io/enabled
+      enabledByDefault: true
+    deviceApproval:
+      mode: Manual
+    scheduling:
+      defaultStrategy: Spread
+      topologyKey: topology.kubernetes.io/zone
+    inventory:
+      resyncPeriod: "30s"
   version: 1
 ```
+
 - Hook модуля автоматически создаёт `NodeFeatureRule` и поддерживает его в
   актуальном состоянии.
 - GFD, DCGM и device-plugin запускаются автоматически и получают `nodeAffinity`
   только на управляемые GPU-узлы после успешной проверки драйвера.
 - Per-pool DaemonSet'ы (`nvidia-device-plugin`, `nvidia-mig-manager`) и
-  ServiceMonitor используют встроенные образы и метки DKP; никаких
+  ScrapeConfig используют встроенные образы и метки DKP; никаких
   дополнительных шагов не требуется.
 
 - Поведение admission (время жизни брони, повторные попытки) фиксировано дефолтами
@@ -150,10 +178,10 @@ spec:
 ### Контракт управления ресурсами
 
 - CRD `GPUDevice`, `GPUNodeInventory` и `GPUPool` (далее — публичные CR) рассматриваются как внешний API. Наши контроллеры:
-    * не изменяют `spec`, `metadata.labels` и `metadata.annotations`, заданные пользователем;
-    * могут добавлять/удалять только финалайзеры (`metadata.finalizers`) и `metadata.ownerReferences`
-      (ссылки на владельца ресурса, которые Kubernetes использует для каскадного удаления);
-    * заполняют `status` (типизированные поля и служебные условия) и хранят там внутреннее состояние, необходимое для корректного reconcile.
+  - не изменяют `spec`, `metadata.labels` и `metadata.annotations`, заданные пользователем;
+  - могут добавлять/удалять только финалайзеры (`metadata.finalizers`) и `metadata.ownerReferences`
+    (ссылки на владельца ресурса, которые Kubernetes использует для каскадного удаления);
+  - заполняют `status` (типизированные поля и служебные условия) и хранят там внутреннее состояние, необходимое для корректного reconcile.
 - Любые дополнительные служебные ресурсы (ConfigMap/DaemonSet/Job/TLS-секреты) считаются backend-API и полностью управляются контроллерами GPU. Внешние изменения таких объектов не поддерживаются.
 - При удалении публичного CR контроллер сначала выполняет очистку (hooks, остановка DaemonSet), затем удаляет собственный финалайзер — это гарантирует, что состояние кластера останется консистентным.
 
@@ -166,20 +194,32 @@ spec:
 
 #### Компоненты модуля
 
-  | Имя                              | Тип        | Назначение                                                                                   |
-  | -------------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
-  | `gpu-inventory-controller-*`     | Deployment | Создаёт `GPUDevice`, `GPUNodeInventory`, публикует события/метрики по инвентаризации.        |
-  | `gpu-bootstrap-controller-*`     | Deployment | Проверяет драйвер/toolkit, запускает GFD и DCGM, изменяет состояния устройств и узлов.         |
-  | `gpupool-controller-*`           | Deployment | Управляет `GPUPool`, запускает per-pool device-plugin/MIG manager, следит за ёмкостью.       |
-  | `gpu-admission-webhook-*`        | Deployment | Admission webhook: валидация доступа, бронирование и очистка устройств.                      |
-  | `nvidia-device-plugin-<pool>`    | DaemonSet  | Публикует ресурс `gpu.deckhouse.io/<pool>` на узлах пула; создаётся для каждого пула.        |
-  | `nvidia-mig-manager-<pool>`      | DaemonSet  | (Опционально) конфигурирует MIG-профиль на узлах пула.                                        |
-  | `nvidia-dcgm-exporter`           | DaemonSet  | Снимает телеметрию DCGM на всех GPU-узлах и отдаёт её в Prometheus.                          |
-  | `nvidia-gpu-feature-discovery`   | DaemonSet  | Дополняет узлы GPU-лейблами, используется inventory/bootstrap.                               |
-  
+| Имя                            | Тип        | Назначение                                                                             |
+| ------------------------------ | ---------- | -------------------------------------------------------------------------------------- |
+| `gpu-inventory-controller-*`   | Deployment | Создаёт `GPUDevice`, `GPUNodeInventory`, публикует события/метрики по инвентаризации.  |
+| `gpu-bootstrap-controller-*`   | Deployment | Проверяет драйвер/toolkit, запускает GFD и DCGM, изменяет состояния устройств и узлов. |
+| `gpupool-controller-*`         | Deployment | Управляет `GPUPool`, запускает per-pool device-plugin/MIG manager, следит за ёмкостью. |
+| `gpu-admission-webhook-*`      | Deployment | Admission webhook: валидация доступа, бронирование и очистка устройств.                |
+| `nvidia-device-plugin-<pool>`  | DaemonSet  | Публикует ресурс `gpu.deckhouse.io/<pool>` на узлах пула; создаётся для каждого пула.  |
+| `nvidia-mig-manager-<pool>`    | DaemonSet  | (Опционально) конфигурирует MIG-профиль на узлах пула.                                 |
+| `nvidia-dcgm-exporter`         | DaemonSet  | Снимает телеметрию DCGM на всех GPU-узлах и отдаёт её в Prometheus.                    |
+| `nvidia-gpu-feature-discovery` | DaemonSet  | Дополняет узлы GPU-лейблами, используется inventory/bootstrap.                         |
+
 `gpu-bootstrap-controller` управляет базовыми DaemonSet'ами (`nvidia-gpu-feature-discovery`,
 `nvidia-dcgm-exporter`), а `gpupool-controller` —
 пер-пуловыми (`nvidia-device-plugin-<pool>`, `nvidia-mig-manager-<pool>`).
+
+Все control-plane компоненты используют self-signed TLS, выпускаемый hook'ом модуля и
+хранящийся в `gpu-control-plane-controller-tls` и `gpu-control-plane-ca` секретах. Это
+позволяет безопасно подключать admission webhook и gRPC endpoints без внешних
+зависимостей.
+
+Контроллеры (`gpu-inventory`, `gpu-bootstrap`, `gpupool`) запускаются как
+stateless Deployment'ы. В режиме HA (по умолчанию наследуется от Deckhouse,
+но может быть принудительно задан через `highAvailability`) разворачиваются две
+реплики, использующие один и тот же leader election (Lease в namespace модуля),
+что гарантирует ровно один активный цикл reconcile при сохранении быстрого
+фейловера.
 
 ```mermaid
 flowchart LR
@@ -220,94 +260,94 @@ flowchart LR
   и фиксирует версии ядра/ОС. Шаблон, который модуль применяет автоматически:
 
 ```yaml
-  apiVersion: nfd.k8s-sigs.io/v1alpha1
-  kind: NodeFeatureRule
-  metadata:
-    name: deckhouse-gpu-kernel-os
-  spec:
-    rules:
-      - name: deckhouse.gpu.nvidia
-        matchFeatures:
-          - feature: pci.device
-            matchExpressions:
-              vendor:
-                op: In
-                value: ["10de"]
-              class:
-                op: In
-                value: ["0300", "0302"]
-        labelsTemplate: |
-          {{- $devices := index .Match.Features "pci.device" -}}
-          {{- if $devices }}
-          gpu.deckhouse.io/present=true
-          gpu.deckhouse.io/device-count={{ len $devices }}
-          {{- range $idx, $dev := $devices }}
-          {{- $slot := printf "%02d" $idx -}}
-          {{- $attrs := $dev.Attributes -}}
-          gpu.deckhouse.io/device.{{ $slot }}.vendor={{ index $attrs "vendor" }}
-          gpu.deckhouse.io/device.{{ $slot }}.device={{ index $attrs "device" }}
-          gpu.deckhouse.io/device.{{ $slot }}.class={{ index $attrs "class" }}
-          {{- end }}
-          {{- end }}
-      - name: deckhouse.gpu.nvidia-driver
-        matchFeatures:
-          - feature: kernel.loadedmodule
-            matchExpressions:
-              nvidia:
-                op: Exists
-        labels:
-          gpu.deckhouse.io/driver.name: nvidia
-          gpu.deckhouse.io/driver.module.nvidia: "true"
-      - name: deckhouse.gpu.nvidia-modeset
-        matchFeatures:
-          - feature: kernel.loadedmodule
-            matchExpressions:
-              nvidia_modeset:
-                op: Exists
-        labels:
-          gpu.deckhouse.io/driver.module.nvidia_modeset: "true"
-      - name: deckhouse.gpu.nvidia-uvm
-        matchFeatures:
-          - feature: kernel.loadedmodule
-            matchExpressions:
-              nvidia_uvm:
-                op: Exists
-        labels:
-          gpu.deckhouse.io/driver.module.nvidia_uvm: "true"
-      - name: deckhouse.gpu.nvidia-drm
-        matchFeatures:
-          - feature: kernel.loadedmodule
-            matchExpressions:
-              nvidia_drm:
-                op: Exists
-        labels:
-          gpu.deckhouse.io/driver.module.nvidia_drm: "true"
-      - name: deckhouse.system.kernel-os
-        matchFeatures:
-          - feature: kernel.version
-            matchExpressions:
-              major:
-                op: Exists
-              minor:
-                op: Exists
-              full:
-                op: Exists
-          - feature: system.osrelease
-            matchExpressions:
-              ID:
-                op: Exists
-              VERSION_ID:
-                op: Exists
-        labelsTemplate: |
-          {{- $kernel := index .Match.Features "kernel.version" -}}
-          {{- $os := index .Match.Features "system.osrelease" -}}
-          {{- $kattrs := (index $kernel 0).Attributes -}}
-          {{- $oattrs := (index $os 0).Attributes -}}
-          gpu.deckhouse.io/kernel.version.full={{ index $kattrs "full" }}
-          gpu.deckhouse.io/kernel.version.major={{ index $kattrs "major" }}
-          gpu.deckhouse.io/kernel.version.minor={{ index $kattrs "minor" }}
-          gpu.deckhouse.io/os.id={{ index $oattrs "ID" }}
-          gpu.deckhouse.io/os.version_id={{ index $oattrs "VERSION_ID" }}
+apiVersion: nfd.k8s-sigs.io/v1alpha1
+kind: NodeFeatureRule
+metadata:
+  name: deckhouse-gpu-kernel-os
+spec:
+  rules:
+    - name: deckhouse.gpu.nvidia
+      matchFeatures:
+        - feature: pci.device
+          matchExpressions:
+            vendor:
+              op: In
+              value: ["10de"]
+            class:
+              op: In
+              value: ["0300", "0302"]
+      labelsTemplate: |
+        {{- $devices := index .Match.Features "pci.device" -}}
+        {{- if $devices }}
+        gpu.deckhouse.io/present=true
+        gpu.deckhouse.io/device-count={{ len $devices }}
+        {{- range $idx, $dev := $devices }}
+        {{- $slot := printf "%02d" $idx -}}
+        {{- $attrs := $dev.Attributes -}}
+        gpu.deckhouse.io/device.{{ $slot }}.vendor={{ index $attrs "vendor" }}
+        gpu.deckhouse.io/device.{{ $slot }}.device={{ index $attrs "device" }}
+        gpu.deckhouse.io/device.{{ $slot }}.class={{ index $attrs "class" }}
+        {{- end }}
+        {{- end }}
+    - name: deckhouse.gpu.nvidia-driver
+      matchFeatures:
+        - feature: kernel.loadedmodule
+          matchExpressions:
+            nvidia:
+              op: Exists
+      labels:
+        gpu.deckhouse.io/driver.name: nvidia
+        gpu.deckhouse.io/driver.module.nvidia: "true"
+    - name: deckhouse.gpu.nvidia-modeset
+      matchFeatures:
+        - feature: kernel.loadedmodule
+          matchExpressions:
+            nvidia_modeset:
+              op: Exists
+      labels:
+        gpu.deckhouse.io/driver.module.nvidia_modeset: "true"
+    - name: deckhouse.gpu.nvidia-uvm
+      matchFeatures:
+        - feature: kernel.loadedmodule
+          matchExpressions:
+            nvidia_uvm:
+              op: Exists
+      labels:
+        gpu.deckhouse.io/driver.module.nvidia_uvm: "true"
+    - name: deckhouse.gpu.nvidia-drm
+      matchFeatures:
+        - feature: kernel.loadedmodule
+          matchExpressions:
+            nvidia_drm:
+              op: Exists
+      labels:
+        gpu.deckhouse.io/driver.module.nvidia_drm: "true"
+    - name: deckhouse.system.kernel-os
+      matchFeatures:
+        - feature: kernel.version
+          matchExpressions:
+            major:
+              op: Exists
+            minor:
+              op: Exists
+            full:
+              op: Exists
+        - feature: system.osrelease
+          matchExpressions:
+            ID:
+              op: Exists
+            VERSION_ID:
+              op: Exists
+      labelsTemplate: |
+        {{- $kernel := index .Match.Features "kernel.version" -}}
+        {{- $os := index .Match.Features "system.osrelease" -}}
+        {{- $kattrs := (index $kernel 0).Attributes -}}
+        {{- $oattrs := (index $os 0).Attributes -}}
+        gpu.deckhouse.io/kernel.version.full={{ index $kattrs "full" }}
+        gpu.deckhouse.io/kernel.version.major={{ index $kattrs "major" }}
+        gpu.deckhouse.io/kernel.version.minor={{ index $kattrs "minor" }}
+        gpu.deckhouse.io/os.id={{ index $oattrs "ID" }}
+        gpu.deckhouse.io/os.version_id={{ index $oattrs "VERSION_ID" }}
 ```
 
 - Правило обеспечивает единые лейблы для планировщика и DaemonSet'ов; подробные
@@ -320,23 +360,25 @@ flowchart LR
 **Назначение.** `gpu-inventory-controller` наблюдает `Node`, `NodeFeature`
 и выгрузки GFD/DCGM, создаёт по карте `GPUDevice`, агрегирует данные по узлу в
 `GPUNodeInventory` и сигнализирует остальным контроллерам о готовности.
+
 - Для каждого PCI-устройства с vendor=0x10de создаётся `GPUDevice`. У ресурса
   нет `spec`; ключевые поля находятся в `status`:
 
-  | Поле | Содержимое | Комментарий |
-  | --- | --- | --- |
-  | `status.nodeName` | Узел, на котором найдена карта | Используется при подборе пула |
-  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>` | Совпадает с записями в `GPUNodeInventory` и пулах |
-  | `status.product` | Человекочитаемое название GPU | На основе лейблов `nvidia.com/gpu.product` |
-  | `status.hardware.*` | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG |
-  | `status.state` | `Unassigned` / `Reserved` / `Assigned` / `Faulted` | Отражает текущее состояние устройства |
-  | `status.autoAttach` | Флаг автоматического подключения к пулу | Управляется политиками `GPUPool` |
-  | `status.poolRef` | Ссылка на пул и публикуемый ресурс | Заполняется при назначении |
-  | `status.managed` | Признак управления модулем | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false` |
-  | `status.health.*` | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени | Используется мониторингом и контроллерами для диагностики |
+  | Поле                 | Содержимое                                                                                                                           | Комментарий                                                                   |
+  | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+  | `status.nodeName`    | Узел, на котором найдена карта                                                                                                       | Используется при подборе пула                                                 |
+  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                             |
+  | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                    |
+  | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG |
+  | `status.state`       | `Unassigned` / `Reserved` / `Assigned` / `Faulted`                                                                                   | Отражает текущее состояние устройства                                         |
+  | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                              |
+  | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                    |
+  | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`           |
+  | `status.health.*`    | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени                                                              | Используется мониторингом и контроллерами для диагностики                     |
+
   При исчезновении карты ресурс удаляется вместе с финалайзером; ручное
   редактирование не поддерживается.
-  
+
 - Контроллер отслеживает метку `gpu.deckhouse.io/enabled`. Если она выставлена в
   `false`, соответствующие `GPUDevice` помечаются как `managed=false`, а в
   `GPUNodeInventory` фиксируется condition `ManagedDisabled`. При отсутствии метки
@@ -344,20 +386,22 @@ flowchart LR
   на подготовку автоматически.
 - `GPUNodeInventory` хранит агрегированное состояние узла:
 
-| Поле | Содержимое | Комментарий |
-| --- | --- | --- |
-| `status.hw.present` | Есть ли на узле поддерживаемые GPU | Используется bootstrap'ом и мониторингом |
-| `status.hw.devices[]` | Список устройств с зеркалированием ключевых атрибутов `GPUDevice` | Позволяет быстро увидеть состав узла |
-| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit | Bootstrap обновляет при проверке совместимости |
-| `status.pools.assigned[]` | Список подтверждённых пулов: `{poolName, resource, since}` | Заполняется `gpupool-controller`, используется admission и мониторинг |
-| `status.pools.pending[]` | Подсказки `{poolName, autoApproved, reason}` | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
-| `status.conditions` | `ManagedDisabled`, `InventoryIncomplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла |
+| Поле                                          | Содержимое                                                                                   | Комментарий                                                                              |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `status.hw.present`                           | Есть ли на узле поддерживаемые GPU                                                           | Используется bootstrap'ом и мониторингом                                                 |
+| `status.hw.devices[]`                         | Список устройств с зеркалированием ключевых атрибутов `GPUDevice`                            | Позволяет быстро увидеть состав узла                                                     |
+| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit                                                                  | Bootstrap обновляет при проверке совместимости                                           |
+| `status.pools.assigned[]`                     | Список подтверждённых пулов: `{poolName, resource, since}`                                   | Заполняется `gpupool-controller`, используется admission и мониторинг                    |
+| `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                                 | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
+| `status.conditions`                           | `ManagedDisabled`, `InventoryIncomplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла                                                      |
+
 - Причины (`reason`) в `pending[]` — фиксированный набор:
-  * `AwaitingApproval` — карта/узел готов(ы), требуется решение оператора;
-  * `NoPoolMatched` — ни один `GPUPool` не подошёл по селекторам;
-  * `OutOfSelector` — устройство исключено фильтром `spec.deviceSelector`;
-  * `Declined` — оператор отклонил предложение (через UI).
-  Добавлять произвольные значения не нужно: контроллер использует этот перечень для отображения в UI и формирования триггеров.
+
+  - `AwaitingApproval` — карта/узел готов(ы), требуется решение оператора;
+  - `NoPoolMatched` — ни один `GPUPool` не подошёл по селекторам;
+  - `OutOfSelector` — устройство исключено фильтром `spec.deviceSelector`;
+  - `Declined` — оператор отклонил предложение (через UI).
+    Добавлять произвольные значения не нужно: контроллер использует этот перечень для отображения в UI и формирования триггеров.
 
 - Управление выполняется только на уровне карты. Подсказки `pending[]` помогают
   ускорить выдачу: оператор подтверждает карту через аннотацию
@@ -436,16 +480,18 @@ flowchart TD
 
 `GPUPool` описывает логический пул GPU-ресурсов и правила работы с отдельными картами.
 Ключевые элементы `spec`:
+
 > **Минимальный сценарий.** Чтобы начать работать, достаточно создать хотя бы один
 > `GPUPool` с базовыми полями (`resource`). Как только пул существует, все готовые
 > карты попадают в `pending[]` и отображаются в UI — оператор просто подтверждает
 > нужные устройства. `nodeSelector`, `deviceSelector`, автоматические политики и
 > другие поля включаются только при необходимости.
+
 - Управление осуществляется **только на уровне карты**. Каждый `GPUDevice` подтверждается
   отдельно; узловой scope не поддерживается, пул никогда не закрепляет весь узел целиком.
 - **resource** — имя публичного ресурса и единица учёта:
-    - `name`: строка `gpu.deckhouse.io/<pool>`, указывается в `resources.limits`;
-    - `unit`: человекочитаемая единица (`card`, `mig-partition`, `timeslice`).
+  - `name`: строка `gpu.deckhouse.io/<pool>`, указывается в `resources.limits`;
+  - `unit`: человекочитаемая единица (`card`, `mig-partition`, `timeslice`).
 - **nodeSelector** — `LabelSelector` для узлов-кандидатов. Им описываем площадку
   (зону, класс узлов, тип GPU), на которой допускаем размещение пула. Как только
   узел готов, контроллер сам выставляет техническую метку
@@ -453,27 +499,27 @@ flowchart TD
 - **deviceSelector** (опционально) — фильтр по атрибутам `GPUDevice`. Поддерживает
   `include`/`exclude` с ключами `inventoryIDs`, `pciIDs`, `indexes`, а также
   произвольные label'ы:
-    * без фильтра — пул берёт все управляемые карты узла;
-    * атрибутивный фильтр (vendor, product, precision) — вместимость автоматически
-      растёт при появлении подходящих устройств;
-    * явные `indexes`/`inventoryIDs` — контроллер использует только перечисленные
-      карты, остальные остаются с condition `UnassignedDevice` до обновления списка.
+  - без фильтра — пул берёт все управляемые карты узла;
+  - атрибутивный фильтр (vendor, product, precision) — вместимость автоматически
+    растёт при появлении подходящих устройств;
+  - явные `indexes`/`inventoryIDs` — контроллер использует только перечисленные
+    карты, остальные остаются с condition `UnassignedDevice` до обновления списка.
 - **deviceAssignment** — политика подключения. Для базового сценария достаточно
   оставить значения по умолчанию и подтверждать кандидатов вручную.
-    * `requireAnnotation` (по умолчанию `true`) — пока не подтверждено, карта остаётся
-      в `pending[]`. Подтверждение делает оператор через UI Deckhouse или вручную через
-      Kubernetes API, ставя аннотацию `gpu.deckhouse.io/assignment=<pool>` на `GPUDevice`.
-      Значение `false` делает пул полностью автоматическим и позволяет контроллеру
-      ставить аннотации без участия оператора.
-    * `autoApproveSelector` — можно указать только если нужно автоматически подключать
-      карты с определёнными атрибутами; в обычном случае поле не задаётся.
+  - `requireAnnotation` (по умолчанию `true`) — пока не подтверждено, карта остаётся
+    в `pending[]`. Подтверждение делает оператор через UI Deckhouse или вручную через
+    Kubernetes API, ставя аннотацию `gpu.deckhouse.io/assignment=<pool>` на `GPUDevice`.
+    Значение `false` делает пул полностью автоматическим и позволяет контроллеру
+    ставить аннотации без участия оператора.
+  - `autoApproveSelector` — можно указать только если нужно автоматически подключать
+    карты с определёнными атрибутами; в обычном случае поле не задаётся.
 - **Общее поведение по режимам управления**:
 
 - **allocation** — режим выдачи ресурсов:
-    - `mode`: `Exclusive`, `MIG` или `TimeSlice`;
-    - `maxDevicesPerNode`: ограничение устройств с одного узла;
-    - `migProfile`: профиль MIG при `mode=MIG`;
-    - `timeSlice`: параметры тайм-шеринг (`maxSlicesPerDevice`).
+  - `mode`: `Exclusive`, `MIG` или `TimeSlice`;
+  - `maxDevicesPerNode`: ограничение устройств с одного узла;
+  - `migProfile`: профиль MIG при `mode=MIG`;
+  - `timeSlice`: параметры тайм-шеринг (`maxSlicesPerDevice`).
 - **access** — дефолтные списки namespaces/Dex-групп/ServiceAccount. Заполняется
   модулем multitenancy/admission-policy и редко меняется вручную.
 - **scheduling** — подсказки для размещения (`Spread`, `BinPack`, `topologyKey`,
@@ -523,53 +569,53 @@ flowchart LR
   устройств, контроллер учитывает это при выборе. Любое изменение `GPUNodeInventory`
   (появление/исчезновение карт, обновление MIG) инициирует повторный reconcile; контроллер
   следит, чтобы устройства не пересекались между пулами.
-    - **Назначение устройств.** Контроллер подготавливает список карт, удовлетворяющих
-      `deviceSelector`, и добавляет их в `pending[]`. Пока нет подтверждения, карты остаются в
-      `state=Unassigned` и подсвечиваются condition `UnassignedDevice` (причина
-      `AwaitingApproval`). После утверждения карта переходит в `Assigned`. При
-      `spec.deviceAssignment.requireAnnotation=false` подтверждение не требуется —
-      карта сразу попадает в `Assigned`. Если `deviceSelector` фиксирует конкретные
-      индексы, остальные карты получают причину `OutOfSelector`.
-    - **Подтверждение кандидата.** При утверждении карты `gpupool-controller` выполняет набор действий:
-        * обновляет `GPUNodeInventory.status.pools` и `GPUDevice.status.poolRef`, переводя записи из `pending[]` в `assigned[]`;
-        * сверяет аннотацию `gpu.deckhouse.io/assignment=<pool>`: при ручном подтверждении её ставит UI, при `autoApproveSelector`/`requireAnnotation=false` — сам контроллер;
-        * синхронизирует ConfigMap и DaemonSet `nvidia-device-plugin-<pool>` (и при необходимости `nvidia-mig-manager-<pool>`), чтобы kubelet увидел новый ресурс;
-        * обновляет `GPUPool.status.nodes[]`/`devices[]`, пересчитывает ёмкость и снимает причины ожидания.
-          Для отклонения кандидатуры оператор может удалить запись из `pending[]` через UI —
-          контроллер ставит метку `gpu.deckhouse.io/ignore=true` на устройство, чтобы оно не
-          предлагалось повторно без изменений.
+  - **Назначение устройств.** Контроллер подготавливает список карт, удовлетворяющих
+    `deviceSelector`, и добавляет их в `pending[]`. Пока нет подтверждения, карты остаются в
+    `state=Unassigned` и подсвечиваются condition `UnassignedDevice` (причина
+    `AwaitingApproval`). После утверждения карта переходит в `Assigned`. При
+    `spec.deviceAssignment.requireAnnotation=false` подтверждение не требуется —
+    карта сразу попадает в `Assigned`. Если `deviceSelector` фиксирует конкретные
+    индексы, остальные карты получают причину `OutOfSelector`.
+  - **Подтверждение кандидата.** При утверждении карты `gpupool-controller` выполняет набор действий:
+    - обновляет `GPUNodeInventory.status.pools` и `GPUDevice.status.poolRef`, переводя записи из `pending[]` в `assigned[]`;
+    - сверяет аннотацию `gpu.deckhouse.io/assignment=<pool>`: при ручном подтверждении её ставит UI, при `autoApproveSelector`/`requireAnnotation=false` — сам контроллер;
+    - синхронизирует ConfigMap и DaemonSet `nvidia-device-plugin-<pool>` (и при необходимости `nvidia-mig-manager-<pool>`), чтобы kubelet увидел новый ресурс;
+    - обновляет `GPUPool.status.nodes[]`/`devices[]`, пересчитывает ёмкость и снимает причины ожидания.
+      Для отклонения кандидатуры оператор может удалить запись из `pending[]` через UI —
+      контроллер ставит метку `gpu.deckhouse.io/ignore=true` на устройство, чтобы оно не
+      предлагалось повторно без изменений.
 - **Конфигурация устройств.** В зависимости от `allocation.mode` он:
-    - генерирует ConfigMap с перечнем устройств и запускает отдельный DaemonSet
-      `nvidia-device-plugin` с `nodeAffinity` только на узлы пула. Шаблон поставляется
-      модулем и проходит валидацию: контроллер отказывает reconcile, если сокет
-      `/var/lib/kubelet/device-plugins/<pool>.sock` уже занят или конфигурация
-      переписывает системные параметры kubelet. Для каждого пула поддерживается ConfigMap
-      вида:
-      ```yaml
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: gpu-device-plugin-a100-mig
-        namespace: d8-gpu-operator
-      data:
-        DP_ALLOWED_DEVICES: |
-          worker-01-0000:17:00.0
-          worker-02-0000:65:00.0
-      ```
-      При изменении состава карт (например, карта ушла в `Faulted`, появилась новая)
-      `gpupool-controller` пересобирает ConfigMap, перезапускает DaemonSet и в `preStop`
-      аккуратно закрывает сокет, чтобы kubelet увидел новую картину. Запущенные Pod'ы при
-      этом продолжают работу: устройство уже закреплено, и kubelet не отбирает его.
-    - при `mode=MIG` размещает `nvidia-mig-manager` с нужным профилем и контролирует,
-      что actual MIG-конфигурация совпадает с `spec.allocation.migProfile`;
-    - при `mode=TimeSlice` конфигурирует device plugin/вебхуки на тайм-слоты с учётом
-      `timeSlice.maxSlicesPerDevice`.
-      Для предотвращения коллизий контроллер ставит аннотацию
-      `gpu.deckhouse.io/assignment=<pool>` на ресурс `GPUDevice` и фиксирует факт
-      назначения в `GPUPool.status.devices[]`. Если другой пул пытается забрать ту же карту,
-      reconcile завершается `Misconfigured`. Taint/toleration, описанные в
-      `spec.scheduling`, применяются к узлу; по умолчанию используем только label/affinity и
-      существующие taint'ы площадки.
+  - генерирует ConfigMap с перечнем устройств и запускает отдельный DaemonSet
+    `nvidia-device-plugin` с `nodeAffinity` только на узлы пула. Шаблон поставляется
+    модулем и проходит валидацию: контроллер отказывает reconcile, если сокет
+    `/var/lib/kubelet/device-plugins/<pool>.sock` уже занят или конфигурация
+    переписывает системные параметры kubelet. Для каждого пула поддерживается ConfigMap
+    вида:
+    ```yaml
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: gpu-device-plugin-a100-mig
+      namespace: d8-gpu-operator
+    data:
+      DP_ALLOWED_DEVICES: |
+        worker-01-0000:17:00.0
+        worker-02-0000:65:00.0
+    ```
+    При изменении состава карт (например, карта ушла в `Faulted`, появилась новая)
+    `gpupool-controller` пересобирает ConfigMap, перезапускает DaemonSet и в `preStop`
+    аккуратно закрывает сокет, чтобы kubelet увидел новую картину. Запущенные Pod'ы при
+    этом продолжают работу: устройство уже закреплено, и kubelet не отбирает его.
+  - при `mode=MIG` размещает `nvidia-mig-manager` с нужным профилем и контролирует,
+    что actual MIG-конфигурация совпадает с `spec.allocation.migProfile`;
+  - при `mode=TimeSlice` конфигурирует device plugin/вебхуки на тайм-слоты с учётом
+    `timeSlice.maxSlicesPerDevice`.
+    Для предотвращения коллизий контроллер ставит аннотацию
+    `gpu.deckhouse.io/assignment=<pool>` на ресурс `GPUDevice` и фиксирует факт
+    назначения в `GPUPool.status.devices[]`. Если другой пул пытается забрать ту же карту,
+    reconcile завершается `Misconfigured`. Taint/toleration, описанные в
+    `spec.scheduling`, применяются к узлу; по умолчанию используем только label/affinity и
+    существующие taint'ы площадки.
 - **Операционные действия.** Подтверждение карт происходит через аннотацию `gpu.deckhouse.io/assignment=<pool>` (UI или автоподтверждение). Метка `gpu.deckhouse.io/enabled` выводит узел из управления, `gpu.deckhouse.io/ignore` временно исключает устройство. Удаление аннотаций возвращает карту в `pending[]`. При изменении `spec.allocation` контроллер автоматически переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin/MIG-manager и после события `GPUPoolReconfigured` возобновляет выдачу. Регулярная сверка аннотаций устраняет "висячие" записи (событие `GPUAnnotationMismatch`).
 - **Финалайзеры.** При создании пула контроллер добавляет финалайзер
   `gpupool-controller.deckhouse.io/finalizer`, чтобы гарантировать автоматическое
@@ -630,17 +676,17 @@ sequenceDiagram
   (`MixedPoolRequest`).
 - Admission сверяет доступ (`spec.access`), наличие свободных устройств и
   `allocation`‑ограничения. Когда ресурсов хватает, он:
-    1. подбирает узел и конкретные `inventoryID`, подходящие под `deviceSelector`;
-    2. фиксирует временное бронирование — помечает выбранные `GPUDevice`
-       состоянием `Reserved` и генерирует идентификатор запроса;
-    3. патчит Pod: добавляет `nodeAffinity`, toleration'ы из `spec.scheduling`,
-       аннотацию `gpu.deckhouse.io/request-id`, а также список `inventoryID`, который
-       device-plugin должен выдать kubelet'у.
-   Обновлённый перечень устройств также попадает в ConfigMap per-pool device-plugin'а
-   (см. раздел про GPUPool Controller). Если доступные карты изменились, контроллер
-   успевает пересобрать ConfigMap и перезапустить DaemonSet до запуска Pod'а, поэтому
-   kubelet всегда видит актуальный набор GPU для пула.
-       Если подходящих узлов нет, admission возвращает ошибку `InsufficientCapacity`.
+  1. подбирает узел и конкретные `inventoryID`, подходящие под `deviceSelector`;
+  2. фиксирует временное бронирование — помечает выбранные `GPUDevice`
+     состоянием `Reserved` и генерирует идентификатор запроса;
+  3. патчит Pod: добавляет `nodeAffinity`, toleration'ы из `spec.scheduling`,
+     аннотацию `gpu.deckhouse.io/request-id`, а также список `inventoryID`, который
+     device-plugin должен выдать kubelet'у.
+     Обновлённый перечень устройств также попадает в ConfigMap per-pool device-plugin'а
+     (см. раздел про GPUPool Controller). Если доступные карты изменились, контроллер
+     успевает пересобрать ConfigMap и перезапустить DaemonSet до запуска Pod'а, поэтому
+     kubelet всегда видит актуальный набор GPU для пула.
+     Если подходящих узлов нет, admission возвращает ошибку `InsufficientCapacity`.
 - Стандартный kube-scheduler видит `gpu.deckhouse.io/<pool>` как обычный
   extended-resource: он учитывает запрос по ресурсу и добавленный admission
   `nodeAffinity/tolerations`, подбирая узел, на котором device-plugin опубликовал
@@ -662,10 +708,10 @@ sequenceDiagram
 
 ```yaml
 containers:
-- name: inference
-  resources:
-    limits:
-      gpu.deckhouse.io/a100-mig-2g20gb: 2  # берём две MIG-партиции из пула
+  - name: inference
+    resources:
+      limits:
+        gpu.deckhouse.io/a100-mig-2g20gb: 2 # берём две MIG-партиции из пула
 ```
 
 #### 7. Мониторинг и эксплуатация
@@ -720,12 +766,12 @@ containers:
 
 ## План внедрения
 
-| Этап | Цель | Действия | Выходные данные |
-|------|------|---------|-----------------|
-| 0 | Обнаружить GPU | Включить Node Feature Discovery и правила, собрать `GPUNodeInventory` | Список узлов, драйверов, условий |
-| 1 | Подготовить узлы | Включить `gpu-bootstrap-controller`: запуск GFD/DCGM/device plugin/MIG manager точечно | Узлы готовы к работе, есть события о проблемах |
-| 2 | Управлять пулами | Создать CR `GPUPool`, контроллер capacity, admission, квоты | Workloads указывают `gpu.deckhouse.io/<pool>` напрямую, admission валидирует и применяет политики |
-| 3 | Расширить | Авто-MIG, диагностика, резервирование, (позже) драйвера | Дополнительные возможности без ломки API |
+| Этап | Цель             | Действия                                                                               | Выходные данные                                                                                   |
+| ---- | ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 0    | Обнаружить GPU   | Включить Node Feature Discovery и правила, собрать `GPUNodeInventory`                  | Список узлов, драйверов, условий                                                                  |
+| 1    | Подготовить узлы | Включить `gpu-bootstrap-controller`: запуск GFD/DCGM/device plugin/MIG manager точечно | Узлы готовы к работе, есть события о проблемах                                                    |
+| 2    | Управлять пулами | Создать CR `GPUPool`, контроллер capacity, admission, квоты                            | Workloads указывают `gpu.deckhouse.io/<pool>` напрямую, admission валидирует и применяет политики |
+| 3    | Расширить        | Авто-MIG, диагностика, резервирование, (позже) драйвера                                | Дополнительные возможности без ломки API                                                          |
 
 Разработка и тестирование следуют той же последовательности: unit/integration
 для каждого контроллера, e2e в рамках этапа, chaos для проверки устойчивости.
@@ -758,7 +804,7 @@ status:
     pci:
       vendor: "10de"
       device: "2203"
-      class:  "0300"
+      class: "0300"
     memoryMiB: 40960
     computeCapability:
       major: 8
@@ -775,6 +821,7 @@ status:
     eccErrorsTotal: 0
     lastUpdated: 2025-01-15T10:05:00Z
 ```
+
 ### Структура `GPUNodeInventory`
 
 ```yaml
@@ -849,18 +896,18 @@ spec:
   nodeName: worker-01
 status:
   hw:
-    present: true                     # карта найдена (по NFD)
+    present: true # карта найдена (по NFD)
     devices:
-      - inventoryID: worker-01-0000:17:00.0     # уникальный ID (host+PCI)
+      - inventoryID: worker-01-0000:17:00.0 # уникальный ID (host+PCI)
         pci:
           vendor: "10de"
           device: "2203"
-          class:  "0300"
-        product: "NVIDIA A100-PCIE-40GB"   # nvidia.com/gpu.product
-        memoryMiB: 40960               # nvidia.com/gpu.memory
+          class: "0300"
+        product: "NVIDIA A100-PCIE-40GB" # nvidia.com/gpu.product
+        memoryMiB: 40960 # nvidia.com/gpu.memory
         mig:
           capable: true
-          strategy: "mixed"                # nvidia.com/mig.strategy
+          strategy: "mixed" # nvidia.com/mig.strategy
           profilesSupported:
             - "1g.10gb"
             - "2g.20gb"
@@ -889,27 +936,27 @@ status:
                 encoder: 1
                 decoder: 1
                 ofa: 0
-        uuid: "GPU-3d45..."               # из nvidia-smi/DCGM
+        uuid: "GPU-3d45..." # из nvidia-smi/DCGM
         computeCapability:
-          major: 8                         # nvidia.com/gpu.compute.major
-          minor: 0                         # nvidia.com/gpu.compute.minor
+          major: 8 # nvidia.com/gpu.compute.major
+          minor: 0 # nvidia.com/gpu.compute.minor
         precision:
-          supported:                      # выводится из compute capability (карта поддерживает FP16/BF16 и т.д.)
+          supported: # выводится из compute capability (карта поддерживает FP16/BF16 и т.д.)
             - fp32
             - fp16
             - bf16
         state: Assigned
         autoAttach: true
-      - inventoryID: worker-01-0000:65:00.0     # новая карта, пока не распределена
+      - inventoryID: worker-01-0000:65:00.0 # новая карта, пока не распределена
         pci:
           vendor: "10de"
           device: "2235"
-          class:  "0300"
+          class: "0300"
         product: "NVIDIA L40S"
         memoryMiB: 46080
         state: Unassigned
         autoAttach: true
-      - inventoryID: worker-01-0000:3b:00.0  # карта временно отключена оператором
+      - inventoryID: worker-01-0000:3b:00.0 # карта временно отключена оператором
         product: NVIDIA A100
         state: Unassigned
         autoAttach: false
@@ -960,13 +1007,14 @@ status:
 ```
 
 **Кто использует:**
+
 - `status.hw.*` — bootstrap-контроллер (проверка наличия карт), `gpupool-controller` (сопоставление с `spec.deviceSelector`), мониторинг (health).
-    * `memoryMiB` — объём памяти адаптера (для квот/алертов и расчёта вместимости).
-    * `computeCapability` — admission/контроллер могут запрещать workload’ы, если требуется, скажем, `compute >= 8.9`.
-    * `precision.supported` — список вычислительных точностей (например, `fp16`, `bf16`), нужен admission и владельцам workload’ов для проверки совместимости модели/движка.
-    * `mig.types[*]` — gpupool-controller сравнивает с `spec.allocation.migProfile`, считает доступные партиции; monitoring строит capacity по типам.
-    * `state` — `Unassigned`, `Reserved`, `Assigned` или `Faulted`; admission использует
-      `Reserved` для бронирования, контроллер освобождает карты после завершения Pod'ов.
+  - `memoryMiB` — объём памяти адаптера (для квот/алертов и расчёта вместимости).
+  - `computeCapability` — admission/контроллер могут запрещать workload’ы, если требуется, скажем, `compute >= 8.9`.
+  - `precision.supported` — список вычислительных точностей (например, `fp16`, `bf16`), нужен admission и владельцам workload’ов для проверки совместимости модели/движка.
+  - `mig.types[*]` — gpupool-controller сравнивает с `spec.allocation.migProfile`, считает доступные партиции; monitoring строит capacity по типам.
+  - `state` — `Unassigned`, `Reserved`, `Assigned` или `Faulted`; admission использует
+    `Reserved` для бронирования, контроллер освобождает карты после завершения Pod'ов.
 - `status.driver.*` — bootstrap (решает, нужно ли ставить/обновлять), admission (совместимость с пулом), алерты (`gpu_driver_version_info`).
 - `status.monitoring` — bootstrap (ожидает готовности DCGM), monitoring/alerts.
 - `status.bootstrap` — bootstrap (управляет повторными попытками), `gpupool-controller` (ждёт `ReadyForPooling`), оператор (диагностика).
@@ -974,6 +1022,7 @@ status:
 - `status.pools.pending[]` — UI (подтверждение кандидатов), `gpupool-controller` (управление авто-назначением), monitoring (контроль простаивающих площадок).
 - `status.conditions` — события, алерты, UI (например, `ManagedDisabled`, `UnassignedDevice` с причинами `NoPoolMatched`/`AwaitingApproval`, `DriverMissing`).
   Базовые переключатели, которые позволяют оператору управлять картами до стадии пулов:
+
 1. **Отключить узел целиком:** задать метку `gpu.deckhouse.io/enabled=false`
    (по умолчанию узлы считаются управляемыми). При значении `false`
    контроллер выставляет `GPUDevice.status.managed=false`, а в `GPUNodeInventory`
@@ -984,7 +1033,7 @@ status:
 3. **Оставить узел в ожидании:** пока bootstrap не снял `DriverMissing`,
    `ToolkitMissing`, `MonitoringMissing`, condition `ReadyForPooling=False` —
    карта отображается, но привязать её к пулу нельзя.
-`GPUPool` (MIG-пул):
+   `GPUPool` (MIG-пул):
 
 ```yaml
 apiVersion: gpu.deckhouse.io/v1alpha1
@@ -1002,13 +1051,13 @@ spec:
         values: ["worker-01", "worker-02"]
   deviceSelector:
     include:
-      indexes: ["0-1"]               # по две карты с каждого узла
+      indexes: ["0-1"] # по две карты с каждого узла
   allocation:
     mode: MIG
     migProfile: all-2g.20gb
     maxDevicesPerNode: 2
   deviceAssignment:
-    requireAnnotation: false         # доверяем обработчику автоматом подключать новые карты
+    requireAnnotation: false # доверяем обработчику автоматом подключать новые карты
   access:
     namespaces: ["prod-inference"]
   scheduling:
@@ -1088,43 +1137,43 @@ status:
 
 - **Неверная классификация устройств.** Если `NodeFeatureRule` не покрывает
   редкий GPU, `GPUNodeInventory` останется пустым и пул не получит слоты.
-  *Снижение:* модуль ставит e2e-проверку `gpu-nfd-coverage`, которая сравнивает
+  _Снижение:_ модуль ставит e2e-проверку `gpu-nfd-coverage`, которая сравнивает
   ожидаемые лейблы с фактическими, хранит шаблон правила рядом с кодом и
   выставляет `InventoryIncomplete=True`, что блокирует выдачу до тех пор, пока
   оператор не дополнит правило.
 - **Разъезд пулов и фактических конфигураций.** Случайное изменение MIG профиля
   или изменение количества карт приводит к `Misconfigured`, и workloads
-  застревают. *Снижение:* контроллер автоматически ставит `Maintenance` и создаёт
+  застревают. _Снижение:_ контроллер автоматически ставит `Maintenance` и создаёт
   событие, operator должен устранить и подтвердить.
 - **Пер-пуловые DaemonSet'ы.** Для каждого пула запускаются отдельные экземпляры
   device-plugin и (при необходимости) MIG manager. Неверная конфигурация может
-  повредить kubelet или удалить существующий плагин. *Снижение:* контроллер
+  повредить kubelet или удалить существующий плагин. _Снижение:_ контроллер
   применяет проверенные шаблоны, сравнивает итоговый `DaemonSet` с контрольной
   суммой, гарантирует уникальность сокета `/var/lib/kubelet/device-plugins/<pool>.sock`
   и при ошибках переводит узел в `Maintenance`, требуя ручного подтверждения.
 - **Перераздача ресурсов при тайм-шеринге.** Неверные параметры `timeSlice`
-  могут привести к деградации latency. *Снижение:* контроллер подставляет
+  могут привести к деградации latency. _Снижение:_ контроллер подставляет
   безопасное значение по умолчанию (`maxSlicesPerDevice=8`) и собирает метрики
   DCGM/алерты `GPUPoolCapacityLow`/`LatencySpikes`.
 - **Зависшие брони.** При сбоях admission или kube-scheduler карты могут
   остаться в состоянии `Reserved` и недоступными для новых запросов.
-  *Снижение:* бронирование меняется с оптимистичной блокировкой, контроллер
+  _Снижение:_ бронирование меняется с оптимистичной блокировкой, контроллер
   отслеживает Pending Pod'ы, а встроенный TTL автоматически возвращает карты
   в `Unassigned`. Метрики `gpu_device_reserved_total` и
   `gpu_device_reservation_age_seconds`, а также алерт `GPUReservationExpired`
   подсвечивают рост "зависших" броней.
 - **Зависимость от административных действий.** Если узел подготовлен, но не
-  назначен в пул, ресурсы простаивают. *Снижение:* узел отражается в
+  назначен в пул, ресурсы простаивают. _Снижение:_ узел отражается в
   `status.pools.pending[]`, condition `UnassignedDevice` получает причину
   `AwaitingApproval`, публикуется событие `GPUNodeWithoutPool`, отдельный
   дашборд подсвечивает свободные узлы. По умолчанию требуется ручное подтверждение
   новых площадок.
 - **Ошибки в конфигурации доступа.** Неправильные `spec.access` или политики
-  могут открыть пул не тем проектам. *Снижение:* модуль генерирует
+  могут открыть пул не тем проектам. _Снижение:_ модуль генерирует
   `OperationPolicy` и шаблоны ResourceQuota/Toleration через multitenancy-manager,
   а admission проверяет namespace/Dex-группы перед выдачей ресурса.
 - **Потеря наблюдаемости.** Если DCGM или Prometheus не собирают метрики, мы не
-  увидим деградацию GPU. *Снижение:* Bootstrap отслеживает `MonitoringMissing`,
+  увидим деградацию GPU. _Снижение:_ Bootstrap отслеживает `MonitoringMissing`,
   а правила `GPUDriverMissing`/`GPUPoolCapacityLow`/`GPUDeviceDegraded`
   сигнализируют об исчезновении данных.
 
