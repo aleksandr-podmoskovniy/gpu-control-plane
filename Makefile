@@ -27,8 +27,6 @@ GOLANGCI_LINT_VERSION ?= 1.64.8
 MODULE_SDK_VERSION ?= 0.3.7
 DMT_VERSION ?= 0.1.44
 
-GITERMINISM_CONFIG ?= $(ROOT)/werf-giterminism.yaml
-
 GOLANGCI_LINT ?= $(BIN_DIR)/golangci-lint
 MODULE_SDK ?= $(BIN_DIR)/module-sdk
 DMT ?= $(BIN_DIR)/dmt
@@ -36,7 +34,7 @@ WERF ?= werf
 
 export GOMODCACHE
 
-.PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-giterminism ensure-tools \
+.PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-tools \
 	fmt tidy controller-build controller-test hooks-test lint-go lint-docs lint-dmt \
 	lint test verify clean cache docs werf-build kubeconform e2e
 
@@ -52,23 +50,7 @@ ensure-module-sdk: ensure-bin-dir
 ensure-dmt: ensure-bin-dir
 	@INSTALL_DIR=$(BIN_DIR) DMT_VERSION=$(DMT_VERSION) ./tools/install-dmt.sh
 
-ensure-tools: ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-giterminism
-
-ensure-giterminism:
-	@echo "==> giterminism"
-	@if [ ! -f $(GITERMINISM_CONFIG) ]; then \
-		echo "werf-giterminism.yaml not found at $(GITERMINISM_CONFIG)" >&2; \
-		exit 1; \
-	fi
-	@if ! command -v $(WERF) >/dev/null 2>&1; then \
-		echo "werf binary not found. Install werf and ensure it is on PATH." >&2; \
-		exit 1; \
-	fi
-	@if $(WERF) help 2>/dev/null | grep -q " giterminism"; then \
-		WERF_GITERMINISM_CONFIG=$(GITERMINISM_CONFIG) WERF_LOOSE_GITERMINISM=1 $(WERF) giterminism config render --config $(GITERMINISM_CONFIG) >/dev/null; \
-	else \
-		WERF_GITERMINISM_CONFIG=$(GITERMINISM_CONFIG) WERF_LOOSE_GITERMINISM=1 $(WERF) config render --giterminism-config $(GITERMINISM_CONFIG) --log-quiet >/dev/null; \
-	fi
+ensure-tools: ensure-golangci-lint ensure-dmt
 
 cache:
 	@mkdir -p $(GOMODCACHE)
