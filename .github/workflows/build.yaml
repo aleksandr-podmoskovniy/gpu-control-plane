@@ -55,7 +55,7 @@ jobs:
         env:
           WERF_VERSION: ${{ env.WERF_VERSION }}
         run: |
-          curl -sSL https://werf.io/install.sh | sudo bash -s -- --version "v${WERF_VERSION}"
+          curl -sSL https://werf.io/install.sh | sudo bash -s -- --version "${WERF_VERSION}"
       - name: Ensure tools
         run: make ensure-tools
       - name: Run lints and tests
