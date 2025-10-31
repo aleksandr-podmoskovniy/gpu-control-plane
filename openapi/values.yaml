@@ -210,6 +210,14 @@ properties:
                     description: Kubernetes pull policy applied to the controller image.
                 additionalProperties: false
             additionalProperties: false
+          inventory:
+            type: object
+            description: Inventory controller runtime tunables.
+            properties:
+              resyncPeriod:
+                type: string
+                description: Explicit resync interval override for the inventory controller.
+            additionalProperties: false
           webhook:
             type: object
             description: GPU admission webhook Deployment tunables.
