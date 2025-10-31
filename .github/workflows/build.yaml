@@ -27,6 +27,13 @@ env:
   GO_VERSION: "1.24.6"
   WERF_VERSION: "1.2.457"
   CI_COMMIT_REF_NAME: ${{ github.ref_name }}
+  MODULES_REGISTRY: ghcr.io
+  MODULES_REGISTRY_LOGIN: ${{ github.actor }}
+  MODULES_REGISTRY_PASSWORD: ${{ secrets.MODULES_REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
+  packages: write
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.event.number || github.ref }}"
@@ -74,9 +81,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: deckhouse/modules-actions/setup@v2
         with:
-          registry: ghcr.io
-          registry_login: ${{ github.actor }}
-          registry_password: ${{ secrets.TOKEN }}
+          registry: ${{ env.MODULES_REGISTRY }}
+          registry_login: ${{ env.MODULES_REGISTRY_LOGIN }}
+          registry_password: ${{ env.MODULES_REGISTRY_PASSWORD }}
       - name: Get repository name
         id: repo_name
         run: echo "REPO_NAME=$(echo '${{ github.repository }}' | cut -d'/' -f2)" >> "$GITHUB_OUTPUT"
