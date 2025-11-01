@@ -19,9 +19,8 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/deckhouse/module-sdk/pkg"
-
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
+	"github.com/deckhouse/module-sdk/pkg"
 
 	"hooks/pkg/settings"
 )
@@ -44,10 +43,7 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 
 func ensureControllerTLSValues(input *pkg.HookInput) bool {
 	for _, path := range []string{
-		settings.InternalRootPath,
-		settings.InternalControllerPath,
 		settings.InternalControllerCertPath,
-		settings.InternalCertificatesPath,
 		settings.InternalCertificatesRootPath,
 	} {
 		val := input.Values.Get(path)

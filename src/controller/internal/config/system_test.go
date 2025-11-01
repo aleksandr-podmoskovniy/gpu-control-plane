@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestLoadFileMergesDefaults(t *testing.T) {
@@ -170,5 +172,167 @@ func TestLoadFileModuleOverrides(t *testing.T) {
 	}
 	if cfg.Module.Scheduling.TopologyKey != "topology.gpu.io/zone" {
 		t.Fatalf("unexpected topology key: %s", cfg.Module.Scheduling.TopologyKey)
+	}
+}
+
+func TestNormalizeLeaderElectionDefaults(t *testing.T) {
+	cfg := LeaderElectionConfig{
+		Enabled:      true,
+		Namespace:    "  gpu-system  ",
+		ID:           "   ",
+		ResourceLock: "",
+	}
+
+	normalizeLeaderElection(&cfg)
+
+	if cfg.ID != DefaultLeaderElectionID {
+		t.Fatalf("expected default ID, got %s", cfg.ID)
+	}
+	if cfg.ResourceLock != DefaultLeaderElectionResourceLock {
+		t.Fatalf("expected default resource lock, got %s", cfg.ResourceLock)
+	}
+	if cfg.Namespace != "gpu-system" {
+		t.Fatalf("expected namespace trimmed, got %q", cfg.Namespace)
+	}
+}
+
+func TestNormalizeModuleSettingsDefaults(t *testing.T) {
+	cfg := ModuleSettings{
+		ManagedNodes: ManagedNodesSettings{
+			LabelKey:         "   ",
+			EnabledByDefault: false,
+		},
+		DeviceApproval: DeviceApprovalSettings{
+			Mode: "invalid",
+		},
+		Scheduling: SchedulingSettings{
+			DefaultStrategy: "",
+			TopologyKey:     "   ",
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.ManagedNodes.LabelKey != defaultManagedNodeLabelKey {
+		t.Fatalf("expected managed label key default, got %s", cfg.ManagedNodes.LabelKey)
+	}
+	if cfg.ManagedNodes.EnabledByDefault {
+		t.Fatal("expected managed nodes to remain false when explicitly disabled")
+	}
+	if cfg.DeviceApproval.Mode != DeviceApprovalModeManual {
+		t.Fatalf("expected approval mode fallback to Manual, got %s", cfg.DeviceApproval.Mode)
+	}
+	if cfg.DeviceApproval.Selector != nil {
+		t.Fatal("selector should remain nil for Manual mode")
+	}
+	if cfg.Scheduling.DefaultStrategy != defaultSchedulingStrategy {
+		t.Fatalf("expected default scheduling strategy, got %s", cfg.Scheduling.DefaultStrategy)
+	}
+	if cfg.Scheduling.TopologyKey != defaultSchedulingTopologyKey {
+		t.Fatalf("expected default topology key, got %s", cfg.Scheduling.TopologyKey)
+	}
+}
+
+func TestNormalizeModuleSettingsSelectorMode(t *testing.T) {
+	cfg := ModuleSettings{
+		DeviceApproval: DeviceApprovalSettings{
+			Mode:     DeviceApprovalModeSelector,
+			Selector: nil,
+		},
+		Scheduling: SchedulingSettings{
+			DefaultStrategy: "BinPack",
+			TopologyKey:     " ignored ",
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.DeviceApproval.Selector == nil {
+		t.Fatal("selector must be initialised when mode=Selector")
+	}
+	if cfg.Scheduling.DefaultStrategy != "BinPack" {
+		t.Fatalf("expected BinPack to be preserved, got %s", cfg.Scheduling.DefaultStrategy)
+	}
+	if cfg.Scheduling.TopologyKey != "ignored" {
+		t.Fatalf("expected topology key to be trimmed without forcing default, got %s", cfg.Scheduling.TopologyKey)
+	}
+}
+
+func TestNormalizeModuleSettingsSelectorPreservesSelector(t *testing.T) {
+	selector := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"gpu.deckhouse.io/device.vendor": "10de"},
+	}
+	cfg := ModuleSettings{
+		DeviceApproval: DeviceApprovalSettings{
+			Mode:     DeviceApprovalModeSelector,
+			Selector: selector,
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.DeviceApproval.Selector != selector {
+		t.Fatal("existing selector should be preserved when provided")
+	}
+}
+
+func TestNormalizeModuleSettingsAutomaticMode(t *testing.T) {
+	cfg := ModuleSettings{
+		DeviceApproval: DeviceApprovalSettings{
+			Mode: DeviceApprovalModeAutomatic,
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.DeviceApproval.Mode != DeviceApprovalModeAutomatic {
+		t.Fatalf("automatic mode must remain untouched, got %s", cfg.DeviceApproval.Mode)
+	}
+	if cfg.DeviceApproval.Selector != nil {
+		t.Fatal("automatic mode should not populate selector")
+	}
+}
+
+func TestNormalizeModuleSettingsUnknownStrategy(t *testing.T) {
+	cfg := ModuleSettings{
+		Scheduling: SchedulingSettings{
+			DefaultStrategy: "something",
+			TopologyKey:     "custom",
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.Scheduling.DefaultStrategy != defaultSchedulingStrategy {
+		t.Fatalf("unexpected fallback strategy: %s", cfg.Scheduling.DefaultStrategy)
+	}
+	if cfg.Scheduling.TopologyKey != "custom" {
+		t.Fatalf("topology key should remain trimmed when not spread, got %s", cfg.Scheduling.TopologyKey)
+	}
+}
+func TestNormalizeModuleSettingsSpreadDefaultsTopology(t *testing.T) {
+	cfg := ModuleSettings{
+		Scheduling: SchedulingSettings{
+			DefaultStrategy: "Spread",
+			TopologyKey:     "   ",
+		},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.Scheduling.TopologyKey != defaultSchedulingTopologyKey {
+		t.Fatalf("expected topology key default for Spread strategy, got %s", cfg.Scheduling.TopologyKey)
+	}
+}
+
+func TestLoadFileDecodeError(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "bad.yaml")
+	if err := os.WriteFile(cfgPath, []byte("controllers: [invalid"), 0o600); err != nil {
+		t.Fatalf("write malformed config: %v", err)
+	}
+
+	if _, err := LoadFile(cfgPath); err == nil {
+		t.Fatal("expected decode error for malformed yaml")
 	}
 }

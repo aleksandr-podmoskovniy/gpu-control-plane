@@ -28,6 +28,9 @@ import (
 
 func TestMaintenanceHandler(t *testing.T) {
 	h := NewMaintenanceHandler(testr.New(t))
+	if h.Name() == "" {
+		t.Fatal("expected non-empty handler name")
+	}
 	pool := &gpuv1alpha1.GPUPool{}
 
 	res, err := h.HandlePool(context.Background(), pool)

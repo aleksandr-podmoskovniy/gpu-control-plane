@@ -17,6 +17,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"io"
 	"io/fs"
 	"os"
 	"strconv"
@@ -34,14 +35,17 @@ var (
 	runManager     = manager.Run
 	getRESTConfig  = ctrl.GetConfigOrDie
 	setupSignals   = ctrl.SetupSignalHandler
+	exit           = os.Exit
+	statFile       = os.Stat
 )
 
 func main() {
-	os.Exit(runMain(os.Args[1:], os.Getenv))
+	exit(runMain(os.Args[1:], os.Getenv))
 }
 
 func runMain(args []string, getenv func(string) string) int {
-	flagSet := flag.NewFlagSet("gpu-control-plane", flag.ExitOnError)
+	flagSet := flag.NewFlagSet("gpu-control-plane", flag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flagSet)
 	if err := flagSet.Parse(args); err != nil {
@@ -57,7 +61,7 @@ func runMain(args []string, getenv func(string) string) int {
 	}
 
 	if configPath != "" {
-		if info, err := os.Stat(configPath); err == nil && !info.IsDir() {
+		if info, err := statFile(configPath); err == nil && !info.IsDir() {
 			loaded, err := loadConfigFile(configPath)
 			if err != nil {
 				manager.Log.Error(err, "failed to load config", "path", configPath)

@@ -34,3 +34,10 @@ func TestDeviceStateHandlerSetsDefault(t *testing.T) {
 		t.Fatalf("state not defaulted: %s", device.Status.State)
 	}
 }
+
+func TestDeviceStateHandlerName(t *testing.T) {
+	h := NewDeviceStateHandler(testr.New(t))
+	if h.Name() != "device-state" {
+		t.Fatalf("unexpected handler name: %s", h.Name())
+	}
+}

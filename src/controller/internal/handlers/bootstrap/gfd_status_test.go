@@ -28,6 +28,10 @@ import (
 
 func TestGFDStatusHandler(t *testing.T) {
 	h := NewGFDStatusHandler(testr.New(t))
+	if h.Name() == "" {
+		t.Fatal("expected non-empty handler name")
+	}
+
 	inv := &gpuv1alpha1.GPUNodeInventory{}
 
 	res, err := h.HandleNode(context.Background(), inv)

@@ -14,7 +14,12 @@
 
 package contracts
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+)
 
 type stubNamed struct{ id string }
 
@@ -38,5 +43,60 @@ func TestRegistryRegisterAndList(t *testing.T) {
 	items = r.List()
 	if len(items) != 2 {
 		t.Fatalf("expected replacement to keep 2 items, got %d", len(items))
+	}
+}
+
+type stubInventory struct{ stubNamed }
+
+func (stubInventory) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (Result, error) {
+	return Result{}, nil
+}
+
+type stubBootstrap struct{ stubNamed }
+
+func (stubBootstrap) HandleNode(context.Context, *gpuv1alpha1.GPUNodeInventory) (Result, error) {
+	return Result{}, nil
+}
+
+type stubPool struct{ stubNamed }
+
+func (stubPool) HandlePool(context.Context, *gpuv1alpha1.GPUPool) (Result, error) {
+	return Result{}, nil
+}
+
+type stubAdmission struct{ stubNamed }
+
+func (stubAdmission) SyncPool(context.Context, *gpuv1alpha1.GPUPool) (Result, error) {
+	return Result{}, nil
+}
+
+func TestTypedRegistriesInitialise(t *testing.T) {
+	inventoryReg := NewInventoryRegistry()
+	if inventoryReg == nil || len(inventoryReg.List()) != 0 {
+		t.Fatal("inventory registry must start empty")
+	}
+
+	bootstrapReg := NewBootstrapRegistry()
+	if bootstrapReg == nil || len(bootstrapReg.List()) != 0 {
+		t.Fatal("bootstrap registry must start empty")
+	}
+
+	poolReg := NewPoolRegistry()
+	if poolReg == nil || len(poolReg.List()) != 0 {
+		t.Fatal("pool registry must start empty")
+	}
+
+	admissionReg := NewAdmissionRegistry()
+	if admissionReg == nil || len(admissionReg.List()) != 0 {
+		t.Fatal("admission registry must start empty")
+	}
+
+	inventoryReg.Register(stubInventory{stubNamed{"inv"}})
+	bootstrapReg.Register(stubBootstrap{stubNamed{"boot"}})
+	poolReg.Register(stubPool{stubNamed{"pool"}})
+	admissionReg.Register(stubAdmission{stubNamed{"adm"}})
+
+	if len(inventoryReg.List()) != 1 || len(bootstrapReg.List()) != 1 || len(poolReg.List()) != 1 || len(admissionReg.List()) != 1 {
+		t.Fatal("typed registries must register handlers")
 	}
 }

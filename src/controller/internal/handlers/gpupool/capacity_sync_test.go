@@ -25,6 +25,9 @@ import (
 
 func TestCapacitySyncHandler(t *testing.T) {
 	h := NewCapacitySyncHandler(testr.New(t))
+	if h.Name() == "" {
+		t.Fatal("expected non-empty handler name")
+	}
 	pool := &gpuv1alpha1.GPUPool{}
 	pool.Status.Nodes = []gpuv1alpha1.GPUPoolNodeStatus{{TotalDevices: 3, AssignedDevices: 1}, {TotalDevices: 2, AssignedDevices: 2}}
 

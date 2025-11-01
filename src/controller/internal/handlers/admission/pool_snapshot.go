@@ -24,6 +24,8 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
+var poolStatusMarshal = json.Marshal
+
 // PoolSnapshotHandler serialises pool status for admission webhook consumption.
 type PoolSnapshotHandler struct {
 	log logr.Logger
@@ -38,7 +40,7 @@ func (h *PoolSnapshotHandler) Name() string {
 }
 
 func (h *PoolSnapshotHandler) SyncPool(_ context.Context, pool *v1alpha1.GPUPool) (contracts.Result, error) {
-	payload, err := json.Marshal(pool.Status)
+	payload, err := poolStatusMarshal(pool.Status)
 	if err != nil {
 		return contracts.Result{}, err
 	}

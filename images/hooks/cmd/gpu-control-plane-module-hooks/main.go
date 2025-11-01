@@ -22,6 +22,8 @@ import (
 	"hooks/pkg/readiness"
 )
 
+var runApp = app.Run
+
 func main() {
-	app.Run(app.WithReadiness(&readiness.ReadinessConfig))
+	runApp(app.WithReadiness(&readiness.ReadinessConfig))
 }

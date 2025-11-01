@@ -43,15 +43,12 @@ func TestEnsureControllerTLSValuesCreatesMissingMaps(t *testing.T) {
 	}
 
 	patches := patchable.GetPatches()
-	if len(patches) != 5 {
-		t.Fatalf("expected patches for all TLS maps, got %d", len(patches))
+	if len(patches) != 2 {
+		t.Fatalf("expected patches for TLS maps, got %d", len(patches))
 	}
 
 	expected := map[string]struct{}{
-		"/" + strings.ReplaceAll(settings.InternalRootPath, ".", "/"):             {},
-		"/" + strings.ReplaceAll(settings.InternalControllerPath, ".", "/"):       {},
 		"/" + strings.ReplaceAll(settings.InternalControllerCertPath, ".", "/"):   {},
-		"/" + strings.ReplaceAll(settings.InternalCertificatesPath, ".", "/"):     {},
 		"/" + strings.ReplaceAll(settings.InternalCertificatesRootPath, ".", "/"): {},
 	}
 	for _, patch := range patches {

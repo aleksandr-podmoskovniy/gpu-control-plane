@@ -47,6 +47,9 @@ func TestStringSlicesEqual(t *testing.T) {
 	if stringSlicesEqual([]string{"a"}, []string{"b"}) {
 		t.Fatal("expected different slices to be unequal")
 	}
+	if stringSlicesEqual([]string{"a"}, []string{"a", "b"}) {
+		t.Fatal("expected slices with different lengths to be unequal")
+	}
 	if !stringSlicesEqual([]string{"a", "b"}, []string{"a", "b"}) {
 		t.Fatal("expected same content slices to be equal")
 	}

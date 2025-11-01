@@ -15,6 +15,8 @@
 package inventory
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -186,6 +188,277 @@ func TestCanonicalIndexNormalization(t *testing.T) {
 	}
 }
 
+func TestExtractDeviceSnapshotsFiltersNonNvidia(t *testing.T) {
+	labels := map[string]string{
+		"gpu.deckhouse.io/device.00.vendor": "abcd",
+		"gpu.deckhouse.io/device.00.device": "1234",
+		"gpu.deckhouse.io/device.00.class":  "0302",
+	}
+	if devices := extractDeviceSnapshots(labels); len(devices) != 0 {
+		t.Fatalf("expected non-NVIDIA devices to be filtered, got %+v", devices)
+	}
+
+	labels["gpu.deckhouse.io/device.00.vendor"] = "10de"
+	labels["gpu.deckhouse.io/device.00.memoryMiB"] = "16384"
+	devices := extractDeviceSnapshots(labels)
+	if len(devices) != 1 || devices[0].MemoryMiB != 16384 {
+		t.Fatalf("expected one NVIDIA device, got %+v", devices)
+	}
+}
+
+func TestExtractDeviceSnapshotsSkipsMalformedEntries(t *testing.T) {
+	labels := map[string]string{
+		"gpu.deckhouse.io/device.00":               "broken",
+		"gpu.deckhouse.io/device.01.vendor":        "10de",
+		"gpu.deckhouse.io/device.01.device":        "2230",
+		"gpu.deckhouse.io/device.01.class":         "0302",
+		"gpu.deckhouse.io/device.02.vendor":        "10de",
+		"gpu.deckhouse.io/device.02.device":        "1db5",
+		"gpu.deckhouse.io/device.02.class":         "",
+		"gpu.deckhouse.io/device.02.memoryMiB":     "11000",
+		"gpu.deckhouse.io/device.03.vendor":        "10de",
+		"gpu.deckhouse.io/device.03.device":        "1db5",
+		"gpu.deckhouse.io/device.03.class":         "0302",
+		"gpu.deckhouse.io/device.03.product":       "GPU Product",
+		"gpu.deckhouse.io/device.03.memoryMiB":     "12 GiB",
+		"gpu.deckhouse.io/device.03.compute.major": "8",
+		"gpu.deckhouse.io/device.03.compute.minor": "9",
+	}
+
+	devices := extractDeviceSnapshots(labels)
+	if len(devices) != 2 {
+		t.Fatalf("expected two valid devices, got %+v", devices)
+	}
+	if devices[0].Index != "1" || devices[1].Index != "3" {
+		t.Fatalf("unexpected indices: %+v", devices)
+	}
+	if devices[1].Product != "GPU Product" || devices[1].MemoryMiB != 12288 {
+		t.Fatalf("expected enriched product and memory, got %+v", devices[1])
+	}
+}
+
+func TestSortDeviceSnapshotsOrdersIndices(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "10"}, {Index: "2"}, {Index: "001"}}
+	sortDeviceSnapshots(devices)
+	got := []string{devices[0].Index, devices[1].Index, devices[2].Index}
+	want := []string{"001", "10", "2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected order: %v", got)
+	}
+}
+
+func TestDeduplicateStrings(t *testing.T) {
+	input := []string{"fp32", "fp16", "fp32", "tf32"}
+	deduped := deduplicateStrings(input)
+	if !reflect.DeepEqual(deduped, []string{"fp32", "fp16", "tf32"}) {
+		t.Fatalf("unexpected deduplicate result: %v", deduped)
+	}
+}
+
+func TestCanonicalIndexVariants(t *testing.T) {
+	cases := map[string]string{
+		"":    "0",
+		"01":  "1",
+		"A12": "A12",
+	}
+	for in, want := range cases {
+		if got := canonicalIndex(in); got != want {
+			t.Fatalf("canonicalIndex(%q)=%q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestTruncateNameLimitsLength(t *testing.T) {
+	long := strings.Repeat("a", 80)
+	if len(truncateName(long)) != 63 {
+		t.Fatalf("expected name to be truncated to 63 characters")
+	}
+}
+
+func TestBuildDeviceAndInventoryNames(t *testing.T) {
+	info := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5"}
+	name := buildDeviceName("Node_A", info)
+	if !strings.HasPrefix(name, "node-a-0-") {
+		t.Fatalf("unexpected device name %s", name)
+	}
+	inv := buildInventoryID("Node_A", info)
+	if inv != name {
+		t.Fatalf("expected inventory ID to match device name, got %s", inv)
+	}
+	fallback := buildDeviceName("###", deviceSnapshot{})
+	if fallback != "gpu-gpu" {
+		t.Fatalf("expected fallback device name, got %s", fallback)
+	}
+}
+
+func TestParseMIGConfigCollectsMetrics(t *testing.T) {
+	labels := map[string]string{
+		gfdMigCapableLabel:                       "true",
+		gfdMigStrategyLabel:                      "mixed",
+		"nvidia.com/mig-1g.10gb.count":           "2",
+		"nvidia.com/mig-1g.10gb.engines.copy":    "4",
+		"nvidia.com/mig-1g.10gb.engines.encoder": "1",
+		"nvidia.com/mig-1g.10gb.engines.decoder": "1",
+		"nvidia.com/mig-1g.10gb.engines.ofa":     "1",
+		"nvidia.com/mig-1g.10gb.memory":          "10240",
+		"nvidia.com/mig-1g.10gb.multiprocessors": "14",
+	}
+
+	cfg := parseMIGConfig(labels)
+	if !cfg.Capable || cfg.Strategy != gpuv1alpha1.GPUMIGStrategyMixed {
+		t.Fatalf("unexpected MIG config: %+v", cfg)
+	}
+	if len(cfg.ProfilesSupported) != 1 || cfg.ProfilesSupported[0] != "mig-1g.10gb" {
+		t.Fatalf("unexpected profiles: %+v", cfg.ProfilesSupported)
+	}
+	if len(cfg.Types) != 1 {
+		t.Fatalf("expected single MIG type, got %+v", cfg.Types)
+	}
+	migType := cfg.Types[0]
+	if migType.Count != 2 || migType.MemoryMiB != 10240 || migType.Multiprocessors != 14 {
+		t.Fatalf("unexpected MIG type capacity: %+v", migType)
+	}
+	if migType.Engines.Copy != 4 || migType.Engines.Encoder != 1 || migType.Engines.Decoder != 1 || migType.Engines.OFAs != 1 {
+		t.Fatalf("unexpected MIG engines: %+v", migType.Engines)
+	}
+}
+
+func TestParseMemoryMiBFallbackDigits(t *testing.T) {
+	if parseMemoryMiB("512foobar") != 512 {
+		t.Fatalf("expected parser to extract leading digits")
+	}
+	if parseMemoryMiB("") != 0 {
+		t.Fatalf("expected empty value to return 0")
+	}
+}
+
+func TestParseDriverInfoRuntimeFallback(t *testing.T) {
+	info := parseDriverInfo(map[string]string{
+		gfdDriverVersionLabel:      "535.80.10",
+		gfdCudaRuntimeVersionLabel: "12.4",
+		deckhouseToolkitReadyLabel: "true",
+		deckhouseToolkitInstalled:  "false",
+	})
+	if info.CUDAVersion != "12.4" {
+		t.Fatalf("expected runtime version fallback, got %s", info.CUDAVersion)
+	}
+	if !info.ToolkitInstalled || !info.ToolkitReady {
+		t.Fatalf("expected toolkit installed to be forced when ready, got %+v", info)
+	}
+}
+
+func TestEnrichDevicesFromFeatureIgnoresUnknownIndex(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "0"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{"index": "1", "uuid": "ignored"}},
+						},
+					},
+				},
+			},
+		},
+	}
+	result := enrichDevicesFromFeature(devices, feature)
+	if len(result) != 1 || result[0].UUID != "" {
+		t.Fatalf("expected device without matching index unchanged, got %+v", result)
+	}
+}
+
+func TestEnrichDevicesFromFeaturePropagatesAttributes(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "0"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{
+								"index":          "0",
+								"uuid":           "GPU-123",
+								"product":        "Feature Product",
+								"precision":      "fp32,tf32",
+								"precision.bf16": "true",
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	result := enrichDevicesFromFeature(devices, feature)
+	if len(result) != 1 {
+		t.Fatalf("expected single device, got %+v", result)
+	}
+	if result[0].UUID != "GPU-123" || result[0].Product != "Feature Product" {
+		t.Fatalf("unexpected enrichment result %+v", result[0])
+	}
+	if !reflect.DeepEqual(result[0].Precision, []string{"bf16", "fp32", "tf32"}) {
+		t.Fatalf("expected precision to be normalised, got %+v", result[0].Precision)
+	}
+}
+
+func TestEnrichDevicesFromFeatureMissingGPUKey(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "0"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"example.com/other": {},
+				},
+			},
+		},
+	}
+	result := enrichDevicesFromFeature(devices, feature)
+	if len(result) != 1 || !reflect.DeepEqual(result[0], devices[0]) {
+		t.Fatalf("expected devices unchanged when GPU instance missing, got %+v", result)
+	}
+}
+
+func TestEnrichDevicesFromFeatureOverridesMetrics(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "5"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{
+								"index":          "5",
+								"memory.total":   "24576 MiB",
+								"compute.major":  "9",
+								"compute.minor":  "9",
+								"product":        "Feature GPU",
+								"precision":      "fp64",
+								"precision.fp32": "true",
+							}},
+							{Attributes: nil},
+							{Attributes: map[string]string{"index": ""}},
+						},
+					},
+				},
+			},
+		},
+	}
+	result := enrichDevicesFromFeature(devices, feature)
+	if len(result) != 1 {
+		t.Fatalf("expected device to be updated, got %+v", result)
+	}
+	device := result[0]
+	if device.MemoryMiB != 24576 || device.ComputeMajor != 9 || device.ComputeMinor != 9 {
+		t.Fatalf("expected metrics override, got %+v", device)
+	}
+	if device.Product != "Feature GPU" {
+		t.Fatalf("expected product override, got %s", device.Product)
+	}
+	if !reflect.DeepEqual(device.Precision, []string{"fp32", "fp64"}) {
+		t.Fatalf("expected precision override, got %+v", device.Precision)
+	}
+}
+
 func TestParseMemoryMiBVariants(t *testing.T) {
 	if got := parseMemoryMiB("40960 MiB"); got != 40960 {
 		t.Fatalf("expected 40960 MiB, got %d", got)
@@ -201,6 +474,13 @@ func TestParseMemoryMiBVariants(t *testing.T) {
 	}
 }
 
+func TestParseMemoryMiBHandlesErrRange(t *testing.T) {
+	big := strings.Repeat("9", 400) + " MiB"
+	if parseMemoryMiB(big) != 0 {
+		t.Fatalf("expected overflow to return 0")
+	}
+}
+
 func TestParseInt32Variants(t *testing.T) {
 	if got := parseInt32("42"); got != 42 {
 		t.Fatalf("expected 42, got %d", got)
@@ -210,6 +490,19 @@ func TestParseInt32Variants(t *testing.T) {
 	}
 	if got := parseInt32("not-a-number"); got != 0 {
 		t.Fatalf("expected parse failure to return 0, got %d", got)
+	}
+}
+
+func TestParseInt32HandlesErrRange(t *testing.T) {
+	big := strings.Repeat("9", 40)
+	if parseInt32(big) != 0 {
+		t.Fatalf("expected overflow to return 0")
+	}
+}
+
+func TestParseInt32HandlesLeadingZeroes(t *testing.T) {
+	if got := parseInt32("007"); got != 7 {
+		t.Fatalf("expected leading zeroes to be parsed, got %d", got)
 	}
 }
 
@@ -246,5 +539,59 @@ func TestParseMIGConfigVariants(t *testing.T) {
 	}
 	if len(cfg.Types) != 0 {
 		t.Fatalf("unexpected MIG types when not capable: %+v", cfg.Types)
+	}
+}
+
+func TestParseMIGConfigIgnoresMalformedKeys(t *testing.T) {
+	labels := map[string]string{
+		"nvidia.com/mig-foo":           "1",
+		"nvidia.com/mig-1g":            "",
+		"nvidia.com/mig-1g.profile":    "",
+		"nvidia.com/mig-1g.5gb.":       "",
+		"nvidia.com/mig-3g.40gb.count": "",
+	}
+	cfg := parseMIGConfig(labels)
+	if len(cfg.Types) != 0 {
+		t.Fatalf("expected malformed labels to be ignored, got %+v", cfg.Types)
+	}
+}
+
+func TestParseMIGConfigUnknownStrategy(t *testing.T) {
+	cfg := parseMIGConfig(map[string]string{
+		"nvidia.com/mig.strategy": "unsupported",
+	})
+	if cfg.Strategy != gpuv1alpha1.GPUMIGStrategyNone {
+		t.Fatalf("expected strategy fallback to none, got %s", cfg.Strategy)
+	}
+}
+
+func TestParseMIGConfigSortsMultipleTypes(t *testing.T) {
+	labels := map[string]string{
+		"nvidia.com/mig.capable":       "true",
+		"nvidia.com/mig-1g.10gb.count": "2",
+		"nvidia.com/mig-2g.20gb.count": "1",
+	}
+	cfg := parseMIGConfig(labels)
+	if len(cfg.Types) != 2 {
+		t.Fatalf("expected two types, got %+v", cfg.Types)
+	}
+	if cfg.Types[0].Name != "mig-1g.10gb" || cfg.Types[1].Name != "mig-2g.20gb" {
+		t.Fatalf("expected sorted types, got %+v", cfg.Types)
+	}
+}
+
+func TestParseMIGConfigAlternativeLabels(t *testing.T) {
+	cfg := parseMIGConfig(map[string]string{
+		gfdMigAltCapableLabel:              "true",
+		gfdMigAltStrategy:                  "single",
+		"nvidia.com/mig-2g.20gb.count":     "1",
+		"nvidia.com/mig-2g.20gb.ready":     "1",
+		"nvidia.com/mig-2g.20gb.available": "1",
+	})
+	if !cfg.Capable || cfg.Strategy != gpuv1alpha1.GPUMIGStrategySingle {
+		t.Fatalf("expected capability and strategy from alternative labels, got %+v", cfg)
+	}
+	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-2g.20gb" {
+		t.Fatalf("expected alt label to produce type, got %+v", cfg.Types)
 	}
 }

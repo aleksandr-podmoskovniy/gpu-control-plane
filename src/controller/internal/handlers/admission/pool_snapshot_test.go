@@ -17,6 +17,7 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -44,5 +45,38 @@ func TestPoolSnapshotHandler(t *testing.T) {
 	}
 	if status.Capacity.Total != 5 {
 		t.Fatalf("unexpected capacity total: %d", status.Capacity.Total)
+	}
+}
+
+func TestPoolSnapshotHandlerName(t *testing.T) {
+	if NewPoolSnapshotHandler(testr.New(t)).Name() != "pool-snapshot" {
+		t.Fatalf("unexpected handler name")
+	}
+}
+
+func TestPoolSnapshotHandlerPreservesExistingAnnotations(t *testing.T) {
+	h := NewPoolSnapshotHandler(testr.New(t))
+	pool := &gpuv1alpha1.GPUPool{}
+	pool.Annotations = map[string]string{"existing": "value"}
+
+	if _, err := h.SyncPool(context.Background(), pool); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pool.Annotations["existing"] != "value" {
+		t.Fatalf("existing annotation should remain untouched, got %+v", pool.Annotations)
+	}
+	if _, ok := pool.Annotations["gpu.deckhouse.io/pool-status"]; !ok {
+		t.Fatal("expected pool status annotation to be populated")
+	}
+}
+
+func TestPoolSnapshotHandlerMarshalError(t *testing.T) {
+	orig := poolStatusMarshal
+	defer func() { poolStatusMarshal = orig }()
+	poolStatusMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal fail") }
+
+	h := NewPoolSnapshotHandler(testr.New(t))
+	if _, err := h.SyncPool(context.Background(), &gpuv1alpha1.GPUPool{}); err == nil {
+		t.Fatal("expected marshal error")
 	}
 }

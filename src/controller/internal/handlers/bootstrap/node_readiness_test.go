@@ -29,6 +29,10 @@ import (
 func TestNodeReadinessRequeuesUntilReady(t *testing.T) {
 	h := NewNodeReadinessHandler(testr.New(t))
 
+	if h.Name() == "" {
+		t.Fatal("expected non-empty handler name")
+	}
+
 	node := &gpuv1alpha1.GPUNodeInventory{Status: gpuv1alpha1.GPUNodeInventoryStatus{}}
 
 	res, err := h.HandleNode(context.Background(), node)

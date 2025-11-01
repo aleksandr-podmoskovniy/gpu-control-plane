@@ -93,6 +93,13 @@ func TestDeviceApprovalAutoAttachManagedFlag(t *testing.T) {
 	}
 }
 
+func TestDeviceApprovalAutoAttachSelectorWithoutCompiledSelector(t *testing.T) {
+	policy := DeviceApprovalPolicy{mode: config.DeviceApprovalModeSelector, selector: nil}
+	if policy.AutoAttach(true, labels.Set{"gpu.deckhouse.io/device.vendor": "10de"}) {
+		t.Fatal("expected selector without compiled matcher to return false")
+	}
+}
+
 func TestLabelsForDeviceAggregatesAttributes(t *testing.T) {
 	snapshot := deviceSnapshot{
 		Index:     "0",
@@ -131,5 +138,23 @@ func TestLabelsForDeviceAggregatesAttributes(t *testing.T) {
 	}
 	if result["gpu.deckhouse.io/device.memoryMiB"] != "49152" {
 		t.Fatalf("unexpected memory label: %s", result["gpu.deckhouse.io/device.memoryMiB"])
+	}
+}
+
+func TestLabelsForDevicePreservesIndexedLabels(t *testing.T) {
+	snapshot := deviceSnapshot{Index: "03"}
+	nodeLabels := map[string]string{
+		"gpu.deckhouse.io/device.03.vendor": "10de",
+		"gpu.deckhouse.io/device.03.custom": "value",
+	}
+	labels := labelsForDevice(snapshot, nodeLabels)
+	if labels["gpu.deckhouse.io/device.03.custom"] != "value" {
+		t.Fatalf("expected indexed label to be preserved, got %s", labels["gpu.deckhouse.io/device.03.custom"])
+	}
+}
+func TestLabelsForDeviceMarksMigCapabilityFalse(t *testing.T) {
+	result := labelsForDevice(deviceSnapshot{Index: "0"}, map[string]string{})
+	if result["gpu.deckhouse.io/device.mig.capable"] != "false" {
+		t.Fatalf("expected mig capable label to be false, got %s", result["gpu.deckhouse.io/device.mig.capable"])
 	}
 }

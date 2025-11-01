@@ -16,19 +16,65 @@ package bootstrap
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 )
+
+type controllerBuilder interface {
+	Named(string) controllerBuilder
+	For(client.Object, ...builder.ForOption) controllerBuilder
+	WithOptions(controller.Options) controllerBuilder
+	Complete(reconcile.Reconciler) error
+}
+
+type runtimeControllerBuilder struct {
+	builder *builder.Builder
+}
+
+func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
+	b.builder = b.builder.Named(name)
+	return b
+}
+
+func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
+	b.builder = b.builder.For(obj, opts...)
+	return b
+}
+
+func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
+	b.builder = b.builder.WithOptions(opts)
+	return b
+}
+
+func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
+	return b.builder.Complete(r)
+}
+
+const (
+	controllerName           = "gpu-bootstrap-controller"
+	cacheSyncTimeoutDuration = 10 * time.Minute
+)
+
+var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
+	return &runtimeControllerBuilder{builder: ctrl.NewControllerManagedBy(mgr)}
+}
 
 type Reconciler struct {
 	client   client.Client
@@ -36,6 +82,7 @@ type Reconciler struct {
 	log      logr.Logger
 	cfg      config.ControllerConfig
 	handlers []contracts.BootstrapHandler
+	builders func(ctrl.Manager) controllerBuilder
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.BootstrapHandler) *Reconciler {
@@ -46,6 +93,7 @@ func New(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.Boot
 		log:      log,
 		cfg:      cfg,
 		handlers: handlers,
+		builders: newControllerManagedBy,
 	}
 }
 
@@ -53,40 +101,47 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.client = mgr.GetClient()
 	r.scheme = mgr.GetScheme()
 
-	return ctrl.NewControllerManagedBy(mgr).
-		Named("gpu-bootstrap-controller").
+	options := controller.Options{
+		MaxConcurrentReconciles: r.cfg.Workers,
+		RecoverPanic:            ptr.To(true),
+		LogConstructor:          logger.NewConstructor(r.log),
+		CacheSyncTimeout:        cacheSyncTimeoutDuration,
+	}
+
+	builder := r.builders(mgr).
+		Named(controllerName).
 		For(&gpuv1alpha1.GPUNodeInventory{}).
-		WithOptions(controller.Options{MaxConcurrentReconciles: r.cfg.Workers}).
-		Complete(r)
+		WithOptions(options)
+	return builder.Complete(r)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := crlog.FromContext(ctx).WithValues("inventory", req.Name)
+	ctx = logr.NewContext(ctx, log)
+
 	inventory := &gpuv1alpha1.GPUNodeInventory{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, inventory); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.log.V(2).Info("GPUNodeInventory removed", "name", req.Name)
+			log.V(2).Info("GPUNodeInventory removed")
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	aggregate := contracts.Result{}
-	for _, handler := range r.handlers {
-		res, err := handler.HandleNode(ctx, inventory)
-		if err != nil {
-			r.log.Error(err, "bootstrap handler failed", "handler", handler.Name(), "node", req.Name)
-			return ctrl.Result{}, err
-		}
-		aggregate = contracts.MergeResult(aggregate, res)
+	rec := reconciler.NewBase(r.handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.BootstrapHandler) (contracts.Result, error) {
+		return handler.HandleNode(ctx, inventory)
+	})
+	rec.SetResourceUpdater(func(context.Context) error { return nil })
+
+	res, err := rec.Reconcile(ctx)
+	if err != nil {
+		log.Error(err, "handler chain failed")
+		return ctrl.Result{}, err
 	}
 
-	result := ctrl.Result{}
-	if aggregate.Requeue {
-		result.Requeue = true
-	}
-	if aggregate.RequeueAfter > 0 {
-		result.RequeueAfter = aggregate.RequeueAfter
-	}
-
-	return result, nil
+	return ctrl.Result{
+		Requeue:      res.Requeue,
+		RequeueAfter: res.RequeueAfter,
+	}, nil
 }

@@ -252,9 +252,6 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 			continue
 		}
 		index := canonicalIndex(inst.Attributes["index"])
-		if index == "" {
-			continue
-		}
 		i, ok := indexMap[index]
 		if !ok {
 			continue
@@ -584,17 +581,11 @@ func truncateName(name string) string {
 func buildDeviceName(nodeName string, info deviceSnapshot) string {
 	base := sanitizeName(nodeName)
 	suffix := sanitizeName(info.Index + "-" + info.Vendor + "-" + info.Device)
-	if suffix == "" {
-		suffix = "device"
-	}
 	return truncateName(base + "-" + suffix)
 }
 
 func buildInventoryID(nodeName string, info deviceSnapshot) string {
 	base := sanitizeName(nodeName)
 	suffix := sanitizeName(info.Index + "-" + info.Vendor + "-" + info.Device)
-	if suffix == "" {
-		suffix = "device"
-	}
 	return truncateName(base + "-" + suffix)
 }

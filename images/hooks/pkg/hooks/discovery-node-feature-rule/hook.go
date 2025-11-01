@@ -26,6 +26,12 @@ import (
 	"hooks/pkg/settings"
 )
 
+func defaultYamlUnmarshal(data []byte, out any) error {
+	return yaml.Unmarshal(data, out)
+}
+
+var yamlUnmarshal = defaultYamlUnmarshal
+
 const moduleConfigSnapshot = "module-config"
 
 type moduleConfigSpec struct {
@@ -210,7 +216,7 @@ func ensureNamespace(pc pkg.PatchCollector) error {
 func ensureNodeFeatureRule(pc pkg.PatchCollector) error {
 	manifest := fmt.Sprintf(nodeFeatureRuleTemplate, settings.NodeFeatureRuleName)
 	var obj map[string]any
-	if err := yaml.Unmarshal([]byte(manifest), &obj); err != nil {
+	if err := yamlUnmarshal([]byte(manifest), &obj); err != nil {
 		return fmt.Errorf("decode NodeFeatureRule manifest: %w", err)
 	}
 

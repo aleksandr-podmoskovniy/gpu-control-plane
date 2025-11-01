@@ -28,6 +28,25 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
+type setupController interface {
+	SetupWithManager(context.Context, ctrl.Manager) error
+}
+
+var (
+	newInventoryController = func(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSettings, handlers []contracts.InventoryHandler) (setupController, error) {
+		return inventory.New(log, cfg, module, handlers)
+	}
+	newBootstrapController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.BootstrapHandler) (setupController, error) {
+		return bootstrap.New(log, cfg, handlers), nil
+	}
+	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.PoolHandler) (setupController, error) {
+		return gpupool.New(log, cfg, handlers), nil
+	}
+	newAdmissionController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.AdmissionHandler) (setupController, error) {
+		return admission.New(log, cfg, handlers), nil
+	}
+)
+
 type Dependencies struct {
 	Logger            logr.Logger
 	InventoryHandlers *contracts.InventoryRegistry
@@ -54,21 +73,30 @@ func ensureRegistries(deps *Dependencies) {
 func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfig, module config.ModuleSettings, deps Dependencies) error {
 	ensureRegistries(&deps)
 
-	inv, err := inventory.New(deps.Logger.WithName("inventory"), cfg.GPUInventory, module, deps.InventoryHandlers.List())
-	if err != nil {
-		return err
+	constructors := []func() (setupController, error){
+		func() (setupController, error) {
+			return newInventoryController(deps.Logger.WithName("inventory"), cfg.GPUInventory, module, deps.InventoryHandlers.List())
+		},
+		func() (setupController, error) {
+			return newBootstrapController(deps.Logger.WithName("bootstrap"), cfg.GPUBootstrap, deps.BootstrapHandlers.List())
+		},
+		func() (setupController, error) {
+			return newPoolController(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.PoolHandlers.List())
+		},
+		func() (setupController, error) {
+			return newAdmissionController(deps.Logger.WithName("admission"), cfg.Admission, deps.AdmissionHandlers.List())
+		},
 	}
-	if err := inv.SetupWithManager(ctx, mgr); err != nil {
-		return err
+
+	for _, ctor := range constructors {
+		controller, err := ctor()
+		if err != nil {
+			return err
+		}
+		if err := controller.SetupWithManager(ctx, mgr); err != nil {
+			return err
+		}
 	}
-	if err := bootstrap.New(deps.Logger.WithName("bootstrap"), cfg.GPUBootstrap, deps.BootstrapHandlers.List()).SetupWithManager(ctx, mgr); err != nil {
-		return err
-	}
-	if err := gpupool.New(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.PoolHandlers.List()).SetupWithManager(ctx, mgr); err != nil {
-		return err
-	}
-	if err := admission.New(deps.Logger.WithName("admission"), cfg.Admission, deps.AdmissionHandlers.List()).SetupWithManager(ctx, mgr); err != nil {
-		return err
-	}
+
 	return nil
 }

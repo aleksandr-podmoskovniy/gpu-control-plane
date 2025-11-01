@@ -253,6 +253,33 @@ func TestHandleBootstrapResourcesSnapshotError(t *testing.T) {
 		t.Fatal("expected error from handleNodeFeatureRuleSync")
 	}
 }
+func TestHandleBootstrapNamespaceError(t *testing.T) {
+	resetSeams()
+	namespaceEnsurer = func(pkg.PatchCollector) error { return errors.New("ns error") }
+	nodeFeatureEnsurer = func(pkg.PatchCollector) error { return nil }
+	enabled := true
+	snapshot := mock.NewSnapshotMock(t)
+	snapshot.UnmarshalToMock.Set(func(target any) error {
+		payload := target.(*moduleConfigSnapshotPayload)
+		payload.Spec.Enabled = &enabled
+		return nil
+	})
+	snapshots := mock.NewSnapshotsMock(t)
+	snapshots.GetMock.Set(func(string) []pkg.Snapshot { return []pkg.Snapshot{snapshot} })
+	input, _ := newHookInput(t, snapshots, mock.NewPatchCollectorMock(t), map[string]any{})
+	if err := handleNodeFeatureRuleSync(context.Background(), input); err == nil || !strings.Contains(err.Error(), "ns error") {
+		t.Fatalf("expected namespace error, got %v", err)
+	}
+}
+
+func TestEnsureNodeFeatureRuleUnmarshalFailure(t *testing.T) {
+	resetSeams()
+	yamlUnmarshal = func([]byte, any) error { return errors.New("yaml") }
+	defer func() { yamlUnmarshal = defaultYamlUnmarshal }()
+	if err := ensureNodeFeatureRule(mock.NewPatchCollectorMock(t)); err == nil || !strings.Contains(err.Error(), "yaml") {
+		t.Fatalf("expected yaml error, got %v", err)
+	}
+}
 
 func TestEnsureNodeFeatureRuleMetadataInitialization(t *testing.T) {
 	resetSeams()
@@ -377,4 +404,23 @@ func TestCleanupResources(t *testing.T) {
 
 func expectedPatchPath(path string) string {
 	return "/" + strings.ReplaceAll(path, ".", "/")
+}
+
+func TestEnsureManagedLabelsInitializesMetadata(t *testing.T) {
+	obj := map[string]any{}
+	ensureManagedLabels(obj)
+	meta, ok := obj["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata not created: %#v", obj)
+	}
+	labels, ok := meta["labels"].(map[string]any)
+	if !ok {
+		t.Fatalf("labels not created: %#v", meta)
+	}
+	if labels["app.kubernetes.io/name"] != settings.ModuleName {
+		t.Fatalf("module label missing: %#v", labels)
+	}
+	if labels["app.kubernetes.io/managed-by"] != "deckhouse" {
+		t.Fatalf("managed-by label missing: %#v", labels)
+	}
 }

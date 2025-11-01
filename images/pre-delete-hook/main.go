@@ -71,7 +71,7 @@ func NewPreDeleteHook() (*PreDeleteHook, error) {
 		return nil, fmt.Errorf("create kubernetes config: %w", err)
 	}
 
-	client, err := dynamic.NewForConfig(cfg)
+	client, err := dynamicClientFactory(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create dynamic client: %w", err)
 	}
@@ -117,54 +117,12 @@ func (p *PreDeleteHook) deleteResource(ctx context.Context, res Resource) {
 	resourceClient := p.resourceClient(res)
 
 	if err := resourceClient.Delete(ctx, res.Name, metav1.DeleteOptions{}); err != nil {
-		if errors.IsNotFound(err) {
-			slog.Info("Resource already absent",
-				slog.String("gvr", res.gvrString()),
-				slog.String("namespace", res.Namespace),
-				slog.String("name", res.Name),
-			)
-			return
-		}
-
-		slog.Error("Failed to delete resource",
-			slog.Any("err", err),
-			slog.String("gvr", res.gvrString()),
-			slog.String("namespace", res.Namespace),
-			slog.String("name", res.Name),
-		)
+		p.handleDeleteError(err, res)
 		return
 	}
 
-	deadline := time.Now().Add(p.WaitTimeout)
-	for time.Now().Before(deadline) {
-		if _, err := resourceClient.Get(ctx, res.Name, metav1.GetOptions{}); errors.IsNotFound(err) {
-			slog.Info("Resource is removed",
-				slog.String("gvr", res.gvrString()),
-				slog.String("namespace", res.Namespace),
-				slog.String("name", res.Name),
-			)
-			return
-		} else if err != nil {
-			slog.Error("Failed to check resource status",
-				slog.Any("err", err),
-				slog.String("gvr", res.gvrString()),
-				slog.String("namespace", res.Namespace),
-				slog.String("name", res.Name),
-			)
-			return
-		}
-
-		select {
-		case <-time.After(2 * time.Second):
-		case <-ctx.Done():
-			slog.Error("Context cancelled while waiting resource removal",
-				slog.Any("err", ctx.Err()),
-				slog.String("gvr", res.gvrString()),
-				slog.String("namespace", res.Namespace),
-				slog.String("name", res.Name),
-			)
-			return
-		}
+	if p.waitForRemoval(ctx, resourceClient, res) {
+		return
 	}
 
 	slog.Error("Timeout waiting for resource deletion",
@@ -172,6 +130,61 @@ func (p *PreDeleteHook) deleteResource(ctx context.Context, res Resource) {
 		slog.String("namespace", res.Namespace),
 		slog.String("name", res.Name),
 	)
+}
+
+func (p *PreDeleteHook) handleDeleteError(err error, res Resource) bool {
+	if errors.IsNotFound(err) {
+		slog.Info("Resource already absent",
+			slog.String("gvr", res.gvrString()),
+			slog.String("namespace", res.Namespace),
+			slog.String("name", res.Name),
+		)
+		return true
+	}
+
+	slog.Error("Failed to delete resource",
+		slog.Any("err", err),
+		slog.String("gvr", res.gvrString()),
+		slog.String("namespace", res.Namespace),
+		slog.String("name", res.Name),
+	)
+	return true
+}
+
+func (p *PreDeleteHook) waitForRemoval(ctx context.Context, client dynamic.ResourceInterface, res Resource) bool {
+	deadline := time.Now().Add(p.WaitTimeout)
+	for time.Now().Before(deadline) {
+		if _, err := client.Get(ctx, res.Name, metav1.GetOptions{}); errors.IsNotFound(err) {
+			slog.Info("Resource is removed",
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("name", res.Name),
+			)
+			return true
+		} else if err != nil {
+			slog.Error("Failed to check resource status",
+				slog.Any("err", err),
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("name", res.Name),
+			)
+			return true
+		}
+
+		select {
+		case <-sleepAfter(2 * time.Second):
+		case <-ctx.Done():
+			slog.Error("Context cancelled while waiting resource removal",
+				slog.Any("err", ctx.Err()),
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("name", res.Name),
+			)
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p *PreDeleteHook) resourceClient(res Resource) dynamic.ResourceInterface {
@@ -185,11 +198,19 @@ func (p *PreDeleteHook) resourceClient(res Resource) dynamic.ResourceInterface {
 func main() {
 	ctx := context.Background()
 
-	hook, err := NewPreDeleteHook()
+	hook, err := newPreDeleteHook()
 	if err != nil {
 		slog.Error("Pre-delete hook initialisation failed", slog.Any("err", err))
-		os.Exit(0)
+		exitFunc(0)
+		return
 	}
 
 	hook.Run(ctx)
 }
+
+var (
+	newPreDeleteHook     = NewPreDeleteHook
+	exitFunc             = os.Exit
+	sleepAfter           = time.After
+	dynamicClientFactory = dynamic.NewForConfig
+)

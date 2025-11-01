@@ -16,5 +16,19 @@
 set -euo pipefail
 INSTALL_DIR=${INSTALL_DIR:-$(pwd)/.bin}
 VERSION=${GOLANGCI_LINT_VERSION:-1.64.8}
+BINARY="${INSTALL_DIR}/golangci-lint"
+
 mkdir -p "$INSTALL_DIR"
-GOBIN="${INSTALL_DIR}" go install "github.com/golangci/golangci-lint/cmd/golangci-lint@v${VERSION}"
+
+if [[ -x "${BINARY}" ]]; then
+  if current_version="$("${BINARY}" version --format short 2>/dev/null)"; then
+    if [[ "${current_version}" == "v${VERSION}" ]]; then
+      exit 0
+    fi
+  fi
+fi
+
+if ! GOBIN="${INSTALL_DIR}" go install "github.com/golangci/golangci-lint/cmd/golangci-lint@v${VERSION}"; then
+  echo "Failed to install golangci-lint v${VERSION} via go install" >&2
+  exit 1
+fi

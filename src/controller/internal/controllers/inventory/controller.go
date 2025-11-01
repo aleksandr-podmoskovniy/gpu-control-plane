@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -44,11 +46,16 @@ import (
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
 )
 
 const (
+	controllerName           = "gpu-inventory-controller"
+	cacheSyncTimeoutDuration = 10 * time.Minute
+
 	conditionManagedDisabled     = "ManagedDisabled"
 	conditionInventoryIncomplete = "InventoryIncomplete"
 
@@ -81,6 +88,18 @@ var (
 	}, []string{"node", "condition"})
 )
 
+var newControllerManagedBy = func(mgr ctrl.Manager) controllerRuntimeAdapter {
+	return &controllerRuntimeWrapper{builder: ctrl.NewControllerManagedBy(mgr)}
+}
+
+var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
+	return source.Kind(
+		cache,
+		&nfdv1alpha1.NodeFeature{},
+		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
+	)
+}
+
 func init() {
 	metrics.Registry.MustRegister(inventoryDevicesGauge, inventoryConditionGauge)
 }
@@ -95,36 +114,78 @@ type controllerBuilder interface {
 }
 
 type runtimeControllerBuilder struct {
-	builder *builder.Builder
+	adapter controllerRuntimeAdapter
 }
 
 func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
-	b.builder = b.builder.Named(name)
+	b.adapter = b.adapter.Named(name)
 	return b
 }
 
 func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
-	b.builder = b.builder.For(obj, opts...)
+	b.adapter = b.adapter.For(obj, opts...)
 	return b
 }
 
 func (b *runtimeControllerBuilder) Owns(obj client.Object, opts ...builder.OwnsOption) controllerBuilder {
-	b.builder = b.builder.Owns(obj, opts...)
+	b.adapter = b.adapter.Owns(obj, opts...)
 	return b
 }
 
 func (b *runtimeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
-	b.builder = b.builder.WatchesRawSource(src)
+	b.adapter = b.adapter.WatchesRawSource(src)
 	return b
 }
 
 func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
-	b.builder = b.builder.WithOptions(opts)
+	b.adapter = b.adapter.WithOptions(opts)
 	return b
 }
 
 func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
-	return b.builder.Complete(r)
+	return b.adapter.Complete(r)
+}
+
+type controllerRuntimeAdapter interface {
+	Named(string) controllerRuntimeAdapter
+	For(client.Object, ...builder.ForOption) controllerRuntimeAdapter
+	Owns(client.Object, ...builder.OwnsOption) controllerRuntimeAdapter
+	WatchesRawSource(source.Source) controllerRuntimeAdapter
+	WithOptions(controller.Options) controllerRuntimeAdapter
+	Complete(reconcile.Reconciler) error
+}
+
+type controllerRuntimeWrapper struct {
+	builder *builder.Builder
+}
+
+func (w *controllerRuntimeWrapper) Named(name string) controllerRuntimeAdapter {
+	w.builder = w.builder.Named(name)
+	return w
+}
+
+func (w *controllerRuntimeWrapper) For(obj client.Object, opts ...builder.ForOption) controllerRuntimeAdapter {
+	w.builder = w.builder.For(obj, opts...)
+	return w
+}
+
+func (w *controllerRuntimeWrapper) Owns(obj client.Object, opts ...builder.OwnsOption) controllerRuntimeAdapter {
+	w.builder = w.builder.Owns(obj, opts...)
+	return w
+}
+
+func (w *controllerRuntimeWrapper) WatchesRawSource(src source.Source) controllerRuntimeAdapter {
+	w.builder = w.builder.WatchesRawSource(src)
+	return w
+}
+
+func (w *controllerRuntimeWrapper) WithOptions(opts controller.Options) controllerRuntimeAdapter {
+	w.builder = w.builder.WithOptions(opts)
+	return w
+}
+
+func (w *controllerRuntimeWrapper) Complete(r reconcile.Reconciler) error {
+	return w.builder.Complete(r)
 }
 
 type setupDependencies struct {
@@ -137,15 +198,11 @@ type setupDependencies struct {
 }
 
 func defaultControllerBuilder(mgr ctrl.Manager) controllerBuilder {
-	return &runtimeControllerBuilder{builder: ctrl.NewControllerManagedBy(mgr)}
+	return &runtimeControllerBuilder{adapter: newControllerManagedBy(mgr)}
 }
 
 func defaultNodeFeatureSource(cache cache.Cache) source.SyncingSource {
-	return source.Kind(
-		cache,
-		&nfdv1alpha1.NodeFeature{},
-		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
-	)
+	return nodeFeatureSourceBuilder(cache)
 }
 
 type Reconciler struct {
@@ -226,19 +283,27 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		return err
 	}
 
+	options := controller.Options{
+		MaxConcurrentReconciles: r.cfg.Workers,
+		RecoverPanic:            ptr.To(true),
+		LogConstructor:          logger.NewConstructor(r.log),
+		CacheSyncTimeout:        cacheSyncTimeoutDuration,
+	}
+
 	builder := deps.builder.
-		Named("gpu-inventory-controller").
+		Named(controllerName).
 		For(&corev1.Node{}).
 		Owns(&gpuv1alpha1.GPUDevice{}).
 		Owns(&gpuv1alpha1.GPUNodeInventory{}).
 		WatchesRawSource(deps.nodeFeatureSource).
-		WithOptions(controller.Options{MaxConcurrentReconciles: r.cfg.Workers})
+		WithOptions(options)
 
 	return builder.Complete(r)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.log.WithValues("node", req.Name)
+	log := crlog.FromContext(ctx).WithValues("node", req.Name)
+	ctx = logr.NewContext(ctx, log)
 
 	node := &corev1.Node{}
 	if err := r.client.Get(ctx, req.NamespacedName, node); err != nil {
@@ -484,15 +549,16 @@ func (r *Reconciler) ensureDeviceMetadata(ctx context.Context, node *corev1.Node
 }
 
 func (r *Reconciler) invokeHandlers(ctx context.Context, device *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
-	aggregate := contracts.Result{}
-	for _, handler := range r.handlers {
-		res, err := handler.HandleDevice(ctx, device)
-		if err != nil {
-			return aggregate, err
-		}
-		aggregate = contracts.MergeResult(aggregate, res)
-	}
-	return aggregate, nil
+	log := crlog.FromContext(ctx).WithValues("device", device.Name)
+	ctx = logr.NewContext(ctx, log)
+
+	rec := reconciler.NewBase(r.handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.InventoryHandler) (contracts.Result, error) {
+		return handler.HandleDevice(ctx, device)
+	})
+	rec.SetResourceUpdater(func(context.Context) error { return nil })
+
+	return rec.Reconcile(ctx)
 }
 
 func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*gpuv1alpha1.GPUDevice) error {
@@ -740,11 +806,8 @@ func setStatusCondition(conditions *[]metav1.Condition, condition metav1.Conditi
 	}
 	apimeta.SetStatusCondition(conditions, condition)
 	next := apimeta.FindStatusCondition(*conditions, condition.Type)
-	if prevCopy == nil && next != nil {
-		return true
-	}
-	if prevCopy == nil || next == nil {
-		return false
+	if prevCopy == nil {
+		return next != nil
 	}
 	return prevCopy.Status != next.Status || prevCopy.Reason != next.Reason || prevCopy.Message != next.Message
 }
