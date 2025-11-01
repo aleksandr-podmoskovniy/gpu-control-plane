@@ -56,7 +56,9 @@ func TestHandleInitializeValuesCreatesMissingMaps(t *testing.T) {
 		settings.InternalRootPath,
 		settings.InternalControllerPath,
 		settings.InternalControllerPath + ".config",
+		settings.InternalControllerCertPath,
 		settings.InternalCertificatesPath,
+		settings.InternalCertificatesRootPath,
 	}
 	if len(patches) != len(expectedPaths) {
 		t.Fatalf("expected %d patches, got %d", len(expectedPaths), len(patches))

@@ -73,9 +73,17 @@ properties:
         prometheusRules: true
         grafanaDashboards: true
       internal:
-        certificates: {}
+        certificates:
+          root:
+            ca: ""
+            crt: ""
+            key: ""
         controller:
           config: {}
+          cert:
+            ca: ""
+            crt: ""
+            key: ""
         webhook: {}
         nodeFeatureRule: {}
     properties:
@@ -404,7 +412,22 @@ properties:
           certificates:
             type: object
             description: Certificates and private keys rendered by hooks (TLS, root CA).
-            additionalProperties: true
+            properties:
+              root:
+                type: object
+                description: Root certificate authority used to sign module-issued TLS credentials.
+                properties:
+                  ca:
+                    type: string
+                    description: PEM-encoded bundle of the root CA certificate chain.
+                  crt:
+                    type: string
+                    description: PEM-encoded root CA certificate.
+                  key:
+                    type: string
+                    description: PEM-encoded private key for the root CA.
+                additionalProperties: false
+            additionalProperties: false
           controller:
             type: object
             description: Controller-specific computed values.
@@ -413,7 +436,21 @@ properties:
                 type: object
                 description: Controller-runtime configuration rendered into `config.yaml` and mounted into the Deployment.
                 additionalProperties: true
-            additionalProperties: true
+              cert:
+                type: object
+                description: TLS certificate chain and key used by the controller admission webhooks.
+                properties:
+                  ca:
+                    type: string
+                    description: PEM-encoded issuing CA bundle that signed the webhook certificate.
+                  crt:
+                    type: string
+                    description: PEM-encoded certificate presented by the controller webhook server.
+                  key:
+                    type: string
+                    description: PEM-encoded private key for the controller webhook certificate.
+                additionalProperties: false
+            additionalProperties: false
           webhook:
             type: object
             description: Admission webhook internal data (certificates, service references).
