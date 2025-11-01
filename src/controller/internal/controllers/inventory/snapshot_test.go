@@ -20,6 +20,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
 )
 
@@ -181,5 +183,68 @@ func TestCanonicalIndexNormalization(t *testing.T) {
 	}
 	if snapshot.Devices[1].Product != "NVIDIA Test GPU" {
 		t.Fatalf("expected product from NodeFeature, got %q", snapshot.Devices[1].Product)
+	}
+}
+
+func TestParseMemoryMiBVariants(t *testing.T) {
+	if got := parseMemoryMiB("40960 MiB"); got != 40960 {
+		t.Fatalf("expected 40960 MiB, got %d", got)
+	}
+	if got := parseMemoryMiB("40 GiB"); got != 40960 {
+		t.Fatalf("expected GiB to be converted to MiB, got %d", got)
+	}
+	if got := parseMemoryMiB("0.5 TiB"); got != 524288 {
+		t.Fatalf("expected TiB conversion, got %d", got)
+	}
+	if got := parseMemoryMiB("unknown"); got != 0 {
+		t.Fatalf("invalid memory should return 0, got %d", got)
+	}
+}
+
+func TestParseInt32Variants(t *testing.T) {
+	if got := parseInt32("42"); got != 42 {
+		t.Fatalf("expected 42, got %d", got)
+	}
+	if got := parseInt32("42 MHz"); got != 42 {
+		t.Fatalf("expected to parse leading digits, got %d", got)
+	}
+	if got := parseInt32("not-a-number"); got != 0 {
+		t.Fatalf("expected parse failure to return 0, got %d", got)
+	}
+}
+
+func TestExtractLeadingDigits(t *testing.T) {
+	if got := extractLeadingDigits("123abc"); got != "123" {
+		t.Fatalf("expected leading digits extracted, got %q", got)
+	}
+	if got := extractLeadingDigits("abc123"); got != "" {
+		t.Fatalf("expected empty string when no leading digits, got %q", got)
+	}
+}
+
+func TestParseMIGConfigVariants(t *testing.T) {
+	cfg := parseMIGConfig(map[string]string{
+		gfdMigCapableLabel:             "true",
+		"nvidia.com/mig.strategy":      "mixed",
+		"nvidia.com/mig-1g.10gb.count": "2",
+	})
+	if !cfg.Capable {
+		t.Fatal("expected MIG capable true")
+	}
+	if cfg.Strategy != gpuv1alpha1.GPUMIGStrategyMixed {
+		t.Fatalf("unexpected strategy: %s", cfg.Strategy)
+	}
+	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-1g.10gb" || cfg.Types[0].Count != 2 {
+		t.Fatalf("unexpected MIG types: %+v", cfg.Types)
+	}
+
+	cfg = parseMIGConfig(map[string]string{
+		gfdMigAltCapableLabel: "false",
+	})
+	if cfg.Capable {
+		t.Fatal("expected MIG capable false from alt label")
+	}
+	if len(cfg.Types) != 0 {
+		t.Fatalf("unexpected MIG types when not capable: %+v", cfg.Types)
 	}
 }

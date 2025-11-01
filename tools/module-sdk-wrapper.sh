@@ -44,8 +44,8 @@ run_go_test() {
   shift || true
 
   case "${pkg}" in
-    hooks/*)
-      (cd "${ROOT}/hooks" && GO111MODULE=on go test "./${pkg#hooks/}" "$@")
+    images/hooks/*)
+      (cd "${ROOT}/images/hooks" && GO111MODULE=on go test "./${pkg#images/hooks/}" "$@")
       ;;
     src/controller/*)
       (cd "${ROOT}/src/controller" && GO111MODULE=on go test "./${pkg#src/controller/}" "$@")

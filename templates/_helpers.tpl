@@ -36,6 +36,10 @@ gpu-control-plane
 {{ include "gpuControlPlane.moduleName" . }}-ca
 {{- end -}}
 
+{{- define "gpuControlPlane.nodeFeatureRuleName" -}}
+deckhouse-gpu-kernel-os
+{{- end -}}
+
 {{- define "gpuControlPlane.metricsPort" -}}8080{{- end -}}
 
 {{- define "gpuControlPlane.selectorLabels" -}}

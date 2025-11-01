@@ -18,14 +18,14 @@ image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
 final: false
 fromImage: builder/src
 git:
-  - add: {{ .ModuleDir }}/hooks
-    to: /app/hooks
+  - add: {{ .ModuleDir }}/images/hooks
+    to: /app/images/hooks
     stageDependencies:
       install:
-        - hooks/go.mod
-        - hooks/go.sum
+        - images/hooks/go.mod
+        - images/hooks/go.sum
       setup:
-        - hooks/**/*.go
+        - images/hooks/**
 ---
 image: {{ .ModuleNamePrefix }}go-hooks-artifact
 final: false
@@ -45,11 +45,11 @@ shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
     - export GOTOOLCHAIN=go1.25.1
-    - cd /app/hooks
+    - cd /app/images/hooks
     - go mod download
   setup:
     - export GOTOOLCHAIN=go1.25.1
-    - cd /app/hooks
+    - cd /app/images/hooks
     - export GOOS=linux
     - export GOARCH=amd64
     - export CGO_ENABLED=0

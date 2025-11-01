@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-go 1.24
+go 1.24.6
 
 use (
-	./hooks
+	./images/hooks
+	./images/pre-delete-hook
 	./src/controller
 )

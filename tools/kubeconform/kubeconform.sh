@@ -52,10 +52,10 @@ else
   exit 1
 fi
 
-if [[ ! -d kubeconform.git ]]; then
-  echo "Clone kubeconform repository to convert schemas ..." >&2
-  git clone https://github.com/yannh/kubeconform.git kubeconform.git >/dev/null 2>&1
-fi
+echo "Clone kubeconform repository to convert schemas ..." >&2
+KUBECONFORM_REPO=$(mktemp -d "${TMPDIR:-/tmp}/kubeconform.XXXXXX")
+trap 'rm -rf "${KUBECONFORM_REPO}"' EXIT
+git clone https://github.com/yannh/kubeconform.git "${KUBECONFORM_REPO}" >/dev/null 2>&1
 
 if [[ ! -d schemas ]]; then
   mkdir -p schemas
@@ -68,14 +68,14 @@ if [[ ! -d schemas ]]; then
   echo "Transform Deckhouse CRDs to JSON schema ..." >&2
   export FILENAME_FORMAT='{kind}-{group}-{version}'
   for crd in *.yaml; do
-    ../kubeconform.git/scripts/openapi2jsonschema.py "$crd"
+    "${KUBECONFORM_REPO}"/scripts/openapi2jsonschema.py "$crd"
   done
 
   echo "Transform gpu-control-plane CRDs ..." >&2
   shopt -s nullglob
   for crd in ../../crds/*.yaml; do
     [[ "$crd" == *doc-ru* ]] && continue
-    ../kubeconform.git/scripts/openapi2jsonschema.py "$crd"
+    "${KUBECONFORM_REPO}"/scripts/openapi2jsonschema.py "$crd"
   done
   shopt -u nullglob
 

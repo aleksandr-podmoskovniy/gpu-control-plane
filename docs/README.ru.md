@@ -87,13 +87,17 @@ weight: 10
   записывает настройки во внутренние значения.
 - `module_status` — блокирует релиз, если модуль node-feature-discovery не
   включён, публикуя условие `PrerequisiteNotMet` и сообщение проверки.
-- `bootstrap_resources` — разворачивает пространство имён и NodeFeatureRule,
+- `discovery_node_feature_rule` — разворачивает пространство имён и NodeFeatureRule,
   которое метит GPU-узлы в пространстве `gpu.deckhouse.io/*`.
+- `pkg/readiness` — публикует probe готовности, чтобы addon-operator блокировал
+  релизы при ошибках валидации или незавершённом bootstrap.
 
 ## Пакетирование и поставка
 
 - Шаблоны Helm используют макросы Deckhouse: Deployment с HA-настройками,
   ServiceAccount/RBAC, сервис метрик + ScrapeConfig, namespace модуля.
+- Pre-delete Job перед удалением релиза убирает NodeFeatureRule, чтобы после
+  отключения модуля в кластере не оставались устаревшие метки.
 - `werf.yaml` и файлы в `images/` описывают образы контроллера, хуков и bundle
   для воспроизводимой сборки под giterminism.
 - `openapi/config-values.yaml` и `openapi/values.yaml` предоставляют схемы для
@@ -169,7 +173,7 @@ weight: 10
 
 - `openapi/values.yaml` — схема внутренних значений, используемых хуками и Helm.
 - `openapi/config-values.yaml` — публичная схема для документации ModuleConfig.
-- `hooks/pkg/hooks` — исходники хуков, собираемых в бинарь
+- `images/hooks/pkg/hooks` — исходники хуков, собираемых в бинарь
 `gpu-control-plane-module-hooks`.
 - `src/controller` — код контроллера инвентаризации и вспомогательных
 обработчиков.

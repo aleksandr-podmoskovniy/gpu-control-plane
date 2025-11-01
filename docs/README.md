@@ -86,13 +86,17 @@ The module relies on `module-sdk` hooks to integrate with addon-operator:
   settings into internal values.
 - `module_status` – blocks releases when node-feature-discovery is not enabled
   by publishing a `PrerequisiteNotMet` condition and a validation message.
-- `bootstrap_resources` – renders the namespace and the NodeFeatureRule that
+- `discovery_node_feature_rule` – renders the namespace and the NodeFeatureRule that
   labels GPU nodes with the `gpu.deckhouse.io/*` hierarchy.
+- `pkg/readiness` – exposes the module readiness probe used by addon-operator to
+  block releases while validation errors or pending bootstrap actions remain.
 
 ## Packaging and deployment assets
 
 - Helm templates follow Deckhouse patterns: Deployment with HA helpers,
   ServiceAccount/RBAC, metrics Service + ScrapeConfig, and module-managed namespace.
+- A pre-delete Job removes dynamic resources (NodeFeatureRule) before Helm wipes the
+  release to avoid stale labels after module shutdown.
 - `werf.yaml` together with `images/` describes controller, hooks and bundle
   images, enabling reproducible builds under giterminism.
 - `openapi/config-values.yaml` and `openapi/values.yaml` expose both public and
@@ -172,7 +176,7 @@ The background rescan interval can be adjusted via
 
 - `openapi/values.yaml` – internal values schema used by hooks and templates.
 - `openapi/config-values.yaml` – public schema rendered into documentation.
-- `hooks/pkg/hooks` – module-sdk hooks compiled into the
+- `images/hooks/pkg/hooks` – module-sdk hooks compiled into the
  `gpu-control-plane-module-hooks` binary.
 - `src/controller` – Go sources of the inventory controller and supporting
  handlers.

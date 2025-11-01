@@ -16,6 +16,7 @@ package inventory
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,8 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
@@ -43,6 +49,90 @@ type trackingHandler struct {
 	result  contracts.Result
 	handled []string
 }
+
+type errorHandler struct {
+	err error
+}
+
+func (errorHandler) Name() string {
+	return "error"
+}
+
+func (h errorHandler) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+	return contracts.Result{}, h.err
+}
+
+type fakeFieldIndexer struct {
+	lastObject client.Object
+	lastField  string
+}
+
+func (f *fakeFieldIndexer) IndexField(_ context.Context, obj client.Object, field string, extract client.IndexerFunc) error {
+	f.lastObject = obj
+	f.lastField = field
+	if extract != nil {
+		extract(obj)
+	}
+	return nil
+}
+
+type fakeControllerBuilder struct {
+	name          string
+	forObjects    []client.Object
+	ownedObjects  []client.Object
+	watchedSource source.Source
+	options       controller.Options
+	completed     bool
+}
+
+func (b *fakeControllerBuilder) Named(name string) controllerBuilder {
+	b.name = name
+	return b
+}
+
+func (b *fakeControllerBuilder) For(obj client.Object, _ ...builder.ForOption) controllerBuilder {
+	b.forObjects = append(b.forObjects, obj)
+	return b
+}
+
+func (b *fakeControllerBuilder) Owns(obj client.Object, _ ...builder.OwnsOption) controllerBuilder {
+	b.ownedObjects = append(b.ownedObjects, obj)
+	return b
+}
+
+func (b *fakeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
+	b.watchedSource = src
+	return b
+}
+
+func (b *fakeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
+	b.options = opts
+	return b
+}
+
+func (b *fakeControllerBuilder) Complete(reconcile.Reconciler) error {
+	b.completed = true
+	return nil
+}
+
+type fakeSyncingSource struct {
+	source.SyncingSource
+}
+
+type stubManager struct {
+	ctrl.Manager
+	client   client.Client
+	scheme   *runtime.Scheme
+	recorder record.EventRecorder
+	indexer  client.FieldIndexer
+	cache    cache.Cache
+}
+
+func (m stubManager) GetClient() client.Client                        { return m.client }
+func (m stubManager) GetScheme() *runtime.Scheme                      { return m.scheme }
+func (m stubManager) GetEventRecorderFor(string) record.EventRecorder { return m.recorder }
+func (m stubManager) GetFieldIndexer() client.FieldIndexer            { return m.indexer }
+func (m stubManager) GetCache() cache.Cache                           { return m.cache }
 
 func (h *trackingHandler) Name() string {
 	if h.name != "" {
@@ -404,6 +494,250 @@ func TestReconcileCleanupOnMissingNode(t *testing.T) {
 	}
 	if err := client.Get(ctx, types.NamespacedName{Name: inventory.Name}, &gpuv1alpha1.GPUNodeInventory{}); err == nil || !apierrors.IsNotFound(err) {
 		t.Fatalf("expected inventory to be removed, err=%v", err)
+	}
+}
+
+func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-missing-feature",
+			UID:  types.UID("node-worker-missing-feature"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "2230",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node)
+	module := defaultModuleSettings()
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+
+	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
+		t.Fatalf("inventory missing: %v", err)
+	}
+	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Reason != reasonNodeFeatureMissing || cond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected InventoryIncomplete=true reason=%s, got %+v", reasonNodeFeatureMissing, cond)
+	}
+}
+
+func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-no-devices",
+			UID:  types.UID("worker-no-devices"),
+		},
+	}
+	feature := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{Name: node.Name},
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Labels: map[string]string{
+				"nvidia.com/gpu.driver":        "535.86.05",
+				"nvidia.com/cuda.driver.major": "12",
+				"nvidia.com/cuda.driver.minor": "2",
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node, feature)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+
+	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
+		t.Fatalf("inventory missing: %v", err)
+	}
+	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Reason != reasonNoDevicesDiscovered {
+		t.Fatalf("expected no devices discovered condition, got %+v", cond)
+	}
+}
+
+func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "metadata-node",
+			UID:  types.UID("metadata-node"),
+		},
+	}
+	device := &gpuv1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "metadata-device",
+		},
+	}
+
+	client := newTestClient(scheme, node, device)
+	reconciler := &Reconciler{
+		client: client,
+		scheme: scheme,
+	}
+
+	snapshot := deviceSnapshot{Index: "1"}
+	changed, err := reconciler.ensureDeviceMetadata(context.Background(), node, device, snapshot)
+	if err != nil {
+		t.Fatalf("ensureDeviceMetadata returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected metadata to change")
+	}
+	if device.Labels[deviceNodeLabelKey] != node.Name {
+		t.Fatalf("device node label not set: %v", device.Labels)
+	}
+	if device.Labels[deviceIndexLabelKey] != "1" {
+		t.Fatalf("device index label not set: %v", device.Labels)
+	}
+	if len(device.OwnerReferences) != 1 || device.OwnerReferences[0].UID != node.UID {
+		t.Fatalf("expected owner reference to node, got %+v", device.OwnerReferences)
+	}
+}
+
+func TestReconcileInvokesHandlersErrorPropagation(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "handler-error",
+			UID:  types.UID("handler-error"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node)
+	errHandler := errorHandler{err: fmt.Errorf("boom")}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), []contracts.InventoryHandler{errHandler})
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("expected handler error to propagate, got %v", err)
+	}
+}
+
+func TestCleanupNodeDeletesMetrics(t *testing.T) {
+	const nodeName = "cleanup-metrics"
+	inventoryDevicesGauge.WithLabelValues(nodeName).Set(2)
+	inventoryConditionGauge.WithLabelValues(nodeName, conditionManagedDisabled).Set(1)
+	inventoryConditionGauge.WithLabelValues(nodeName, conditionInventoryIncomplete).Set(1)
+
+	scheme := newTestScheme(t)
+	client := newTestClient(scheme)
+	reconciler := &Reconciler{client: client}
+
+	if err := reconciler.cleanupNode(context.Background(), nodeName); err != nil {
+		t.Fatalf("cleanupNode returned error: %v", err)
+	}
+}
+
+func TestSetupWithDependencies(t *testing.T) {
+	scheme := newTestScheme(t)
+	indexer := &fakeFieldIndexer{}
+	builder := &fakeControllerBuilder{}
+	fakeSource := &fakeSyncingSource{}
+	rec := &Reconciler{cfg: config.ControllerConfig{Workers: 3}}
+
+	deps := setupDependencies{
+		client:            newTestClient(scheme),
+		scheme:            scheme,
+		recorder:          record.NewFakeRecorder(1),
+		indexer:           indexer,
+		nodeFeatureSource: fakeSource,
+		builder:           builder,
+	}
+
+	if err := rec.setupWithDependencies(context.Background(), deps); err != nil {
+		t.Fatalf("setupWithDependencies returned error: %v", err)
+	}
+	if rec.client == nil || rec.scheme != scheme || rec.recorder == nil {
+		t.Fatal("setupWithDependencies did not assign manager dependencies")
+	}
+	if indexer.lastField != deviceNodeIndexKey {
+		t.Fatalf("expected index field %q, got %q", deviceNodeIndexKey, indexer.lastField)
+	}
+	if len(builder.forObjects) != 1 || len(builder.ownedObjects) != 2 {
+		t.Fatalf("unexpected builder registrations: for=%d owns=%d", len(builder.forObjects), len(builder.ownedObjects))
+	}
+	if builder.watchedSource != fakeSource {
+		t.Fatal("expected node feature source to be passed to builder")
+	}
+	if builder.options.MaxConcurrentReconciles != 3 {
+		t.Fatalf("expected max workers 3, got %d", builder.options.MaxConcurrentReconciles)
+	}
+	if !builder.completed {
+		t.Fatal("expected builder complete to be invoked")
+	}
+}
+
+func TestSetupWithManagerUsesFactories(t *testing.T) {
+	scheme := newTestScheme(t)
+	indexer := &fakeFieldIndexer{}
+	builder := &fakeControllerBuilder{}
+	fakeSource := &fakeSyncingSource{}
+
+	rec := &Reconciler{
+		cfg: config.ControllerConfig{Workers: 1},
+	}
+	var factoryCalled, sourceCalled bool
+	rec.builderFactory = func(ctrl.Manager) controllerBuilder {
+		factoryCalled = true
+		return builder
+	}
+	rec.nodeFeatureSourceFactory = func(cache.Cache) source.SyncingSource {
+		sourceCalled = true
+		return fakeSource
+	}
+
+	mgr := stubManager{
+		client:   newTestClient(scheme),
+		scheme:   scheme,
+		recorder: record.NewFakeRecorder(1),
+		indexer:  indexer,
+	}
+
+	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
+		t.Fatalf("SetupWithManager returned error: %v", err)
+	}
+	if !factoryCalled {
+		t.Fatal("expected builder factory to be invoked")
+	}
+	if !sourceCalled {
+		t.Fatal("expected node feature source factory to be invoked")
+	}
+	if !builder.completed {
+		t.Fatal("expected builder Complete to be called")
 	}
 }
 

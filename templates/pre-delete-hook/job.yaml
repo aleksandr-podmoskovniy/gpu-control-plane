@@ -1,0 +1,36 @@
+{{/* Copyright 2025 Flant JSC */}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-control-plane-pre-delete-hook
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" "gpu-control-plane-pre-delete-hook")) | nindent 2 }}
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: gpu-control-plane-pre-delete-hook
+      {{- include "helm_lib_module_labels" (list . (dict "app" "gpu-control-plane-pre-delete-hook")) | nindent 6 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: gpu-control-plane-pre-delete-hook
+      containers:
+        - name: gpu-control-plane-pre-delete-hook
+          {{- $resources := list (dict "gvr" (dict "Group" "nfd.k8s-sigs.io" "Version" "v1alpha1" "Resource" "nodefeaturerules") "name" (include "gpuControlPlane.nodeFeatureRuleName" .)) }}
+          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          image: "{{ include "helm_lib_module_image" (list . "preDeleteHook" (include "gpuControlPlane.moduleName" .)) }}"
+          env:
+            - name: WAIT_TIMEOUT
+              value: 600s
+            - name: RESOURCES
+              value: '{{ $resources | toJson }}'
+          resources:
+            requests:
+              {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
+              cpu: 10m
+              memory: 64Mi
+      {{- include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}

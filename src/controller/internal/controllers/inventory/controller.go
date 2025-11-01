@@ -31,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -83,16 +85,81 @@ func init() {
 	metrics.Registry.MustRegister(inventoryDevicesGauge, inventoryConditionGauge)
 }
 
+type controllerBuilder interface {
+	Named(string) controllerBuilder
+	For(client.Object, ...builder.ForOption) controllerBuilder
+	Owns(client.Object, ...builder.OwnsOption) controllerBuilder
+	WatchesRawSource(source.Source) controllerBuilder
+	WithOptions(controller.Options) controllerBuilder
+	Complete(reconcile.Reconciler) error
+}
+
+type runtimeControllerBuilder struct {
+	builder *builder.Builder
+}
+
+func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
+	b.builder = b.builder.Named(name)
+	return b
+}
+
+func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
+	b.builder = b.builder.For(obj, opts...)
+	return b
+}
+
+func (b *runtimeControllerBuilder) Owns(obj client.Object, opts ...builder.OwnsOption) controllerBuilder {
+	b.builder = b.builder.Owns(obj, opts...)
+	return b
+}
+
+func (b *runtimeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
+	b.builder = b.builder.WatchesRawSource(src)
+	return b
+}
+
+func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
+	b.builder = b.builder.WithOptions(opts)
+	return b
+}
+
+func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
+	return b.builder.Complete(r)
+}
+
+type setupDependencies struct {
+	client            client.Client
+	scheme            *runtime.Scheme
+	recorder          record.EventRecorder
+	indexer           client.FieldIndexer
+	nodeFeatureSource source.SyncingSource
+	builder           controllerBuilder
+}
+
+func defaultControllerBuilder(mgr ctrl.Manager) controllerBuilder {
+	return &runtimeControllerBuilder{builder: ctrl.NewControllerManagedBy(mgr)}
+}
+
+func defaultNodeFeatureSource(cache cache.Cache) source.SyncingSource {
+	return source.Kind(
+		cache,
+		&nfdv1alpha1.NodeFeature{},
+		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
+	)
+}
+
 type Reconciler struct {
-	client       client.Client
-	scheme       *runtime.Scheme
-	log          logr.Logger
-	cfg          config.ControllerConfig
-	handlers     []contracts.InventoryHandler
-	recorder     record.EventRecorder
-	resyncPeriod time.Duration
-	managed      ManagedNodesPolicy
-	approval     DeviceApprovalPolicy
+	client                   client.Client
+	scheme                   *runtime.Scheme
+	log                      logr.Logger
+	cfg                      config.ControllerConfig
+	handlers                 []contracts.InventoryHandler
+	recorder                 record.EventRecorder
+	resyncPeriod             time.Duration
+	managed                  ManagedNodesPolicy
+	approval                 DeviceApprovalPolicy
+	builderFactory           func(ctrl.Manager) controllerBuilder
+	nodeFeatureSourceFactory func(cache.Cache) source.SyncingSource
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSettings, handlers []contracts.InventoryHandler) (*Reconciler, error) {
@@ -109,10 +176,12 @@ func New(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSetti
 	}
 
 	return &Reconciler{
-		log:          log,
-		cfg:          cfg,
-		handlers:     handlers,
-		resyncPeriod: cfg.ResyncPeriod,
+		log:                      log,
+		cfg:                      cfg,
+		handlers:                 handlers,
+		resyncPeriod:             cfg.ResyncPeriod,
+		builderFactory:           defaultControllerBuilder,
+		nodeFeatureSourceFactory: defaultNodeFeatureSource,
 		managed: ManagedNodesPolicy{
 			LabelKey:         module.ManagedNodes.LabelKey,
 			EnabledByDefault: module.ManagedNodes.EnabledByDefault,
@@ -122,11 +191,29 @@ func New(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSetti
 }
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.client = mgr.GetClient()
-	r.scheme = mgr.GetScheme()
-	r.recorder = mgr.GetEventRecorderFor("gpu-inventory-controller")
+	if r.builderFactory == nil {
+		r.builderFactory = defaultControllerBuilder
+	}
+	if r.nodeFeatureSourceFactory == nil {
+		r.nodeFeatureSourceFactory = defaultNodeFeatureSource
+	}
+	deps := setupDependencies{
+		client:            mgr.GetClient(),
+		scheme:            mgr.GetScheme(),
+		recorder:          mgr.GetEventRecorderFor("gpu-inventory-controller"),
+		indexer:           mgr.GetFieldIndexer(),
+		nodeFeatureSource: r.nodeFeatureSourceFactory(mgr.GetCache()),
+		builder:           r.builderFactory(mgr),
+	}
+	return r.setupWithDependencies(ctx, deps)
+}
 
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &gpuv1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
+func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDependencies) error {
+	r.client = deps.client
+	r.scheme = deps.scheme
+	r.recorder = deps.recorder
+
+	if err := deps.indexer.IndexField(ctx, &gpuv1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
 		device, ok := obj.(*gpuv1alpha1.GPUDevice)
 		if !ok {
 			return nil
@@ -139,20 +226,15 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		return err
 	}
 
-	nodeFeatureSource := source.Kind(
-		mgr.GetCache(),
-		&nfdv1alpha1.NodeFeature{},
-		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
-	)
-
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := deps.builder.
 		Named("gpu-inventory-controller").
 		For(&corev1.Node{}).
 		Owns(&gpuv1alpha1.GPUDevice{}).
 		Owns(&gpuv1alpha1.GPUNodeInventory{}).
-		WatchesRawSource(nodeFeatureSource).
-		WithOptions(controller.Options{MaxConcurrentReconciles: r.cfg.Workers}).
-		Complete(r)
+		WatchesRawSource(deps.nodeFeatureSource).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.cfg.Workers})
+
+	return builder.Complete(r)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -651,13 +733,18 @@ func stringSlicesEqual(a, b []string) bool {
 
 func setStatusCondition(conditions *[]metav1.Condition, condition metav1.Condition) bool {
 	prev := apimeta.FindStatusCondition(*conditions, condition.Type)
+	var prevCopy *metav1.Condition
+	if prev != nil {
+		cpy := *prev
+		prevCopy = &cpy
+	}
 	apimeta.SetStatusCondition(conditions, condition)
 	next := apimeta.FindStatusCondition(*conditions, condition.Type)
-	if prev == nil && next != nil {
+	if prevCopy == nil && next != nil {
 		return true
 	}
-	if prev == nil || next == nil {
+	if prevCopy == nil || next == nil {
 		return false
 	}
-	return prev.Status != next.Status || prev.Reason != next.Reason || prev.Message != next.Message
+	return prevCopy.Status != next.Status || prevCopy.Reason != next.Reason || prevCopy.Message != next.Message
 }

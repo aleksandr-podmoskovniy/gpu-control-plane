@@ -74,7 +74,7 @@ controller-test: cache
 
 hooks-test: cache
 	@echo "==> go test (hooks)"
-	@cd hooks && $(GO) test $(GOFLAGS) ./...
+	@cd images/hooks && $(GO) test $(GOFLAGS) ./...
 
 lint-docs:
 	@echo "==> prettier (markdown)"

@@ -1,0 +1,7 @@
+# Pre-created mount points required for containerd strict verification.
+
+dirs:
+  - /var/lib/gpu-control-plane/tls
+  - /etc/gpu-control-plane
+
+files: []

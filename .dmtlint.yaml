@@ -13,6 +13,11 @@
 # limitations under the License.
 
 linters-settings:
+  rbac:
+    exclude-rules:
+      placement:
+        - kind: ServiceAccount
+          name: gpu-control-plane-pre-delete-hook
   module:
     exclude-rules:
       license:
