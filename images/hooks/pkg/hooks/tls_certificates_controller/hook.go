@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
+	"github.com/deckhouse/module-sdk/pkg"
 
 	"hooks/pkg/settings"
 )
@@ -35,4 +36,19 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 	}),
 	FullValuesPathPrefix: settings.InternalControllerCertPath,
 	CommonCAValuesPath:   settings.InternalCertificatesRootPath,
+	BeforeHookCheck:      ensureCertificatePaths,
 })
+
+func ensureCertificatePaths(input *pkg.HookInput) bool {
+	ensureMap(input, settings.InternalCertificatesPath)
+	ensureMap(input, settings.InternalCertificatesRootPath)
+	return true
+}
+
+func ensureMap(input *pkg.HookInput, path string) {
+	val := input.Values.Get(path)
+	if val.Exists() && val.IsObject() {
+		return
+	}
+	input.Values.Set(path, map[string]any{})
+}
