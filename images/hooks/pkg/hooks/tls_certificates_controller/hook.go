@@ -44,14 +44,17 @@ func controllerTLSHookConf() tlscertificate.GenSelfSignedTLSHookConf {
 }
 
 func ensureRootCAValues(input *pkg.HookInput) bool {
-	if !input.Values.Get(settings.InternalRootPath).Exists() {
-		input.Values.Set(settings.InternalRootPath, map[string]any{})
+	ensure := func(path string) {
+		value := input.Values.Get(path)
+		if !value.Exists() || !value.IsObject() {
+			input.Values.Set(path, map[string]any{})
+		}
 	}
 
-	rootCA := input.Values.Get(settings.InternalRootCAPath)
-	if !rootCA.Exists() || !rootCA.IsObject() {
-		input.Values.Set(settings.InternalRootCAPath, map[string]any{})
-	}
+	ensure(settings.InternalRootPath)
+	ensure(settings.InternalRootCAPath)
+	ensure(settings.InternalControllerPath)
+	ensure(settings.InternalControllerCertPath)
 
 	return true
 }
