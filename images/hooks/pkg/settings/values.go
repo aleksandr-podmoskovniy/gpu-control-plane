@@ -17,7 +17,6 @@ package settings
 const (
 	internalRoot = ConfigRoot + ".internal"
 
-	InternalRootPath             = internalRoot
 	InternalModuleConfigPath     = internalRoot + ".moduleConfig"
 	InternalModuleValidationPath = internalRoot + ".moduleConfigValidation"
 	InternalModuleConditionsPath = internalRoot + ".conditions"

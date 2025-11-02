@@ -411,6 +411,7 @@ properties:
           rootCA:
             type: object
             description: Root certificate authority used to sign module-issued TLS credentials.
+            default: {}
             properties:
               ca:
                 type: string
@@ -425,14 +426,17 @@ properties:
           controller:
             type: object
             description: Controller-specific computed values.
+            default: {}
             properties:
               config:
                 type: object
                 description: Controller-runtime configuration rendered into `config.yaml` and mounted into the Deployment.
+                default: {}
                 additionalProperties: true
               cert:
                 type: object
                 description: TLS certificate chain and key used by the controller admission webhooks.
+                default: {}
                 properties:
                   ca:
                     type: string
