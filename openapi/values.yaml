@@ -74,14 +74,12 @@ properties:
         grafanaDashboards: true
       internal:
         rootCA:
-          default: {}
           ca: ""
           crt: ""
           key: ""
         controller:
           config: {}
           cert:
-            default: {}
             ca: ""
             crt: ""
             key: ""
@@ -413,7 +411,6 @@ properties:
           rootCA:
             type: object
             description: Root certificate authority used to sign module-issued TLS credentials.
-            default: {}
             properties:
               ca:
                 type: string
@@ -428,7 +425,6 @@ properties:
           controller:
             type: object
             description: Controller-specific computed values.
-            default: {}
             properties:
               config:
                 type: object
@@ -437,7 +433,6 @@ properties:
               cert:
                 type: object
                 description: TLS certificate chain and key used by the controller admission webhooks.
-                default: {}
                 properties:
                   ca:
                     type: string
