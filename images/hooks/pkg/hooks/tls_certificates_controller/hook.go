@@ -43,7 +43,11 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 
 func ensureControllerTLSValues(input *pkg.HookInput) bool {
 	for _, path := range []string{
+		settings.ConfigRoot,
+		settings.InternalRootPath,
+		settings.InternalControllerPath,
 		settings.InternalControllerCertPath,
+		settings.InternalCertificatesPath,
 		settings.InternalCertificatesRootPath,
 	} {
 		val := input.Values.Get(path)
