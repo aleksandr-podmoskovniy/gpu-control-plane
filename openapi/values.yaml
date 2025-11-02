@@ -73,11 +73,10 @@ properties:
         prometheusRules: true
         grafanaDashboards: true
       internal:
-        certificates:
-          root:
-            ca: ""
-            crt: ""
-            key: ""
+        rootCA:
+          ca: ""
+          crt: ""
+          key: ""
         controller:
           config: {}
           cert:
@@ -409,24 +408,20 @@ properties:
         type: object
         description: Computed values populated by module hooks (certificates, rendered manifests, runtime flags).
         properties:
-          certificates:
+          rootCA:
             type: object
-            description: Certificates and private keys rendered by hooks (TLS, root CA).
+            description: Root certificate authority used to sign module-issued TLS credentials.
+            default: {}
             properties:
-              root:
-                type: object
-                description: Root certificate authority used to sign module-issued TLS credentials.
-                properties:
-                  ca:
-                    type: string
-                    description: PEM-encoded bundle of the root CA certificate chain.
-                  crt:
-                    type: string
-                    description: PEM-encoded root CA certificate.
-                  key:
-                    type: string
-                    description: PEM-encoded private key for the root CA.
-                additionalProperties: false
+              ca:
+                type: string
+                description: PEM-encoded bundle of the root CA certificate chain.
+              crt:
+                type: string
+                description: PEM-encoded root CA certificate.
+              key:
+                type: string
+                description: PEM-encoded private key for the root CA.
             additionalProperties: false
           controller:
             type: object

@@ -18,37 +18,25 @@ import (
 	"fmt"
 
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
-	"github.com/deckhouse/module-sdk/pkg"
 
 	"hooks/pkg/settings"
 )
 
-var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLSHookConf{
-	CN:            settings.ControllerCertCN,
-	TLSSecretName: settings.ControllerTLSSecretName,
-	Namespace:     settings.ModuleNamespace,
-	SANs: tlscertificate.DefaultSANs([]string{
-		"localhost",
-		"127.0.0.1",
-		settings.ControllerCertCN,
-		fmt.Sprintf("%s.%s", settings.ControllerCertCN, settings.ModuleNamespace),
-		fmt.Sprintf("%s.%s.svc", settings.ControllerCertCN, settings.ModuleNamespace),
-	}),
-	FullValuesPathPrefix: settings.InternalControllerCertPath,
-	CommonCAValuesPath:   settings.InternalCertificatesRootPath,
-	BeforeHookCheck:      ensureCertificatePaths,
-})
+var _ = tlscertificate.RegisterInternalTLSHookEM(controllerTLSHookConf())
 
-func ensureCertificatePaths(input *pkg.HookInput) bool {
-	ensureMap(input, settings.InternalCertificatesPath)
-	ensureMap(input, settings.InternalCertificatesRootPath)
-	return true
-}
-
-func ensureMap(input *pkg.HookInput, path string) {
-	val := input.Values.Get(path)
-	if val.Exists() && val.IsObject() {
-		return
+func controllerTLSHookConf() tlscertificate.GenSelfSignedTLSHookConf {
+	return tlscertificate.GenSelfSignedTLSHookConf{
+		CN:            settings.ControllerCertCN,
+		TLSSecretName: settings.ControllerTLSSecretName,
+		Namespace:     settings.ModuleNamespace,
+		SANs: tlscertificate.DefaultSANs([]string{
+			"localhost",
+			"127.0.0.1",
+			settings.ControllerCertCN,
+			fmt.Sprintf("%s.%s", settings.ControllerCertCN, settings.ModuleNamespace),
+			fmt.Sprintf("%s.%s.svc", settings.ControllerCertCN, settings.ModuleNamespace),
+		}),
+		FullValuesPathPrefix: settings.InternalControllerCertPath,
+		CommonCAValuesPath:   settings.InternalRootCAPath,
 	}
-	input.Values.Set(path, map[string]any{})
 }

@@ -24,6 +24,5 @@ const (
 	InternalBootstrapPath        = internalRoot + ".bootstrap"
 	InternalControllerPath       = internalRoot + ".controller"
 	InternalControllerCertPath   = InternalControllerPath + ".cert"
-	InternalCertificatesPath     = internalRoot + ".certificates"
-	InternalCertificatesRootPath = InternalCertificatesPath + ".root"
+	InternalRootCAPath           = internalRoot + ".rootCA"
 )

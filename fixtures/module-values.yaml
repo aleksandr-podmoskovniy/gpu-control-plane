@@ -75,10 +75,9 @@ values:
     internal:
       moduleConfig:
         enabled: true
-      certificates:
-        root:
-          crt: ROOT-CA-CRT
-          key: ROOT-CA-KEY
+      rootCA:
+        crt: ROOT-CA-CRT
+        key: ROOT-CA-KEY
       controller:
         config: {}
         cert:

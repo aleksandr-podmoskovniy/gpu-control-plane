@@ -48,8 +48,7 @@ func handleInitializeValues(_ context.Context, input *pkg.HookInput) error {
 		settings.InternalControllerPath,
 		settings.InternalControllerPath + ".config",
 		settings.InternalControllerCertPath,
-		settings.InternalCertificatesPath,
-		settings.InternalCertificatesRootPath,
+		settings.InternalRootCAPath,
 	} {
 		ensureMap(input, path)
 	}
