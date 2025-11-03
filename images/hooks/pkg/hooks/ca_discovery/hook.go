@@ -23,7 +23,6 @@ import (
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
 
-	"hooks/pkg/internalvalues"
 	"hooks/pkg/settings"
 )
 
@@ -65,8 +64,6 @@ var configModuleCommonCA = &pkg.HookConfig{
 }
 
 func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
-	internalvalues.Ensure(input)
-
 	snapshots := input.Snapshots.Get(commonCASecretSnapshot)
 	if len(snapshots) == 0 {
 		input.Logger.Info("[ModuleCommonCA] No pre-existing GPU Control Plane CA secret; TLS hook will generate it if necessary.")

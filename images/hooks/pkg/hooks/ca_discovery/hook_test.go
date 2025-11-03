@@ -81,16 +81,8 @@ func TestHandleModuleCommonCANoSecret(t *testing.T) {
 		t.Fatalf("handleModuleCommonCA returned error: %v", err)
 	}
 
-	rootPatch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath))
-	if rootPatch == nil {
-		t.Fatalf("expected structural patch for %s", settings.InternalRootCAPath)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(rootPatch.Value, &payload); err != nil {
-		t.Fatalf("decode rootCA payload: %v", err)
-	}
-	if len(payload) != 0 {
-		t.Fatalf("expected empty rootCA payload when secret missing, got %#v", payload)
+	if patch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath)); patch != nil {
+		t.Fatalf("expected no patch for %s when secret is absent", settings.InternalRootCAPath)
 	}
 }
 

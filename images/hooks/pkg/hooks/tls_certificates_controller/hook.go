@@ -22,21 +22,17 @@ import (
 	"hooks/pkg/settings"
 )
 
-var _ = tlscertificate.RegisterInternalTLSHookEM(controllerTLSHookConf())
-
-func controllerTLSHookConf() tlscertificate.GenSelfSignedTLSHookConf {
-	return tlscertificate.GenSelfSignedTLSHookConf{
-		CN:            settings.ControllerCertCN,
-		TLSSecretName: settings.ControllerTLSSecretName,
-		Namespace:     settings.ModuleNamespace,
-		SANs: tlscertificate.DefaultSANs([]string{
-			"localhost",
-			"127.0.0.1",
-			settings.ControllerCertCN,
-			fmt.Sprintf("%s.%s", settings.ControllerCertCN, settings.ModuleNamespace),
-			fmt.Sprintf("%s.%s.svc", settings.ControllerCertCN, settings.ModuleNamespace),
-		}),
-		FullValuesPathPrefix: settings.InternalControllerCertPath,
-		CommonCAValuesPath:   settings.InternalRootCAPath,
-	}
-}
+var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLSHookConf{
+	CN:            settings.ControllerCertCN,
+	TLSSecretName: settings.ControllerTLSSecretName,
+	Namespace:     settings.ModuleNamespace,
+	SANs: tlscertificate.DefaultSANs([]string{
+		"localhost",
+		"127.0.0.1",
+		settings.ControllerCertCN,
+		fmt.Sprintf("%s.%s", settings.ControllerCertCN, settings.ModuleNamespace),
+		fmt.Sprintf("%s.%s.svc", settings.ControllerCertCN, settings.ModuleNamespace),
+	}),
+	FullValuesPathPrefix: settings.InternalControllerCertPath,
+	CommonCAValuesPath:   settings.InternalRootCAPath,
+})

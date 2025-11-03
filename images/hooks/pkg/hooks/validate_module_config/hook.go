@@ -25,7 +25,6 @@ import (
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
 
-	"hooks/pkg/internalvalues"
 	"hooks/pkg/settings"
 )
 
@@ -63,8 +62,6 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 }, handleValidateModuleConfig)
 
 func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
-	internalvalues.Ensure(input)
-
 	state, err := moduleConfigFromSnapshotFn(input)
 	if err != nil {
 		registerValidationError(input, err)
