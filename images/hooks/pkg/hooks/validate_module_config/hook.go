@@ -125,8 +125,16 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 		input.Values.Remove(settings.ConfigRoot + ".inventory")
 	}
 
+	var userHTTPS map[string]any
 	if httpsCfg, ok := state.Config["https"]; ok {
-		input.Values.Set(settings.HTTPSConfigPath, httpsCfg)
+		if cast, ok := httpsCfg.(map[string]any); ok {
+			userHTTPS = cast
+		}
+	}
+
+	effectiveHTTPS := resolveHTTPSConfig(input, userHTTPS)
+	if effectiveHTTPS != nil {
+		input.Values.Set(settings.HTTPSConfigPath, effectiveHTTPS)
 	} else {
 		input.Values.Remove(settings.HTTPSConfigPath)
 	}
@@ -227,11 +235,13 @@ func sanitizeModuleSettings(raw map[string]any) (map[string]any, error) {
 	}
 	result["inventory"] = inventory
 
-	https, err := sanitizeHTTPS(fields["https"])
-	if err != nil {
-		return nil, err
+	if rawHTTPS := fields["https"]; len(rawHTTPS) > 0 && string(rawHTTPS) != "null" {
+		https, err := sanitizeHTTPS(rawHTTPS)
+		if err != nil {
+			return nil, err
+		}
+		result["https"] = https
 	}
-	result["https"] = https
 
 	if rawHA, ok := fields["highAvailability"]; ok {
 		if len(rawHA) != 0 && string(rawHA) != "null" {
@@ -410,68 +420,41 @@ func sanitizeInventory(raw json.RawMessage) (map[string]any, error) {
 }
 
 func sanitizeHTTPS(raw json.RawMessage) (map[string]any, error) {
-	mode := settings.DefaultHTTPSMode
-	certManager := map[string]any{
-		"clusterIssuerName": settings.DefaultHTTPSClusterIssuer,
-	}
-	var customCertificate map[string]any
-
-	if len(raw) > 0 && string(raw) != "null" {
-		var payload rawHTTPS
-		if err := jsonUnmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("decode https settings: %w", err)
-		}
-
-		if trimmed := strings.TrimSpace(payload.Mode); trimmed != "" {
-			switch strings.ToLower(trimmed) {
-			case "certmanager":
-				mode = "CertManager"
-			case "customcertificate":
-				mode = "CustomCertificate"
-			case "onlyinuri":
-				mode = "OnlyInURI"
-			case "disabled":
-				mode = "Disabled"
-			default:
-				return nil, fmt.Errorf("unknown https.mode %q", payload.Mode)
-			}
-		}
-
-		if payload.CertManager != nil {
-			issuer := strings.TrimSpace(payload.CertManager.ClusterIssuerName)
-			if issuer != "" {
-				certManager["clusterIssuerName"] = issuer
-			}
-		}
-
-		if payload.CustomCertificate != nil {
-			secret := strings.TrimSpace(payload.CustomCertificate.SecretName)
-			if secret == "" {
-				return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
-			}
-			customCertificate = map[string]any{"secretName": secret}
-		}
+	var payload rawHTTPS
+	if err := jsonUnmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("decode https settings: %w", err)
 	}
 
-	switch mode {
-	case "CertManager":
-		customCertificate = nil
-	case "CustomCertificate":
-		certManager = nil
-		if customCertificate == nil {
-			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
+	mode := normalizeHTTPSMode(payload.Mode)
+	if mode == "" {
+		if strings.TrimSpace(payload.Mode) != "" {
+			return nil, fmt.Errorf("unknown https.mode %q", payload.Mode)
 		}
-	case "OnlyInURI", "Disabled":
-		certManager = nil
-		customCertificate = nil
+		mode = settings.DefaultHTTPSMode
 	}
 
 	result := map[string]any{"mode": mode}
-	if certManager != nil {
-		result["certManager"] = certManager
-	}
-	if customCertificate != nil {
-		result["customCertificate"] = customCertificate
+
+	switch mode {
+	case "CertManager":
+		issuer := settings.DefaultHTTPSClusterIssuer
+		if payload.CertManager != nil {
+			if trimmed := strings.TrimSpace(payload.CertManager.ClusterIssuerName); trimmed != "" {
+				issuer = trimmed
+			}
+		}
+		result["certManager"] = map[string]any{"clusterIssuerName": issuer}
+	case "CustomCertificate":
+		if payload.CustomCertificate == nil {
+			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
+		}
+		secret := strings.TrimSpace(payload.CustomCertificate.SecretName)
+		if secret == "" {
+			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
+		}
+		result["customCertificate"] = map[string]any{"secretName": secret}
+	case "OnlyInURI", "Disabled":
+		// no additional sections required
 	}
 
 	return result, nil
@@ -544,6 +527,23 @@ func sanitizeSelector(sel *labelSelector) (map[string]any, error) {
 	return result, nil
 }
 
+func normalizeHTTPSMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "":
+		return ""
+	case "certmanager":
+		return "CertManager"
+	case "customcertificate":
+		return "CustomCertificate"
+	case "onlyinuri":
+		return "OnlyInURI"
+	case "disabled":
+		return "Disabled"
+	default:
+		return ""
+	}
+}
+
 func normalizeMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "":
@@ -584,6 +584,45 @@ func normalizeOperator(op string) string {
 		return "DoesNotExist"
 	default:
 		return ""
+	}
+}
+
+func resolveHTTPSConfig(input *pkg.HookInput, user map[string]any) map[string]any {
+	if user != nil {
+		return user
+	}
+
+	mode := normalizeHTTPSMode(input.Values.Get("global.modules.https.mode").String())
+	if mode == "" {
+		mode = settings.DefaultHTTPSMode
+	}
+
+	if mode == "CustomCertificate" {
+		secret := strings.TrimSpace(input.Values.Get("global.modules.https.customCertificate.secretName").String())
+		if secret == "" {
+			return nil
+		}
+		return map[string]any{
+			"mode": "CustomCertificate",
+			"customCertificate": map[string]any{
+				"secretName": secret,
+			},
+		}
+	}
+
+	if mode == "OnlyInURI" || mode == "Disabled" {
+		return map[string]any{"mode": mode}
+	}
+
+	issuer := strings.TrimSpace(input.Values.Get("global.modules.https.certManager.clusterIssuerName").String())
+	if issuer == "" {
+		issuer = settings.DefaultHTTPSClusterIssuer
+	}
+	return map[string]any{
+		"mode": "CertManager",
+		"certManager": map[string]any{
+			"clusterIssuerName": issuer,
+		},
 	}
 }
 

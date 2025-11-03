@@ -94,22 +94,8 @@ func TestSanitizeModuleSettingsDefaults(t *testing.T) {
 		t.Fatalf("unexpected default inventory.resyncPeriod: %v", inventory["resyncPeriod"])
 	}
 
-	httpsCfg, ok := cfg["https"].(map[string]any)
-	if !ok {
-		t.Fatalf("https not present in sanitized config: %#v", cfg)
-	}
-	if httpsCfg["mode"] != "CertManager" {
-		t.Fatalf("unexpected default https.mode: %v", httpsCfg["mode"])
-	}
-	cm, ok := httpsCfg["certManager"].(map[string]any)
-	if !ok {
-		t.Fatalf("certManager section missing in https config: %#v", httpsCfg)
-	}
-	if cm["clusterIssuerName"] != settings.DefaultHTTPSClusterIssuer {
-		t.Fatalf("unexpected default clusterIssuerName: %v", cm["clusterIssuerName"])
-	}
-	if _, exists := httpsCfg["customCertificate"]; exists {
-		t.Fatalf("customCertificate must not be present for default mode: %#v", httpsCfg)
+	if _, ok := cfg["https"]; ok {
+		t.Fatalf("https must not be present when settings are omitted: %#v", cfg)
 	}
 }
 
@@ -182,6 +168,24 @@ func TestSanitizeModuleSettingsHTTPSCustomCertificate(t *testing.T) {
 	}
 	if _, ok := httpsCfg["certManager"]; ok {
 		t.Fatalf("certManager section must be absent in CustomCertificate mode: %#v", httpsCfg)
+	}
+}
+
+func TestSanitizeModuleSettingsHTTPSEmptyProvidesDefaults(t *testing.T) {
+	cfg, err := sanitizeModuleSettings(map[string]any{
+		"https": map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	httpsCfg := cfg["https"].(map[string]any)
+	if httpsCfg["mode"] != "CertManager" {
+		t.Fatalf("expected default mode CertManager, got %#v", httpsCfg["mode"])
+	}
+	cm := httpsCfg["certManager"].(map[string]any)
+	if cm["clusterIssuerName"] != settings.DefaultHTTPSClusterIssuer {
+		t.Fatalf("expected default issuer, got %#v", cm["clusterIssuerName"])
 	}
 }
 
@@ -829,7 +833,18 @@ func TestHandleValidateModuleConfigWithoutHighAvailability(t *testing.T) {
 }
 func TestHandleValidateModuleConfigSuccess(t *testing.T) {
 	enabled := true
-	inputValues := map[string]any{}
+	inputValues := map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "CustomCertificate",
+					"customCertificate": map[string]any{
+						"secretName": "corp-ca",
+					},
+				},
+			},
+		},
+	}
 	input, patchable := newHookInput(t, inputValues)
 	snapshot := mock.NewSnapshotMock(t)
 	snapshot.UnmarshalToMock.Set(func(target any) error {
@@ -865,8 +880,21 @@ func TestHandleValidateModuleConfigSuccess(t *testing.T) {
 	if _, ok := paths[slash(settings.ConfigRoot+".highAvailability")]; !ok {
 		t.Fatalf("expected highAvailability to be set, patches: %#v", patches)
 	}
-	if _, ok := paths[slash(settings.ConfigRoot+".https")]; !ok {
+	payload, ok := paths[slash(settings.ConfigRoot+".https")]
+	if !ok {
 		t.Fatalf("expected https config to be set, patches: %#v", patches)
+	}
+
+	var httpsCfg map[string]any
+	if err := json.Unmarshal(payload, &httpsCfg); err != nil {
+		t.Fatalf("decode https payload: %v", err)
+	}
+	if httpsCfg["mode"] != "CustomCertificate" {
+		t.Fatalf("expected custom certificate mode, got %#v", httpsCfg["mode"])
+	}
+	custom := httpsCfg["customCertificate"].(map[string]any)
+	if custom["secretName"] != "corp-ca" {
+		t.Fatalf("expected secretName corp-ca, got %#v", custom["secretName"])
 	}
 	if _, ok := paths[slash(settings.InternalControllerPath+".config")]; !ok {
 		t.Fatalf("expected controller config patch, patches: %#v", patches)
@@ -906,6 +934,162 @@ func TestHandleValidateModuleConfigInvalidHighAvailability(t *testing.T) {
 			t.Logf("patch: %s %s", patch.Op, patch.Path)
 		}
 		t.Fatalf("expected highAvailability to be removed, patches: %#v", patches)
+	}
+}
+
+func TestHandleValidateModuleConfigRemovesHTTPSWhenUnavailable(t *testing.T) {
+	original := moduleConfigFromSnapshotFn
+	t.Cleanup(func() { moduleConfigFromSnapshotFn = original })
+
+	moduleConfigFromSnapshotFn = func(*pkg.HookInput) (*moduleConfigState, error) {
+		return &moduleConfigState{Enabled: true, Config: map[string]any{}}, nil
+	}
+
+	input, patchable := newHookInput(t, map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"https": map[string]any{"mode": "CertManager"},
+		},
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "CustomCertificate",
+				},
+			},
+		},
+	})
+
+	if err := handleValidateModuleConfig(context.Background(), input); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	removed := false
+	for _, patch := range patchable.GetPatches() {
+		if patch.Op == "remove" && patch.Path == slash(settings.ConfigRoot+".https") {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("expected https removal patch, got %#v", patchable.GetPatches())
+	}
+}
+
+func TestHandleValidateModuleConfigWithUserHTTPS(t *testing.T) {
+	original := moduleConfigFromSnapshotFn
+	t.Cleanup(func() { moduleConfigFromSnapshotFn = original })
+
+	moduleConfigFromSnapshotFn = func(*pkg.HookInput) (*moduleConfigState, error) {
+		return &moduleConfigState{
+			Enabled: true,
+			Config: map[string]any{
+				"https": map[string]any{
+					"mode": "Disabled",
+				},
+			},
+		}, nil
+	}
+
+	input, patchable := newHookInput(t, map[string]any{})
+
+	if err := handleValidateModuleConfig(context.Background(), input); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	found := false
+	for _, patch := range patchable.GetPatches() {
+		if patch.Op == "add" && patch.Path == slash(settings.ConfigRoot+".https") {
+			var payload map[string]any
+			if err := json.Unmarshal(patch.Value, &payload); err != nil {
+				t.Fatalf("decode https payload: %v", err)
+			}
+			if payload["mode"] != "Disabled" {
+				t.Fatalf("expected Disabled mode, got %#v", payload["mode"])
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected https patch, got %#v", patchable.GetPatches())
+	}
+}
+
+func TestResolveHTTPSConfigDefaults(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{})
+
+	cfg := resolveHTTPSConfig(input, nil)
+	if cfg["mode"] != "CertManager" {
+		t.Fatalf("expected default mode CertManager, got %#v", cfg["mode"])
+	}
+	cm := cfg["certManager"].(map[string]any)
+	if cm["clusterIssuerName"] != settings.DefaultHTTPSClusterIssuer {
+		t.Fatalf("expected default issuer, got %#v", cm["clusterIssuerName"])
+	}
+}
+
+func TestResolveHTTPSConfigGlobalOnlyInURI(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "OnlyInURI",
+				},
+			},
+		},
+	})
+
+	cfg := resolveHTTPSConfig(input, nil)
+	if cfg["mode"] != "OnlyInURI" {
+		t.Fatalf("expected OnlyInURI mode, got %#v", cfg["mode"])
+	}
+	if _, ok := cfg["certManager"]; ok {
+		t.Fatalf("certManager section must be empty for OnlyInURI")
+	}
+}
+
+func TestResolveHTTPSConfigCustomCertificateMissingSecret(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "CustomCertificate",
+				},
+			},
+		},
+	})
+
+	if cfg := resolveHTTPSConfig(input, nil); cfg != nil {
+		t.Fatalf("expected nil config without secret, got %#v", cfg)
+	}
+}
+
+func TestResolveHTTPSConfigPrefersUserConfig(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{})
+	user := map[string]any{
+		"mode": "Disabled",
+	}
+
+	cfg := resolveHTTPSConfig(input, user)
+	if cfg["mode"] != "Disabled" {
+		t.Fatalf("expected user config to be returned, got %#v", cfg["mode"])
+	}
+}
+
+func TestResolveHTTPSConfigGlobalDisabled(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "Disabled",
+				},
+			},
+		},
+	})
+
+	cfg := resolveHTTPSConfig(input, nil)
+	if cfg["mode"] != "Disabled" {
+		t.Fatalf("expected Disabled mode, got %#v", cfg["mode"])
+	}
+	if len(cfg) != 1 {
+		t.Fatalf("unexpected extra fields in cfg: %#v", cfg)
 	}
 }
 func TestSanitizeSchedulingErrors(t *testing.T) {
