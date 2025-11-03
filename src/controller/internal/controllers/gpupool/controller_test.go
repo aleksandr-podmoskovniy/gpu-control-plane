@@ -26,11 +26,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -54,6 +57,7 @@ type fakeManager struct {
 	client client.Client
 	scheme *runtime.Scheme
 	log    logr.Logger
+	cache  cache.Cache
 }
 
 func newFakeManager(c client.Client, scheme *runtime.Scheme) *fakeManager {
@@ -65,7 +69,7 @@ func (f *fakeManager) GetScheme() *runtime.Scheme                      { return 
 func (f *fakeManager) GetFieldIndexer() client.FieldIndexer            { return nil }
 func (f *fakeManager) GetHTTPClient() *http.Client                     { return nil }
 func (f *fakeManager) GetConfig() *rest.Config                         { return nil }
-func (f *fakeManager) GetCache() cache.Cache                           { return nil }
+func (f *fakeManager) GetCache() cache.Cache                           { return f.cache }
 func (f *fakeManager) GetEventRecorderFor(string) record.EventRecorder { return nil }
 func (f *fakeManager) GetRESTMapper() meta.RESTMapper                  { return nil }
 func (f *fakeManager) GetAPIReader() client.Reader                     { return nil }
@@ -82,11 +86,12 @@ func (f *fakeManager) GetLogger() logr.Logger                        { return f.
 func (f *fakeManager) GetControllerOptions() ctrlconfig.Controller   { return ctrlconfig.Controller{} }
 
 type fakeBuilder struct {
-	named         string
-	forObject     client.Object
-	options       controller.Options
-	completeErr   error
-	completeCalls int
+	named          string
+	forObject      client.Object
+	options        controller.Options
+	watchedSources []source.Source
+	completeErr    error
+	completeCalls  int
 }
 
 func (f *fakeBuilder) Named(name string) controllerBuilder {
@@ -104,10 +109,56 @@ func (f *fakeBuilder) WithOptions(opts controller.Options) controllerBuilder {
 	return f
 }
 
+func (f *fakeBuilder) WatchesRawSource(src source.Source) controllerBuilder {
+	f.watchedSources = append(f.watchedSources, src)
+	return f
+}
+
 func (f *fakeBuilder) Complete(reconcile.Reconciler) error {
 	f.completeCalls++
 	return f.completeErr
 }
+
+type fakeRuntimeAdapter struct {
+	namedCalled    bool
+	forCalled      bool
+	options        controller.Options
+	completeCalled bool
+}
+
+func (f *fakeRuntimeAdapter) Named(string) controllerRuntimeAdapter {
+	f.namedCalled = true
+	return f
+}
+
+func (f *fakeRuntimeAdapter) For(client.Object, ...builder.ForOption) controllerRuntimeAdapter {
+	f.forCalled = true
+	return f
+}
+
+func (f *fakeRuntimeAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
+	f.options = opts
+	return f
+}
+
+func (f *fakeRuntimeAdapter) WatchesRawSource(source.Source) controllerRuntimeAdapter {
+	return f
+}
+
+func (f *fakeRuntimeAdapter) Complete(reconcile.Reconciler) error {
+	f.completeCalled = true
+	return nil
+}
+
+type fakeCache struct{ cache.Cache }
+
+type fakeSource struct{}
+
+func (fakeSource) Start(context.Context, workqueue.RateLimitingInterface) error {
+	return nil
+}
+
+func (fakeSource) WaitForSync(context.Context) error { return nil }
 
 type stubPoolHandler struct {
 	name   string
@@ -132,6 +183,15 @@ func (f *failingClient) Get(context.Context, client.ObjectKey, client.Object, ..
 	return f.err
 }
 
+type failingListClient struct {
+	client.Client
+	err error
+}
+
+func (f *failingListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return f.err
+}
+
 func newScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
@@ -144,7 +204,7 @@ func newScheme(t *testing.T) *runtime.Scheme {
 // --- Tests ----------------------------------------------------------------------
 
 func TestNewNormalisesWorkers(t *testing.T) {
-	rec := New(testr.New(t), config.ControllerConfig{Workers: 0}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{Workers: 0}, nil, nil)
 	if rec.cfg.Workers != 1 {
 		t.Fatalf("expected workers defaulted to 1, got %d", rec.cfg.Workers)
 	}
@@ -156,7 +216,7 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 	mgr := newFakeManager(client, scheme)
 
 	stub := &fakeBuilder{}
-	rec := New(testr.New(t), config.ControllerConfig{Workers: 5}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{Workers: 5}, nil, nil)
 	rec.builders = func(ctrl.Manager) controllerBuilder { return stub }
 
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
@@ -191,8 +251,27 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 	}
 }
 
+func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
+	scheme := newScheme(t)
+	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := newFakeManager(client, scheme)
+	mgr.cache = &fakeCache{}
+
+	stub := &fakeBuilder{}
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.builders = func(ctrl.Manager) controllerBuilder { return stub }
+
+	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
+		t.Fatalf("SetupWithManager failed: %v", err)
+	}
+
+	if len(stub.watchedSources) == 0 {
+		t.Fatalf("expected module config watcher registered, watchedSources=%#v", stub.watchedSources)
+	}
+}
+
 func TestSetupWithManagerPropagatesError(t *testing.T) {
-	rec := New(testr.New(t), config.ControllerConfig{}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.builders = func(ctrl.Manager) controllerBuilder {
 		return &fakeBuilder{completeErr: errors.New("builder fail")}
 	}
@@ -209,7 +288,7 @@ func TestReconcileAggregatesResults(t *testing.T) {
 	handlerA := &stubPoolHandler{name: "a", result: contracts.Result{Requeue: true}}
 	handlerB := &stubPoolHandler{name: "b", result: contracts.Result{RequeueAfter: time.Second}}
 
-	rec := New(testr.New(t), config.ControllerConfig{}, []contracts.PoolHandler{handlerA, handlerB})
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, []contracts.PoolHandler{handlerA, handlerB})
 	rec.client = client
 	rec.scheme = scheme
 
@@ -225,6 +304,50 @@ func TestReconcileAggregatesResults(t *testing.T) {
 	}
 }
 
+func TestRequeueAllPools(t *testing.T) {
+	scheme := newScheme(t)
+	poolA := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	poolB := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b"}}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(poolA, poolB).Build()
+
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = client
+
+	requests := rec.requeueAllPools(context.Background())
+	if len(requests) != 2 {
+		t.Fatalf("expected two requeue requests, got %#v", requests)
+	}
+	expected := map[string]struct{}{"pool-a": {}, "pool-b": {}}
+	for _, req := range requests {
+		if _, ok := expected[req.Name]; !ok {
+			t.Fatalf("unexpected request %v", req)
+		}
+	}
+}
+
+func TestMapModuleConfigRequeuesPools(t *testing.T) {
+	scheme := newScheme(t)
+	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
+
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = client
+
+	reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{})
+	if len(reqs) != 1 || reqs[0].NamespacedName.Name != "pool-a" {
+		t.Fatalf("unexpected requests: %#v", reqs)
+	}
+}
+
+func TestRequeueAllPoolsHandlesError(t *testing.T) {
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = &failingListClient{err: errors.New("list fail")}
+
+	if res := rec.requeueAllPools(context.Background()); len(res) != 0 {
+		t.Fatalf("expected empty result on error, got %#v", res)
+	}
+}
+
 func TestReconcileHandlerError(t *testing.T) {
 	scheme := newScheme(t)
 	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
@@ -232,7 +355,7 @@ func TestReconcileHandlerError(t *testing.T) {
 
 	handler := &stubPoolHandler{name: "boom", err: errors.New("handler fail")}
 
-	rec := New(testr.New(t), config.ControllerConfig{}, []contracts.PoolHandler{handler})
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, []contracts.PoolHandler{handler})
 	rec.client = client
 	rec.scheme = scheme
 
@@ -245,7 +368,7 @@ func TestReconcileHandlerError(t *testing.T) {
 }
 
 func TestReconcileGetError(t *testing.T) {
-	rec := New(testr.New(t), config.ControllerConfig{}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = &failingClient{err: errors.New("get fail")}
 
 	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}}); err == nil {
@@ -257,7 +380,7 @@ func TestReconcileNotFound(t *testing.T) {
 	scheme := newScheme(t)
 	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 
-	rec := New(testr.New(t), config.ControllerConfig{}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
 	rec.scheme = scheme
 
@@ -271,7 +394,7 @@ func TestReconcileNoHandlers(t *testing.T) {
 	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
-	rec := New(testr.New(t), config.ControllerConfig{}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
 	rec.scheme = scheme
 
@@ -285,7 +408,8 @@ func TestReconcileNoHandlers(t *testing.T) {
 }
 
 func TestRuntimeControllerBuilderDelegates(t *testing.T) {
-	wrapper := &runtimeControllerBuilder{builder: &builder.Builder{}}
+	adapter := &fakeRuntimeAdapter{}
+	wrapper := &runtimeControllerBuilder{adapter: adapter}
 
 	if wrapper.Named("gpupool") != wrapper {
 		t.Fatal("Named should return wrapper")
@@ -293,13 +417,52 @@ func TestRuntimeControllerBuilderDelegates(t *testing.T) {
 	if wrapper.For(&gpuv1alpha1.GPUPool{}) != wrapper {
 		t.Fatal("For should return wrapper")
 	}
-	if wrapper.WithOptions(controller.Options{MaxConcurrentReconciles: 2}) != wrapper {
+	opts := controller.Options{MaxConcurrentReconciles: 2}
+	if wrapper.WithOptions(opts) != wrapper {
 		t.Fatal("WithOptions should return wrapper")
+	}
+	if wrapper.WatchesRawSource(nil) != wrapper {
+		t.Fatal("WatchesRawSource should return wrapper")
 	}
 	if err := wrapper.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
 		return reconcile.Result{}, nil
-	})); err == nil {
-		t.Fatal("expected Complete to fail without manager")
+	})); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if !adapter.namedCalled || !adapter.forCalled || !adapter.completeCalled {
+		t.Fatalf("adapter methods were not invoked: %+v", adapter)
+	}
+	if adapter.options.MaxConcurrentReconciles != opts.MaxConcurrentReconciles {
+		t.Fatalf("options were not propagated: %+v", adapter.options)
+	}
+}
+
+func TestBuilderControllerAdapterDelegates(t *testing.T) {
+	scheme := newScheme(t)
+	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := newFakeManager(client, scheme)
+	mgr.cache = &fakeCache{}
+
+	adapter := &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)}
+
+	obj := &gpuv1alpha1.GPUPool{}
+	if adapter.Named("gpupool") != adapter {
+		t.Fatal("Named should return adapter")
+	}
+	if adapter.For(obj) != adapter {
+		t.Fatal("For should return adapter")
+	}
+	opts := controller.Options{MaxConcurrentReconciles: 2}
+	if adapter.WithOptions(opts) != adapter {
+		t.Fatal("WithOptions should return adapter")
+	}
+	if adapter.WatchesRawSource(fakeSource{}) != adapter {
+		t.Fatal("WatchesRawSource should return adapter")
+	}
+	if err := adapter.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
+		return reconcile.Result{}, nil
+	})); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
 	}
 }
 
@@ -310,7 +473,7 @@ func TestNewControllerManagedByReturnsBuilder(t *testing.T) {
 }
 
 func TestReconcileWrapsAPIError(t *testing.T) {
-	rec := New(testr.New(t), config.ControllerConfig{}, nil)
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = &failingClient{err: apierrors.NewConflict(schema.GroupResource{Group: gpuv1alpha1.GroupVersion.Group, Resource: "gpupools"}, "pool", errors.New("boom"))}
 
 	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}}); err == nil {

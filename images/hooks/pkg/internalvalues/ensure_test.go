@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package prepare_internal
+package internalvalues
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -36,24 +35,22 @@ func newHookInput(t *testing.T, values map[string]any) (*pkg.HookInput, *patchab
 	return &pkg.HookInput{Values: pv}, pv
 }
 
-func TestHandlePrepareInternalCreatesMissingMaps(t *testing.T) {
+func TestEnsureCreatesInternalMaps(t *testing.T) {
 	input, pv := newHookInput(t, map[string]any{})
 
-	if err := handlePrepareInternal(context.Background(), input); err != nil {
-		t.Fatalf("handlePrepareInternal returned error: %v", err)
-	}
+	Ensure(input)
 
 	expected := map[string]struct{}{
-		"/" + settings.ConfigRoot:                                                  {},
-		"/" + settings.ConfigRoot + "/internal":                                    {},
-		"/" + strings.ReplaceAll(settings.InternalModuleConfigPath, ".", "/"):      {},
-		"/" + strings.ReplaceAll(settings.InternalModuleValidationPath, ".", "/"):  {},
-		"/" + strings.ReplaceAll(settings.InternalModuleConditionsPath, ".", "/"):  {},
-		"/" + strings.ReplaceAll(settings.InternalBootstrapPath, ".", "/"):         {},
-		"/" + strings.ReplaceAll(settings.InternalControllerPath, ".", "/"):        {},
-		"/" + strings.ReplaceAll(settings.InternalControllerCertPath, ".", "/"):    {},
-		"/" + strings.ReplaceAll(settings.InternalRootCAPath, ".", "/"):            {},
-		"/" + strings.ReplaceAll(settings.InternalCustomCertificatePath, ".", "/"): {},
+		patchPath(settings.ConfigRoot):                    {},
+		patchPath(settings.ConfigRoot + ".internal"):      {},
+		patchPath(settings.InternalModuleConfigPath):      {},
+		patchPath(settings.InternalModuleValidationPath):  {},
+		patchPath(settings.InternalModuleConditionsPath):  {},
+		patchPath(settings.InternalBootstrapPath):         {},
+		patchPath(settings.InternalControllerPath):        {},
+		patchPath(settings.InternalControllerCertPath):    {},
+		patchPath(settings.InternalRootCAPath):            {},
+		patchPath(settings.InternalCustomCertificatePath): {},
 	}
 
 	patches := pv.GetPatches()
@@ -62,31 +59,33 @@ func TestHandlePrepareInternalCreatesMissingMaps(t *testing.T) {
 	}
 
 	for _, patch := range patches {
+		if patch.Op != "add" {
+			t.Fatalf("expected add operation, got %s", patch.Op)
+		}
 		if _, ok := expected[patch.Path]; !ok {
 			t.Fatalf("unexpected patch path %s", patch.Path)
-		}
-		if patch.Op != "add" {
-			t.Fatalf("unexpected operation %s for path %s", patch.Op, patch.Path)
 		}
 	}
 }
 
-func TestHandlePrepareInternalPreservesExistingMaps(t *testing.T) {
+func TestEnsureKeepsExistingObjects(t *testing.T) {
 	input, pv := newHookInput(t, map[string]any{
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
-				"rootCA": map[string]any{"crt": "value"},
+				"rootCA": map[string]any{"crt": "existing"},
 			},
 		},
 	})
 
-	if err := handlePrepareInternal(context.Background(), input); err != nil {
-		t.Fatalf("handlePrepareInternal returned error: %v", err)
-	}
+	Ensure(input)
 
 	for _, patch := range pv.GetPatches() {
-		if patch.Path == "/gpuControlPlane/internal/rootCA" {
-			t.Fatalf("expected rootCA map to remain untouched")
+		if patch.Path == patchPath(settings.InternalRootCAPath) {
+			t.Fatalf("expected root CA to remain untouched")
 		}
 	}
+}
+
+func patchPath(path string) string {
+	return "/" + strings.ReplaceAll(path, ".", "/")
 }

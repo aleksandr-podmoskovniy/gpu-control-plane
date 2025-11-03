@@ -115,7 +115,14 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 		Admission: deps.AdmissionHandlers,
 	})
 
-	if err := registerControllers(ctx, mgr, sysCfg.Controllers, sysCfg.Module, deps); err != nil {
+	moduleState, err := config.ModuleSettingsToState(sysCfg.Module)
+	if err != nil {
+		return fmt.Errorf("convert module settings: %w", err)
+	}
+	store := config.NewModuleConfigStore(moduleState)
+	deps.ModuleConfigStore = store
+
+	if err := registerControllers(ctx, mgr, sysCfg.Controllers, store, deps); err != nil {
 		return fmt.Errorf("register controllers: %w", err)
 	}
 

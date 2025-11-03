@@ -25,6 +25,7 @@ import (
 
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
+	"github.com/deckhouse/module-sdk/pkg/utils"
 
 	"hooks/pkg/settings"
 )
@@ -80,8 +81,16 @@ func TestHandleModuleCommonCANoSecret(t *testing.T) {
 		t.Fatalf("handleModuleCommonCA returned error: %v", err)
 	}
 
-	if got := patches.GetPatches(); len(got) != 0 {
-		t.Fatalf("expected no patches when CA secret is absent, got %#v", got)
+	rootPatch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath))
+	if rootPatch == nil {
+		t.Fatalf("expected structural patch for %s", settings.InternalRootCAPath)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rootPatch.Value, &payload); err != nil {
+		t.Fatalf("decode rootCA payload: %v", err)
+	}
+	if len(payload) != 0 {
+		t.Fatalf("expected empty rootCA payload when secret missing, got %#v", payload)
 	}
 }
 
@@ -101,15 +110,9 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 		t.Fatalf("handleModuleCommonCA returned error: %v", err)
 	}
 
-	applied := patches.GetPatches()
-	if len(applied) != 1 {
-		t.Fatalf("expected exactly one patch, got %#v", applied)
-	}
-
-	patch := applied[0]
-	expectedPath := "/" + strings.ReplaceAll(settings.InternalRootCAPath, ".", "/")
-	if patch.Path != expectedPath {
-		t.Fatalf("unexpected patch path: %s", patch.Path)
+	patch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath))
+	if patch == nil {
+		t.Fatalf("expected patch for %s", settings.InternalRootCAPath)
 	}
 
 	var payload map[string]string
@@ -132,4 +135,18 @@ func TestHandleModuleCommonCAPropagatesErrors(t *testing.T) {
 	if err := handleModuleCommonCA(context.Background(), input); err == nil {
 		t.Fatal("expected error when snapshot decoding fails")
 	}
+}
+
+func patchPath(path string) string {
+	return "/" + strings.ReplaceAll(path, ".", "/")
+}
+
+func lastPatchForPath(patches []*utils.ValuesPatchOperation, path string) *utils.ValuesPatchOperation {
+	var result *utils.ValuesPatchOperation
+	for _, patch := range patches {
+		if patch.Path == path {
+			result = patch
+		}
+	}
+	return result
 }

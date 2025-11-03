@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -226,7 +227,7 @@ func TestRunSuccess(t *testing.T) {
 
 	controllersCalled := false
 	var receivedCtx context.Context
-	registerControllers = func(ctx context.Context, mgr ctrlmanager.Manager, cfg config.ControllersConfig, module config.ModuleSettings, deps controllers.Dependencies) error {
+	registerControllers = func(ctx context.Context, mgr ctrlmanager.Manager, cfg config.ControllersConfig, _ *config.ModuleConfigStore, deps controllers.Dependencies) error {
 		controllersCalled = true
 		receivedCtx = ctx
 		if mgr != fakeMgr {
@@ -303,7 +304,7 @@ func TestRunMetricsTLSFallbackOnError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -317,6 +318,38 @@ func TestRunMetricsTLSFallbackOnError(t *testing.T) {
 
 	if capturedOptions.Metrics.SecureServing {
 		t.Fatalf("secure metrics must be disabled when TLS setup fails")
+	}
+}
+
+func TestRunFailsOnInvalidModuleSettings(t *testing.T) {
+	origNewManager := newManager
+	origRegisterHandlers := registerHandlers
+	origRegisterControllers := registerControllers
+	origGetConfig := getConfigOrDie
+
+	t.Cleanup(func() {
+		newManager = origNewManager
+		registerHandlers = origRegisterHandlers
+		registerControllers = origRegisterControllers
+		getConfigOrDie = origGetConfig
+	})
+
+	newManager = func(cfg *rest.Config, opts ctrlmanager.Options) (ctrlmanager.Manager, error) {
+		return newFakeManager(), nil
+	}
+	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {}
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
+		t.Fatalf("registerControllers must not be called when module settings are invalid")
+		return nil
+	}
+	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
+
+	sysCfg := config.DefaultSystem()
+	sysCfg.Module.Scheduling.DefaultStrategy = "invalid-strategy"
+
+	err := Run(context.Background(), nil, sysCfg)
+	if err == nil || !strings.Contains(err.Error(), "convert module settings") {
+		t.Fatalf("expected module settings conversion error, got %v", err)
 	}
 }
 
@@ -357,7 +390,7 @@ func TestRunWithSecureMetrics(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -419,7 +452,7 @@ func TestRunRegisterControllersError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return errors.New("controllers failed")
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -455,7 +488,7 @@ func TestRunManagerStartError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -487,7 +520,7 @@ func TestRunRegisterGPUSchemeError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -522,7 +555,7 @@ func TestRunRegisterNFDSchemeError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -554,7 +587,7 @@ func TestRunHealthzCheckError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
@@ -585,7 +618,7 @@ func TestRunReadyzCheckError(t *testing.T) {
 	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
 		origRegisterHandlers(log, deps)
 	}
-	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, config.ModuleSettings, controllers.Dependencies) error {
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
 		return nil
 	}
 	getConfigOrDie = func() *rest.Config { return &rest.Config{} }

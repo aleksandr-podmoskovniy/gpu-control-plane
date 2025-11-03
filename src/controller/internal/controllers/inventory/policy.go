@@ -22,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
 type ManagedNodesPolicy struct {
@@ -31,22 +31,22 @@ type ManagedNodesPolicy struct {
 }
 
 type DeviceApprovalPolicy struct {
-	mode     config.DeviceApprovalMode
+	mode     moduleconfig.DeviceApprovalMode
 	selector labels.Selector
 }
 
 const defaultManagedNodeLabelKey = "gpu.deckhouse.io/enabled"
 
-func newDeviceApprovalPolicy(cfg config.DeviceApprovalSettings) (DeviceApprovalPolicy, error) {
+func newDeviceApprovalPolicy(cfg moduleconfig.DeviceApprovalSettings) (DeviceApprovalPolicy, error) {
 	policy := DeviceApprovalPolicy{mode: cfg.Mode}
 	if policy.mode == "" {
-		policy.mode = config.DeviceApprovalModeManual
+		policy.mode = moduleconfig.DeviceApprovalModeManual
 	}
 
 	switch policy.mode {
-	case config.DeviceApprovalModeManual, config.DeviceApprovalModeAutomatic:
+	case moduleconfig.DeviceApprovalModeManual, moduleconfig.DeviceApprovalModeAutomatic:
 		return policy, nil
-	case config.DeviceApprovalModeSelector:
+	case moduleconfig.DeviceApprovalModeSelector:
 		selector := cfg.Selector
 		if selector == nil {
 			selector = &metav1.LabelSelector{}
@@ -58,7 +58,7 @@ func newDeviceApprovalPolicy(cfg config.DeviceApprovalSettings) (DeviceApprovalP
 		policy.selector = compiled
 		return policy, nil
 	default:
-		policy.mode = config.DeviceApprovalModeManual
+		policy.mode = moduleconfig.DeviceApprovalModeManual
 		return policy, nil
 	}
 }
@@ -69,9 +69,9 @@ func (p DeviceApprovalPolicy) AutoAttach(managed bool, labels labels.Set) bool {
 	}
 
 	switch p.mode {
-	case config.DeviceApprovalModeAutomatic:
+	case moduleconfig.DeviceApprovalModeAutomatic:
 		return true
-	case config.DeviceApprovalModeSelector:
+	case moduleconfig.DeviceApprovalModeSelector:
 		if p.selector == nil {
 			return false
 		}

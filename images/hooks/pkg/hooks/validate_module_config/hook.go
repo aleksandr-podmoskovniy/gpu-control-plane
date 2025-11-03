@@ -16,17 +16,16 @@ package validate_module_config
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 	"k8s.io/utils/ptr"
 
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
 
+	"hooks/pkg/internalvalues"
 	"hooks/pkg/settings"
 )
 
@@ -44,18 +43,7 @@ type moduleConfigSnapshotPayload struct {
 	Spec moduleConfigSnapshotSpec `json:"spec"`
 }
 
-type moduleConfigState struct {
-	Enabled bool
-	Config  map[string]any
-}
-
 var moduleConfigFromSnapshotFn = moduleConfigFromSnapshot
-
-var (
-	defaultSchedulingTopology    = settings.DefaultSchedulingTopology
-	defaultInventoryResyncPeriod = settings.DefaultInventoryResyncPeriod
-	jsonUnmarshal                = json.Unmarshal
-)
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
 	OnBeforeHelm: &pkg.OrderedConfig{Order: 10},
@@ -75,82 +63,56 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 }, handleValidateModuleConfig)
 
 func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
+	internalvalues.Ensure(input)
+
 	state, err := moduleConfigFromSnapshotFn(input)
 	if err != nil {
 		registerValidationError(input, err)
-		input.Values.Remove(settings.InternalModuleConfigPath)
-		input.Values.Remove(settings.InternalControllerPath + ".config")
-		input.Values.Remove(settings.HTTPSConfigPath)
+		clearModuleValues(input)
 		return nil
 	}
 
 	if state == nil {
-		input.Values.Remove(settings.InternalModuleConfigPath)
+		clearModuleValues(input)
 		input.Values.Remove(settings.InternalModuleValidationPath)
-		input.Values.Remove(settings.InternalControllerPath + ".config")
-		input.Values.Remove(settings.HTTPSConfigPath)
 		return nil
 	}
 
+	clone := state.Clone()
+	sanitized := clone.Sanitized
+
 	input.Values.Remove(settings.InternalModuleValidationPath)
-	payload := map[string]any{
-		"enabled": state.Enabled,
-	}
-	if len(state.Config) > 0 {
-		payload["settings"] = state.Config
+
+	payload := map[string]any{"enabled": state.Enabled}
+	if len(sanitized) > 0 {
+		payload["settings"] = sanitized
 	}
 	input.Values.Set(settings.InternalModuleConfigPath, payload)
 
-	if managed, ok := state.Config["managedNodes"]; ok {
-		input.Values.Set(settings.ConfigRoot+".managedNodes", managed)
-	} else {
-		input.Values.Remove(settings.ConfigRoot + ".managedNodes")
-	}
-
-	if approval, ok := state.Config["deviceApproval"]; ok {
-		input.Values.Set(settings.ConfigRoot+".deviceApproval", approval)
-	} else {
-		input.Values.Remove(settings.ConfigRoot + ".deviceApproval")
-	}
-
-	if scheduling, ok := state.Config["scheduling"]; ok {
-		input.Values.Set(settings.ConfigRoot+".scheduling", scheduling)
-	} else {
-		input.Values.Remove(settings.ConfigRoot + ".scheduling")
-	}
-
-	if inventory, ok := state.Config["inventory"]; ok {
-		input.Values.Set(settings.ConfigRoot+".inventory", inventory)
-	} else {
-		input.Values.Remove(settings.ConfigRoot + ".inventory")
-	}
+	setValueOrRemove(input, settings.ConfigRoot+".managedNodes", sanitized["managedNodes"])
+	setValueOrRemove(input, settings.ConfigRoot+".deviceApproval", sanitized["deviceApproval"])
+	setValueOrRemove(input, settings.ConfigRoot+".scheduling", sanitized["scheduling"])
+	setValueOrRemove(input, settings.ConfigRoot+".inventory", sanitized["inventory"])
 
 	var userHTTPS map[string]any
-	if httpsCfg, ok := state.Config["https"]; ok {
-		if cast, ok := httpsCfg.(map[string]any); ok {
+	if raw, ok := sanitized["https"]; ok {
+		if cast, ok := raw.(map[string]any); ok {
 			userHTTPS = cast
 		}
 	}
-
-	effectiveHTTPS := resolveHTTPSConfig(input, userHTTPS)
-	if effectiveHTTPS != nil {
-		input.Values.Set(settings.HTTPSConfigPath, effectiveHTTPS)
+	if https := resolveHTTPSConfig(input, userHTTPS); https != nil {
+		input.Values.Set(settings.HTTPSConfigPath, https)
 	} else {
 		input.Values.Remove(settings.HTTPSConfigPath)
 	}
 
-	if haRaw, ok := state.Config["highAvailability"]; ok {
-		if flag, ok := haRaw.(bool); ok {
-			input.Values.Set(settings.ConfigRoot+".highAvailability", flag)
-		} else {
-			input.Values.Remove(settings.ConfigRoot + ".highAvailability")
-		}
+	if ha, ok := sanitized["highAvailability"].(bool); ok {
+		input.Values.Set(settings.ConfigRoot+".highAvailability", ha)
 	} else {
 		input.Values.Remove(settings.ConfigRoot + ".highAvailability")
 	}
 
-	controllerConfig := buildControllerConfig(state.Config)
-	if len(controllerConfig) > 0 {
+	if controllerConfig := buildControllerConfig(sanitized); len(controllerConfig) > 0 {
 		input.Values.Set(settings.InternalControllerPath+".config", controllerConfig)
 	} else {
 		input.Values.Remove(settings.InternalControllerPath + ".config")
@@ -159,31 +121,27 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 	return nil
 }
 
-func moduleConfigFromSnapshot(input *pkg.HookInput) (*moduleConfigState, error) {
+func moduleConfigFromSnapshot(input *pkg.HookInput) (*moduleconfig.State, error) {
 	snapshot := input.Snapshots.Get(moduleConfigSnapshot)
 	if len(snapshot) == 0 {
 		return nil, nil
 	}
 
-	var mc moduleConfigSnapshotPayload
-	if err := snapshot[0].UnmarshalTo(&mc); err != nil {
+	var payload moduleConfigSnapshotPayload
+	if err := snapshot[0].UnmarshalTo(&payload); err != nil {
 		return nil, fmt.Errorf("decode ModuleConfig/%s: %w", settings.ModuleName, err)
 	}
 
-	cfg, err := sanitizeModuleSettings(mc.Spec.Settings)
+	state, err := moduleconfig.Parse(moduleconfig.Input{
+		Enabled:  payload.Spec.Enabled,
+		Settings: payload.Spec.Settings,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse ModuleConfig/%s: %w", settings.ModuleName, err)
 	}
 
-	enabled := false
-	if mc.Spec.Enabled != nil {
-		enabled = *mc.Spec.Enabled
-	}
-
-	return &moduleConfigState{
-		Enabled: enabled,
-		Config:  cfg,
-	}, nil
+	clone := state.Clone()
+	return &clone, nil
 }
 
 func registerValidationError(input *pkg.HookInput, err error) {
@@ -192,399 +150,18 @@ func registerValidationError(input *pkg.HookInput, err error) {
 	})
 }
 
-func sanitizeModuleSettings(raw map[string]any) (map[string]any, error) {
-	result := make(map[string]any)
-
-	var asJSON []byte
-	var err error
-	if raw != nil {
-		asJSON, err = json.Marshal(raw)
-		if err != nil {
-			return nil, fmt.Errorf("encode ModuleConfig settings: %w", err)
-		}
-	}
-
-	fields := make(map[string]json.RawMessage)
-	if len(asJSON) > 0 {
-		if err := jsonUnmarshal(asJSON, &fields); err != nil {
-			return nil, fmt.Errorf("decode ModuleConfig settings: %w", err)
-		}
-	}
-
-	managed, err := sanitizeManagedNodes(fields["managedNodes"])
-	if err != nil {
-		return nil, err
-	}
-	result["managedNodes"] = managed
-
-	approval, err := sanitizeDeviceApproval(fields["deviceApproval"])
-	if err != nil {
-		return nil, err
-	}
-	result["deviceApproval"] = approval
-
-	scheduling, err := sanitizeScheduling(fields["scheduling"])
-	if err != nil {
-		return nil, err
-	}
-	result["scheduling"] = scheduling
-
-	inventory, err := sanitizeInventory(fields["inventory"])
-	if err != nil {
-		return nil, err
-	}
-	result["inventory"] = inventory
-
-	if rawHTTPS := fields["https"]; len(rawHTTPS) > 0 && string(rawHTTPS) != "null" {
-		https, err := sanitizeHTTPS(rawHTTPS)
-		if err != nil {
-			return nil, err
-		}
-		result["https"] = https
-	}
-
-	if rawHA, ok := fields["highAvailability"]; ok {
-		if len(rawHA) != 0 && string(rawHA) != "null" {
-			var enabled bool
-			if err := jsonUnmarshal(rawHA, &enabled); err != nil {
-				return nil, fmt.Errorf("decode ModuleConfig field %q: %w", "highAvailability", err)
-			}
-			result["highAvailability"] = enabled
-		}
-	}
-
-	return result, nil
+func clearModuleValues(input *pkg.HookInput) {
+	input.Values.Remove(settings.InternalModuleConfigPath)
+	input.Values.Remove(settings.InternalControllerPath + ".config")
+	input.Values.Remove(settings.HTTPSConfigPath)
 }
 
-type rawManagedNodes struct {
-	LabelKey         string `json:"labelKey"`
-	EnabledByDefault *bool  `json:"enabledByDefault"`
-}
-
-type rawDeviceApproval struct {
-	Mode     string         `json:"mode"`
-	Selector *labelSelector `json:"selector"`
-}
-
-type rawScheduling struct {
-	DefaultStrategy string `json:"defaultStrategy"`
-	TopologyKey     string `json:"topologyKey"`
-}
-
-type rawInventory struct {
-	ResyncPeriod string `json:"resyncPeriod"`
-}
-
-type rawHTTPS struct {
-	Mode              string                     `json:"mode"`
-	CertManager       *rawHTTPSCertManager       `json:"certManager"`
-	CustomCertificate *rawHTTPSCustomCertificate `json:"customCertificate"`
-}
-
-type rawHTTPSCertManager struct {
-	ClusterIssuerName string `json:"clusterIssuerName"`
-}
-
-type rawHTTPSCustomCertificate struct {
-	SecretName string `json:"secretName"`
-}
-
-type labelSelector struct {
-	MatchLabels      map[string]string   `json:"matchLabels"`
-	MatchExpressions []labelSelectorRule `json:"matchExpressions"`
-}
-
-type labelSelectorRule struct {
-	Key      string   `json:"key"`
-	Operator string   `json:"operator"`
-	Values   []string `json:"values"`
-}
-
-func sanitizeManagedNodes(raw json.RawMessage) (map[string]any, error) {
-	label := settings.DefaultNodeLabelKey
-	enabled := true
-
-	if len(raw) > 0 && string(raw) != "null" {
-		var payload rawManagedNodes
-		if err := jsonUnmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("decode managedNodes settings: %w", err)
-		}
-		if v := strings.TrimSpace(payload.LabelKey); v != "" {
-			label = v
-		}
-		if payload.EnabledByDefault != nil {
-			enabled = *payload.EnabledByDefault
-		}
+func setValueOrRemove(input *pkg.HookInput, path string, value any) {
+	if value == nil {
+		input.Values.Remove(path)
+		return
 	}
-
-	return map[string]any{
-		"labelKey":         label,
-		"enabledByDefault": enabled,
-	}, nil
-}
-
-func sanitizeDeviceApproval(raw json.RawMessage) (map[string]any, error) {
-	mode := settings.DefaultAutoAssignmentMode
-	var selector map[string]any
-
-	if len(raw) > 0 && string(raw) != "null" {
-		var payload rawDeviceApproval
-		if err := jsonUnmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("decode deviceApproval settings: %w", err)
-		}
-		if autoMode := normalizeMode(payload.Mode); autoMode != "" {
-			mode = autoMode
-		} else if strings.TrimSpace(payload.Mode) != "" {
-			return nil, fmt.Errorf("unknown deviceApproval.mode %q", payload.Mode)
-		}
-
-		if mode == "Selector" {
-			if payload.Selector == nil {
-				return nil, errors.New("deviceApproval.selector must be set when mode=Selector")
-			}
-			sel, err := sanitizeSelector(payload.Selector)
-			if err != nil {
-				return nil, err
-			}
-			selector = sel
-		}
-	}
-
-	result := map[string]any{
-		"mode": mode,
-	}
-	if selector != nil {
-		result["selector"] = selector
-	}
-	return result, nil
-}
-
-func sanitizeScheduling(raw json.RawMessage) (map[string]any, error) {
-	strategy := settings.DefaultSchedulingStrategy
-	topology := defaultSchedulingTopology
-
-	if len(raw) > 0 && string(raw) != "null" {
-		var payload rawScheduling
-		if err := jsonUnmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("decode scheduling settings: %w", err)
-		}
-		if v := normalizeStrategy(payload.DefaultStrategy); v != "" {
-			strategy = v
-		} else if strings.TrimSpace(payload.DefaultStrategy) != "" {
-			return nil, fmt.Errorf("unknown scheduling.defaultStrategy %q", payload.DefaultStrategy)
-		}
-		if payload.TopologyKey != "" {
-			topology = strings.TrimSpace(payload.TopologyKey)
-		}
-	}
-
-	if strategy == "Spread" && topology == "" {
-		topology = defaultSchedulingTopology
-	}
-	if strategy == "Spread" && strings.TrimSpace(topology) == "" {
-		return nil, errors.New("scheduling.topologyKey must be set when defaultStrategy=Spread")
-	}
-
-	result := map[string]any{
-		"defaultStrategy": strategy,
-	}
-	if topology != "" {
-		result["topologyKey"] = topology
-	}
-	return result, nil
-}
-
-func sanitizeInventory(raw json.RawMessage) (map[string]any, error) {
-	period := defaultInventoryResyncPeriod
-
-	if len(raw) > 0 && string(raw) != "null" {
-		var payload rawInventory
-		if err := jsonUnmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("decode inventory settings: %w", err)
-		}
-		if trimmed := strings.TrimSpace(payload.ResyncPeriod); trimmed != "" {
-			if _, err := time.ParseDuration(trimmed); err != nil {
-				return nil, fmt.Errorf("parse inventory.resyncPeriod: %w", err)
-			}
-			period = trimmed
-		}
-	}
-
-	if _, err := time.ParseDuration(period); err != nil {
-		return nil, fmt.Errorf("parse inventory.resyncPeriod: %w", err)
-	}
-
-	return map[string]any{
-		"resyncPeriod": period,
-	}, nil
-}
-
-func sanitizeHTTPS(raw json.RawMessage) (map[string]any, error) {
-	var payload rawHTTPS
-	if err := jsonUnmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("decode https settings: %w", err)
-	}
-
-	mode := normalizeHTTPSMode(payload.Mode)
-	if mode == "" {
-		if strings.TrimSpace(payload.Mode) != "" {
-			return nil, fmt.Errorf("unknown https.mode %q", payload.Mode)
-		}
-		mode = settings.DefaultHTTPSMode
-	}
-
-	result := map[string]any{"mode": mode}
-
-	switch mode {
-	case "CertManager":
-		issuer := settings.DefaultHTTPSClusterIssuer
-		if payload.CertManager != nil {
-			if trimmed := strings.TrimSpace(payload.CertManager.ClusterIssuerName); trimmed != "" {
-				issuer = trimmed
-			}
-		}
-		result["certManager"] = map[string]any{"clusterIssuerName": issuer}
-	case "CustomCertificate":
-		if payload.CustomCertificate == nil {
-			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
-		}
-		secret := strings.TrimSpace(payload.CustomCertificate.SecretName)
-		if secret == "" {
-			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
-		}
-		result["customCertificate"] = map[string]any{"secretName": secret}
-	case "OnlyInURI", "Disabled":
-		// no additional sections required
-	}
-
-	return result, nil
-}
-
-func sanitizeSelector(sel *labelSelector) (map[string]any, error) {
-	if sel == nil {
-		return nil, errors.New("deviceApproval.selector cannot be null")
-	}
-
-	matchLabels := make(map[string]string)
-	for key, value := range sel.MatchLabels {
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" {
-			return nil, errors.New("deviceApproval.selector.matchLabels keys and values must be non-empty")
-		}
-		matchLabels[key] = value
-	}
-
-	var matchExpressions []map[string]any
-	for _, req := range sel.MatchExpressions {
-		op := strings.TrimSpace(req.Operator)
-		if op == "" {
-			return nil, errors.New("deviceApproval.selector.matchExpressions[].operator must be set")
-		}
-		op = normalizeOperator(op)
-		if op == "" {
-			return nil, fmt.Errorf("unsupported selector operator %q", req.Operator)
-		}
-
-		key := strings.TrimSpace(req.Key)
-		if key == "" {
-			return nil, errors.New("deviceApproval.selector.matchExpressions[].key must be set")
-		}
-
-		values := make([]string, 0, len(req.Values))
-		for _, v := range req.Values {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				values = append(values, v)
-			}
-		}
-
-		if (op == "In" || op == "NotIn") && len(values) == 0 {
-			return nil, fmt.Errorf("selector operator %q requires non-empty values", op)
-		}
-		if (op == "Exists" || op == "DoesNotExist") && len(values) > 0 {
-			return nil, fmt.Errorf("selector operator %q does not accept values", op)
-		}
-
-		matchExpressions = append(matchExpressions, map[string]any{
-			"key":      key,
-			"operator": op,
-			"values":   values,
-		})
-	}
-
-	if len(matchLabels) == 0 && len(matchExpressions) == 0 {
-		return nil, errors.New("deviceApproval.selector must define matchLabels or matchExpressions")
-	}
-
-	result := make(map[string]any)
-	if len(matchLabels) > 0 {
-		result["matchLabels"] = matchLabels
-	}
-	if len(matchExpressions) > 0 {
-		result["matchExpressions"] = matchExpressions
-	}
-	return result, nil
-}
-
-func normalizeHTTPSMode(mode string) string {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "":
-		return ""
-	case "certmanager":
-		return "CertManager"
-	case "customcertificate":
-		return "CustomCertificate"
-	case "onlyinuri":
-		return "OnlyInURI"
-	case "disabled":
-		return "Disabled"
-	default:
-		return ""
-	}
-}
-
-func normalizeMode(mode string) string {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "":
-		return ""
-	case "manual":
-		return "Manual"
-	case "automatic":
-		return "Automatic"
-	case "selector":
-		return "Selector"
-	default:
-		return ""
-	}
-}
-
-func normalizeStrategy(strategy string) string {
-	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case "":
-		return ""
-	case "binpack":
-		return "BinPack"
-	case "spread":
-		return "Spread"
-	default:
-		return ""
-	}
-}
-
-func normalizeOperator(op string) string {
-	switch strings.ToLower(op) {
-	case "in":
-		return "In"
-	case "notin":
-		return "NotIn"
-	case "exists":
-		return "Exists"
-	case "doesnotexist":
-		return "DoesNotExist"
-	default:
-		return ""
-	}
+	input.Values.Set(path, value)
 }
 
 func resolveHTTPSConfig(input *pkg.HookInput, user map[string]any) map[string]any {
@@ -661,4 +238,21 @@ func buildControllerConfig(cfg map[string]any) map[string]any {
 		return nil
 	}
 	return result
+}
+
+func normalizeHTTPSMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "":
+		return ""
+	case "certmanager":
+		return "CertManager"
+	case "customcertificate":
+		return "CustomCertificate"
+	case "onlyinuri":
+		return "OnlyInURI"
+	case "disabled":
+		return "Disabled"
+	default:
+		return ""
+	}
 }

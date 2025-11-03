@@ -17,11 +17,10 @@ package prepare_internal
 import (
 	"context"
 
-	"github.com/tidwall/gjson"
-
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
 
+	"hooks/pkg/internalvalues"
 	"hooks/pkg/settings"
 )
 
@@ -31,23 +30,6 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 }, handlePrepareInternal)
 
 func handlePrepareInternal(_ context.Context, input *pkg.HookInput) error {
-	for _, path := range []string{
-		settings.ConfigRoot,
-		settings.ConfigRoot + ".internal",
-		settings.InternalRootCAPath,
-		settings.InternalControllerPath,
-		settings.InternalControllerCertPath,
-		settings.InternalCustomCertificatePath,
-	} {
-		ensureMap(input, path)
-	}
-
+	internalvalues.Ensure(input)
 	return nil
-}
-
-func ensureMap(input *pkg.HookInput, path string) {
-	value := input.Values.Get(path)
-	if !value.Exists() || value.Type != gjson.JSON || !value.IsObject() {
-		input.Values.Set(path, map[string]any{})
-	}
 }

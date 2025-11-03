@@ -20,18 +20,23 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
@@ -41,30 +46,72 @@ type controllerBuilder interface {
 	Named(string) controllerBuilder
 	For(client.Object, ...builder.ForOption) controllerBuilder
 	WithOptions(controller.Options) controllerBuilder
+	WatchesRawSource(source.Source) controllerBuilder
+	Complete(reconcile.Reconciler) error
+}
+
+type controllerRuntimeAdapter interface {
+	Named(string) controllerRuntimeAdapter
+	For(client.Object, ...builder.ForOption) controllerRuntimeAdapter
+	WithOptions(controller.Options) controllerRuntimeAdapter
+	WatchesRawSource(source.Source) controllerRuntimeAdapter
 	Complete(reconcile.Reconciler) error
 }
 
 type runtimeControllerBuilder struct {
-	builder *builder.Builder
+	adapter controllerRuntimeAdapter
 }
 
 func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
-	b.builder = b.builder.Named(name)
+	b.adapter = b.adapter.Named(name)
 	return b
 }
 
 func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
-	b.builder = b.builder.For(obj, opts...)
+	b.adapter = b.adapter.For(obj, opts...)
 	return b
 }
 
 func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
-	b.builder = b.builder.WithOptions(opts)
+	b.adapter = b.adapter.WithOptions(opts)
+	return b
+}
+
+func (b *runtimeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
+	b.adapter = b.adapter.WatchesRawSource(src)
 	return b
 }
 
 func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
-	return b.builder.Complete(r)
+	return b.adapter.Complete(r)
+}
+
+type builderControllerAdapter struct {
+	delegate *builder.Builder
+}
+
+func (a *builderControllerAdapter) Named(name string) controllerRuntimeAdapter {
+	a.delegate = a.delegate.Named(name)
+	return a
+}
+
+func (a *builderControllerAdapter) For(obj client.Object, opts ...builder.ForOption) controllerRuntimeAdapter {
+	a.delegate = a.delegate.For(obj, opts...)
+	return a
+}
+
+func (a *builderControllerAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
+	a.delegate = a.delegate.WithOptions(opts)
+	return a
+}
+
+func (a *builderControllerAdapter) WatchesRawSource(src source.Source) controllerRuntimeAdapter {
+	a.delegate = a.delegate.WatchesRawSource(src)
+	return a
+}
+
+func (a *builderControllerAdapter) Complete(r reconcile.Reconciler) error {
+	return a.delegate.Complete(r)
 }
 
 const (
@@ -73,28 +120,37 @@ const (
 )
 
 var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
-	return &runtimeControllerBuilder{builder: ctrl.NewControllerManagedBy(mgr)}
+	return &runtimeControllerBuilder{
+		adapter: &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)},
+	}
 }
 
 type Reconciler struct {
-	client   client.Client
-	scheme   *runtime.Scheme
-	log      logr.Logger
-	cfg      config.ControllerConfig
-	handlers []contracts.BootstrapHandler
-	builders func(ctrl.Manager) controllerBuilder
+	client               client.Client
+	scheme               *runtime.Scheme
+	log                  logr.Logger
+	cfg                  config.ControllerConfig
+	store                *config.ModuleConfigStore
+	handlers             []contracts.BootstrapHandler
+	builders             func(ctrl.Manager) controllerBuilder
+	moduleWatcherFactory func(cache.Cache, controllerBuilder) controllerBuilder
 }
 
-func New(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.BootstrapHandler) *Reconciler {
+func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.BootstrapHandler) *Reconciler {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 1
 	}
-	return &Reconciler{
+	rec := &Reconciler{
 		log:      log,
 		cfg:      cfg,
+		store:    store,
 		handlers: handlers,
 		builders: newControllerManagedBy,
 	}
+	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
+		return rec.attachModuleWatcher(builder, c)
+	}
+	return rec
 }
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
@@ -112,7 +168,23 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		Named(controllerName).
 		For(&gpuv1alpha1.GPUNodeInventory{}).
 		WithOptions(options)
+
+	if cache := mgr.GetCache(); r.moduleWatcherFactory != nil && cache != nil {
+		builder = r.moduleWatcherFactory(cache, builder)
+	}
+
 	return builder.Complete(r)
+}
+
+func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
+	moduleConfig := &unstructured.Unstructured{}
+	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*unstructured.Unstructured](r.mapModuleConfig)
+	return builder.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
+}
+
+func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
+	return r.requeueAllInventories(ctx)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -144,4 +216,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Requeue:      res.Requeue,
 		RequeueAfter: res.RequeueAfter,
 	}, nil
+}
+
+func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Request {
+	list := &gpuv1alpha1.GPUNodeInventoryList{}
+	if err := r.client.List(ctx, list); err != nil {
+		if r.log.GetSink() != nil {
+			r.log.Error(err, "list GPUNodeInventory to resync after module config change")
+		}
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(list.Items))
+	for _, item := range list.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: item.Name}})
+	}
+	return requests
 }

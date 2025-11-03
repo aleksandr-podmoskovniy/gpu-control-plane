@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -27,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -45,9 +47,11 @@ import (
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
+	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
 )
@@ -193,6 +197,7 @@ type setupDependencies struct {
 	scheme            *runtime.Scheme
 	recorder          record.EventRecorder
 	indexer           client.FieldIndexer
+	cache             cache.Cache
 	nodeFeatureSource source.SyncingSource
 	builder           controllerBuilder
 }
@@ -213,13 +218,15 @@ type Reconciler struct {
 	handlers                 []contracts.InventoryHandler
 	recorder                 record.EventRecorder
 	resyncPeriod             time.Duration
-	managed                  ManagedNodesPolicy
-	approval                 DeviceApprovalPolicy
 	builderFactory           func(ctrl.Manager) controllerBuilder
 	nodeFeatureSourceFactory func(cache.Cache) source.SyncingSource
+	moduleWatcherFactory     func(cache.Cache, controllerBuilder) controllerBuilder
+	store                    *config.ModuleConfigStore
+	fallbackManaged          ManagedNodesPolicy
+	fallbackApproval         DeviceApprovalPolicy
 }
 
-func New(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSettings, handlers []contracts.InventoryHandler) (*Reconciler, error) {
+func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.InventoryHandler) (*Reconciler, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 1
 	}
@@ -227,24 +234,32 @@ func New(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSetti
 		cfg.ResyncPeriod = defaultResyncPeriod
 	}
 
-	approval, err := newDeviceApprovalPolicy(module.DeviceApproval)
+	state := moduleconfigpkg.DefaultState()
+	if store != nil {
+		state = store.Current()
+	}
+
+	managed, approval, err := managedAndApprovalFromState(state)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Reconciler{
+	rec := &Reconciler{
 		log:                      log,
 		cfg:                      cfg,
 		handlers:                 handlers,
 		resyncPeriod:             cfg.ResyncPeriod,
 		builderFactory:           defaultControllerBuilder,
 		nodeFeatureSourceFactory: defaultNodeFeatureSource,
-		managed: ManagedNodesPolicy{
-			LabelKey:         module.ManagedNodes.LabelKey,
-			EnabledByDefault: module.ManagedNodes.EnabledByDefault,
-		},
-		approval: approval,
-	}, nil
+		store:                    store,
+		fallbackManaged:          managed,
+		fallbackApproval:         approval,
+	}
+	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
+		return rec.attachModuleWatcher(builder, c)
+	}
+
+	return rec, nil
 }
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
@@ -254,12 +269,14 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	if r.nodeFeatureSourceFactory == nil {
 		r.nodeFeatureSourceFactory = defaultNodeFeatureSource
 	}
+	cache := mgr.GetCache()
 	deps := setupDependencies{
 		client:            mgr.GetClient(),
 		scheme:            mgr.GetScheme(),
 		recorder:          mgr.GetEventRecorderFor("gpu-inventory-controller"),
 		indexer:           mgr.GetFieldIndexer(),
-		nodeFeatureSource: r.nodeFeatureSourceFactory(mgr.GetCache()),
+		cache:             cache,
+		nodeFeatureSource: r.nodeFeatureSourceFactory(cache),
 		builder:           r.builderFactory(mgr),
 	}
 	return r.setupWithDependencies(ctx, deps)
@@ -298,12 +315,77 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		WatchesRawSource(deps.nodeFeatureSource).
 		WithOptions(options)
 
+	if deps.cache != nil && r.moduleWatcherFactory != nil {
+		builder = r.moduleWatcherFactory(deps.cache, builder)
+	}
+
 	return builder.Complete(r)
+}
+
+func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
+	nodeList := &corev1.NodeList{}
+	if err := r.client.List(ctx, nodeList); err != nil {
+		if r.log.GetSink() != nil {
+			r.log.Error(err, "list nodes to resync after module config change")
+		}
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(nodeList.Items))
+	for _, node := range nodeList.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	}
+	return requests
+}
+
+func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, cache cache.Cache) controllerBuilder {
+	moduleConfig := &unstructured.Unstructured{}
+	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*unstructured.Unstructured](r.mapModuleConfig)
+	return builder.WatchesRawSource(source.Kind(cache, moduleConfig, handlerFunc))
+}
+
+func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
+	return r.requeueAllNodes(ctx)
+}
+
+func (r *Reconciler) currentPolicies() (ManagedNodesPolicy, DeviceApprovalPolicy) {
+	if r.store != nil {
+		state := r.store.Current()
+		managed, approval, err := managedAndApprovalFromState(state)
+		if err != nil {
+			if r.log.GetSink() != nil {
+				r.log.Error(err, "failed to build device approval policy from store, using fallback")
+			}
+		} else {
+			return managed, approval
+		}
+	}
+
+	return r.fallbackManaged, r.fallbackApproval
+}
+
+func managedAndApprovalFromState(state moduleconfigpkg.State) (ManagedNodesPolicy, DeviceApprovalPolicy, error) {
+	managed := ManagedNodesPolicy{
+		LabelKey:         strings.TrimSpace(state.Settings.ManagedNodes.LabelKey),
+		EnabledByDefault: state.Settings.ManagedNodes.EnabledByDefault,
+	}
+	if managed.LabelKey == "" {
+		managed.LabelKey = defaultManagedNodeLabelKey
+	}
+
+	approval, err := newDeviceApprovalPolicy(state.Settings.DeviceApproval)
+	if err != nil {
+		return ManagedNodesPolicy{}, DeviceApprovalPolicy{}, err
+	}
+
+	return managed, approval, nil
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := crlog.FromContext(ctx).WithValues("node", req.Name)
 	ctx = logr.NewContext(ctx, log)
+
+	managedPolicy, approvalPolicy := r.currentPolicies()
 
 	node := &corev1.Node{}
 	if err := r.client.Get(ctx, req.NamespacedName, node); err != nil {
@@ -327,7 +409,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		nodeFeature = feature
 	}
 
-	nodeSnapshot := buildNodeSnapshot(node, nodeFeature, r.managed)
+	nodeSnapshot := buildNodeSnapshot(node, nodeFeature, managedPolicy)
 	snapshotList := nodeSnapshot.Devices
 	managed := nodeSnapshot.Managed
 
@@ -344,7 +426,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	aggregate := contracts.Result{}
 
 	for _, snapshot := range snapshotList {
-		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed)
+		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -361,7 +443,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.recorder.Eventf(node, corev1.EventTypeNormal, eventDeviceRemoved, "GPU device %s removed from inventory", name)
 	}
 
-	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices); err != nil {
+	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(float64(len(reconciledDevices)))
@@ -388,12 +470,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return ctrlResult, nil
 }
 
-func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
+func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
 	deviceName := buildDeviceName(node.Name, snapshot)
 	device := &gpuv1alpha1.GPUDevice{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
 	if apierrors.IsNotFound(err) {
-		return r.createDevice(ctx, node, snapshot, nodeLabels, managed)
+		return r.createDevice(ctx, node, snapshot, nodeLabels, managed, approval)
 	}
 	if err != nil {
 		return nil, contracts.Result{}, err
@@ -444,7 +526,7 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	if !stringSlicesEqual(device.Status.Hardware.Precision.Supported, snapshot.Precision) {
 		device.Status.Hardware.Precision.Supported = append([]string(nil), snapshot.Precision...)
 	}
-	autoAttach := r.approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
+	autoAttach := approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
 	if device.Status.AutoAttach != autoAttach {
 		device.Status.AutoAttach = autoAttach
 	}
@@ -466,7 +548,7 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	return device, result, nil
 }
 
-func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
+func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
 	device := &gpuv1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: buildDeviceName(node.Name, snapshot),
@@ -497,7 +579,7 @@ func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapsh
 	device.Status.Hardware.MIG = snapshot.MIG
 	device.Status.Hardware.Precision.Supported = append([]string(nil), snapshot.Precision...)
 	device.Status.State = gpuv1alpha1.GPUDeviceStateUnassigned
-	device.Status.AutoAttach = r.approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
+	device.Status.AutoAttach = approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
 
 	result, err := r.invokeHandlers(ctx, device)
 	if err != nil {
@@ -561,7 +643,7 @@ func (r *Reconciler) invokeHandlers(ctx context.Context, device *gpuv1alpha1.GPU
 	return rec.Reconcile(ctx)
 }
 
-func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*gpuv1alpha1.GPUDevice) error {
+func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*gpuv1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error {
 	inventory := &gpuv1alpha1.GPUNodeInventory{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
 	if apierrors.IsNotFound(err) {
@@ -661,7 +743,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 	inventory.Status.Driver.ToolkitReady = snapshot.Driver.ToolkitInstalled || snapshot.Driver.ToolkitReady
 
 	conditions := inventory.Status.Conditions
-	labelKey := r.managed.LabelKey
+	labelKey := managedPolicy.LabelKey
 	if labelKey == "" {
 		labelKey = defaultManagedNodeLabelKey
 	}

@@ -21,15 +21,15 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
 func TestNewDeviceApprovalPolicyDefaults(t *testing.T) {
-	policy, err := newDeviceApprovalPolicy(config.DeviceApprovalSettings{})
+	policy, err := newDeviceApprovalPolicy(moduleconfig.DeviceApprovalSettings{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if policy.mode != config.DeviceApprovalModeManual {
+	if policy.mode != moduleconfig.DeviceApprovalModeManual {
 		t.Fatalf("expected manual mode fallback, got %s", policy.mode)
 	}
 	if policy.AutoAttach(true, labels.Set{}) {
@@ -38,8 +38,8 @@ func TestNewDeviceApprovalPolicyDefaults(t *testing.T) {
 }
 
 func TestNewDeviceApprovalPolicySelector(t *testing.T) {
-	policy, err := newDeviceApprovalPolicy(config.DeviceApprovalSettings{
-		Mode: config.DeviceApprovalModeSelector,
+	policy, err := newDeviceApprovalPolicy(moduleconfig.DeviceApprovalSettings{
+		Mode: moduleconfig.DeviceApprovalModeSelector,
 		Selector: &metav1.LabelSelector{
 			MatchLabels: map[string]string{"gpu.deckhouse.io/device.vendor": "10de"},
 		},
@@ -56,8 +56,8 @@ func TestNewDeviceApprovalPolicySelector(t *testing.T) {
 }
 
 func TestNewDeviceApprovalPolicySelectorCompileError(t *testing.T) {
-	_, err := newDeviceApprovalPolicy(config.DeviceApprovalSettings{
-		Mode: config.DeviceApprovalModeSelector,
+	_, err := newDeviceApprovalPolicy(moduleconfig.DeviceApprovalSettings{
+		Mode: moduleconfig.DeviceApprovalModeSelector,
 		Selector: &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{Key: "gpu.deckhouse.io/device.vendor", Operator: "Invalid"},
@@ -70,20 +70,20 @@ func TestNewDeviceApprovalPolicySelectorCompileError(t *testing.T) {
 }
 
 func TestNewDeviceApprovalPolicyUnknownMode(t *testing.T) {
-	policy, err := newDeviceApprovalPolicy(config.DeviceApprovalSettings{
+	policy, err := newDeviceApprovalPolicy(moduleconfig.DeviceApprovalSettings{
 		Mode: "something-unsupported",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if policy.mode != config.DeviceApprovalModeManual {
+	if policy.mode != moduleconfig.DeviceApprovalModeManual {
 		t.Fatalf("expected manual fallback, got %s", policy.mode)
 	}
 }
 
 func TestDeviceApprovalAutoAttachManagedFlag(t *testing.T) {
-	policy, err := newDeviceApprovalPolicy(config.DeviceApprovalSettings{
-		Mode: config.DeviceApprovalModeAutomatic,
+	policy, err := newDeviceApprovalPolicy(moduleconfig.DeviceApprovalSettings{
+		Mode: moduleconfig.DeviceApprovalModeAutomatic,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -94,7 +94,7 @@ func TestDeviceApprovalAutoAttachManagedFlag(t *testing.T) {
 }
 
 func TestDeviceApprovalAutoAttachSelectorWithoutCompiledSelector(t *testing.T) {
-	policy := DeviceApprovalPolicy{mode: config.DeviceApprovalModeSelector, selector: nil}
+	policy := DeviceApprovalPolicy{mode: moduleconfig.DeviceApprovalModeSelector, selector: nil}
 	if policy.AutoAttach(true, labels.Set{"gpu.deckhouse.io/device.vendor": "10de"}) {
 		t.Fatal("expected selector without compiled matcher to return false")
 	}

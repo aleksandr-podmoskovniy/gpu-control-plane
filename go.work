@@ -17,5 +17,6 @@ go 1.24.6
 use (
 	./images/hooks
 	./images/pre-delete-hook
+	./pkg
 	./src/controller
 )

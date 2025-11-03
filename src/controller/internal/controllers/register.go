@@ -25,6 +25,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/bootstrap"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/gpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/inventory"
+	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
@@ -33,17 +34,20 @@ type setupController interface {
 }
 
 var (
-	newInventoryController = func(log logr.Logger, cfg config.ControllerConfig, module config.ModuleSettings, handlers []contracts.InventoryHandler) (setupController, error) {
-		return inventory.New(log, cfg, module, handlers)
+	newModuleConfigController = func(log logr.Logger, store *config.ModuleConfigStore) (setupController, error) {
+		return moduleconfigctrl.New(log, store)
 	}
-	newBootstrapController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.BootstrapHandler) (setupController, error) {
-		return bootstrap.New(log, cfg, handlers), nil
+	newInventoryController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.InventoryHandler) (setupController, error) {
+		return inventory.New(log, cfg, store, handlers)
 	}
-	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.PoolHandler) (setupController, error) {
-		return gpupool.New(log, cfg, handlers), nil
+	newBootstrapController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.BootstrapHandler) (setupController, error) {
+		return bootstrap.New(log, cfg, store, handlers), nil
 	}
-	newAdmissionController = func(log logr.Logger, cfg config.ControllerConfig, handlers []contracts.AdmissionHandler) (setupController, error) {
-		return admission.New(log, cfg, handlers), nil
+	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
+		return gpupool.New(log, cfg, store, handlers), nil
+	}
+	newAdmissionController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.AdmissionHandler) (setupController, error) {
+		return admission.New(log, cfg, store, handlers), nil
 	}
 )
 
@@ -53,6 +57,7 @@ type Dependencies struct {
 	BootstrapHandlers *contracts.BootstrapRegistry
 	PoolHandlers      *contracts.PoolRegistry
 	AdmissionHandlers *contracts.AdmissionRegistry
+	ModuleConfigStore *config.ModuleConfigStore
 }
 
 func ensureRegistries(deps *Dependencies) {
@@ -70,21 +75,27 @@ func ensureRegistries(deps *Dependencies) {
 	}
 }
 
-func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfig, module config.ModuleSettings, deps Dependencies) error {
+func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfig, store *config.ModuleConfigStore, deps Dependencies) error {
 	ensureRegistries(&deps)
+	if deps.ModuleConfigStore == nil {
+		deps.ModuleConfigStore = store
+	}
 
 	constructors := []func() (setupController, error){
 		func() (setupController, error) {
-			return newInventoryController(deps.Logger.WithName("inventory"), cfg.GPUInventory, module, deps.InventoryHandlers.List())
+			return newModuleConfigController(deps.Logger.WithName("moduleconfig"), deps.ModuleConfigStore)
 		},
 		func() (setupController, error) {
-			return newBootstrapController(deps.Logger.WithName("bootstrap"), cfg.GPUBootstrap, deps.BootstrapHandlers.List())
+			return newInventoryController(deps.Logger.WithName("inventory"), cfg.GPUInventory, deps.ModuleConfigStore, deps.InventoryHandlers.List())
 		},
 		func() (setupController, error) {
-			return newPoolController(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.PoolHandlers.List())
+			return newBootstrapController(deps.Logger.WithName("bootstrap"), cfg.GPUBootstrap, deps.ModuleConfigStore, deps.BootstrapHandlers.List())
 		},
 		func() (setupController, error) {
-			return newAdmissionController(deps.Logger.WithName("admission"), cfg.Admission, deps.AdmissionHandlers.List())
+			return newPoolController(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.ModuleConfigStore, deps.PoolHandlers.List())
+		},
+		func() (setupController, error) {
+			return newAdmissionController(deps.Logger.WithName("admission"), cfg.Admission, deps.ModuleConfigStore, deps.AdmissionHandlers.List())
 		},
 	}
 

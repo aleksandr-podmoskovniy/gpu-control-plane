@@ -44,6 +44,7 @@ import (
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
 )
@@ -97,14 +98,57 @@ func (c *capturingFieldIndexer) IndexField(_ context.Context, obj client.Object,
 	return nil
 }
 
+type failingListClient struct {
+	client.Client
+	err error
+}
+
+func (f *failingListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return f.err
+}
+
+type dummyCache struct{}
+
+func (dummyCache) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return nil
+}
+
+func (dummyCache) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return nil
+}
+
+func (dummyCache) GetInformer(context.Context, client.Object, ...cache.InformerGetOption) (cache.Informer, error) {
+	return nil, nil
+}
+
+func (dummyCache) GetInformerForKind(context.Context, schema.GroupVersionKind, ...cache.InformerGetOption) (cache.Informer, error) {
+	return nil, nil
+}
+
+func (dummyCache) RemoveInformer(context.Context, client.Object) error {
+	return nil
+}
+
+func (dummyCache) Start(context.Context) error {
+	return nil
+}
+
+func (dummyCache) WaitForCacheSync(context.Context) bool {
+	return true
+}
+
+func (dummyCache) IndexField(context.Context, client.Object, string, client.IndexerFunc) error {
+	return nil
+}
+
 type fakeControllerBuilder struct {
-	name          string
-	forObjects    []client.Object
-	ownedObjects  []client.Object
-	watchedSource source.Source
-	options       controller.Options
-	completed     bool
-	completeErr   error
+	name           string
+	forObjects     []client.Object
+	ownedObjects   []client.Object
+	watchedSources []source.Source
+	options        controller.Options
+	completed      bool
+	completeErr    error
 }
 
 func (b *fakeControllerBuilder) Named(name string) controllerBuilder {
@@ -123,7 +167,7 @@ func (b *fakeControllerBuilder) Owns(obj client.Object, _ ...builder.OwnsOption)
 }
 
 func (b *fakeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
-	b.watchedSource = src
+	b.watchedSources = append(b.watchedSources, src)
 	return b
 }
 
@@ -357,6 +401,13 @@ func defaultModuleSettings() config.ModuleSettings {
 	return config.DefaultSystem().Module
 }
 
+func moduleStoreFrom(settings config.ModuleSettings) *config.ModuleConfigStore {
+	state, err := config.ModuleSettingsToState(settings)
+	if err != nil {
+		panic(err)
+	}
+	return config.NewModuleConfigStore(state)
+}
 func managedPolicyFrom(module config.ModuleSettings) ManagedNodesPolicy {
 	return ManagedNodesPolicy{
 		LabelKey:         module.ManagedNodes.LabelKey,
@@ -425,7 +476,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 
 	client := newTestClient(scheme, node, feature)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, []contracts.InventoryHandler{handler})
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), []contracts.InventoryHandler{handler})
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -559,7 +610,7 @@ func TestReconcileSchedulesDefaultResync(t *testing.T) {
 	client := newTestClient(scheme, node)
 
 	module := defaultModuleSettings()
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -583,7 +634,7 @@ func TestNewAppliesDefaultsAndPolicies(t *testing.T) {
 	module := defaultModuleSettings()
 	cfg := config.ControllerConfig{Workers: 0, ResyncPeriod: 0}
 
-	rec, err := New(testr.New(t), cfg, module, nil)
+	rec, err := New(testr.New(t), cfg, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -593,26 +644,110 @@ func TestNewAppliesDefaultsAndPolicies(t *testing.T) {
 	if rec.resyncPeriod != defaultResyncPeriod {
 		t.Fatalf("expected default resync period %s, got %s", defaultResyncPeriod, rec.resyncPeriod)
 	}
-	if rec.managed.LabelKey != module.ManagedNodes.LabelKey {
-		t.Fatalf("unexpected managed label key %s", rec.managed.LabelKey)
+	if rec.fallbackManaged.LabelKey != module.ManagedNodes.LabelKey {
+		t.Fatalf("unexpected managed label key %s", rec.fallbackManaged.LabelKey)
 	}
-	if rec.approval.mode != module.DeviceApproval.Mode {
-		t.Fatalf("unexpected approval mode %s", rec.approval.mode)
+	if string(rec.fallbackApproval.mode) != string(module.DeviceApproval.Mode) {
+		t.Fatalf("unexpected approval mode %s", rec.fallbackApproval.mode)
 	}
 }
 
 func TestNewReturnsErrorOnInvalidSelector(t *testing.T) {
-	module := defaultModuleSettings()
-	module.DeviceApproval.Mode = config.DeviceApprovalModeSelector
-	module.DeviceApproval.Selector = &metav1.LabelSelector{
+	state := moduleconfig.DefaultState()
+	state.Settings.DeviceApproval.Mode = moduleconfig.DeviceApprovalModeSelector
+	state.Settings.DeviceApproval.Selector = &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{Key: "gpu.deckhouse.io/device.vendor", Operator: metav1.LabelSelectorOperator("Invalid")},
 		},
 	}
+	store := config.NewModuleConfigStore(state)
 
-	_, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	_, err := New(testr.New(t), config.ControllerConfig{}, store, nil)
 	if err == nil {
 		t.Fatalf("expected error due to invalid selector")
+	}
+}
+
+func TestCurrentPoliciesUsesStoreState(t *testing.T) {
+	store := config.NewModuleConfigStore(moduleconfig.DefaultState())
+	rec, err := New(testr.New(t), config.ControllerConfig{}, store, nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+
+	updated := moduleconfig.DefaultState()
+	updated.Settings.ManagedNodes.LabelKey = "gpu.deckhouse.io/custom"
+	updated.Settings.ManagedNodes.EnabledByDefault = false
+	updated.Settings.DeviceApproval.Mode = moduleconfig.DeviceApprovalModeSelector
+	updated.Settings.DeviceApproval.Selector = &metav1.LabelSelector{
+		MatchLabels: map[string]string{"gpu.deckhouse.io/product": "a100"},
+	}
+	store.Update(updated)
+
+	managed, approval := rec.currentPolicies()
+	if managed.LabelKey != "gpu.deckhouse.io/custom" || managed.EnabledByDefault {
+		t.Fatalf("expected managed settings from store, got %+v", managed)
+	}
+	if !approval.AutoAttach(true, labels.Set{"gpu.deckhouse.io/product": "a100"}) {
+		t.Fatalf("expected selector-based auto attach to match labels")
+	}
+}
+
+func TestCurrentPoliciesFallsBackOnError(t *testing.T) {
+	store := config.NewModuleConfigStore(moduleconfig.DefaultState())
+	rec, err := New(testr.New(t), config.ControllerConfig{}, store, nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+
+	fallbackManaged := rec.fallbackManaged
+	fallbackApproval := rec.fallbackApproval
+	rec.log = testr.New(t)
+
+	invalid := moduleconfig.DefaultState()
+	invalid.Settings.DeviceApproval.Mode = moduleconfig.DeviceApprovalModeSelector
+	invalid.Settings.DeviceApproval.Selector = &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: "", Operator: metav1.LabelSelectorOpIn},
+		},
+	}
+	invalid.Settings.ManagedNodes.LabelKey = "  "
+	store.Update(invalid)
+
+	managed, approval := rec.currentPolicies()
+	if managed != fallbackManaged {
+		t.Fatalf("expected fallback managed policy, got %+v", managed)
+	}
+	if approval != fallbackApproval {
+		t.Fatalf("expected fallback approval policy, got %+v", approval)
+	}
+}
+
+func TestCurrentPoliciesWithoutStoreUsesFallback(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+
+	managed, approval := rec.currentPolicies()
+	if managed != rec.fallbackManaged {
+		t.Fatalf("expected fallback managed settings, got %+v", managed)
+	}
+	if approval != rec.fallbackApproval {
+		t.Fatalf("expected fallback approval policy, got %+v", approval)
+	}
+}
+
+func TestNewDefaultsLabelKeyWhenEmpty(t *testing.T) {
+	module := defaultModuleSettings()
+	module.ManagedNodes.LabelKey = "   "
+
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	if rec.fallbackManaged.LabelKey != defaultManagedNodeLabelKey {
+		t.Fatalf("expected label key defaulted to %s, got %s", defaultManagedNodeLabelKey, rec.fallbackManaged.LabelKey)
 	}
 }
 
@@ -655,7 +790,7 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 
 	handler := &trackingHandler{name: "noop"}
 	module := defaultModuleSettings()
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, []contracts.InventoryHandler{handler})
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), []contracts.InventoryHandler{handler})
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -731,7 +866,7 @@ func TestReconcileDeviceUpdatesMetadata(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -762,7 +897,7 @@ func TestReconcileDeviceOwnerReferenceError(t *testing.T) {
 	}
 	client := newTestClient(scheme, node)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -771,7 +906,7 @@ func TestReconcileDeviceOwnerReferenceError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err == nil {
 		t.Fatalf("expected error due to missing scheme registration")
 	}
@@ -802,7 +937,7 @@ func TestReconcileDeviceGetError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -811,7 +946,7 @@ func TestReconcileDeviceGetError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if !errors.Is(err, getErr) {
 		t.Fatalf("expected device get error, got %v", err)
 	}
@@ -844,7 +979,7 @@ func TestReconcileDeviceMetadataPatchError(t *testing.T) {
 		return patchErr
 	}}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -853,7 +988,7 @@ func TestReconcileDeviceMetadataPatchError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -877,7 +1012,7 @@ func TestReconcileDeviceCreateError(t *testing.T) {
 	createErr := errors.New("create failed")
 	client := &delegatingClient{Client: baseClient, create: func(context.Context, client.Object, ...client.CreateOption) error { return createErr }}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -886,7 +1021,7 @@ func TestReconcileDeviceCreateError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -909,7 +1044,7 @@ func TestCreateDeviceStatusConflictTriggersRequeue(t *testing.T) {
 	statusWriter := &conflictStatusUpdater{StatusWriter: baseClient.Status()}
 	client := &delegatingClient{Client: baseClient, statusWriter: statusWriter}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -918,7 +1053,7 @@ func TestCreateDeviceStatusConflictTriggersRequeue(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	device, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	device, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -967,7 +1102,7 @@ func TestReconcileDeviceNoStatusPatchWhenUnchanged(t *testing.T) {
 	tracker := &trackingStatusWriter{StatusWriter: baseClient.Status()}
 	client := &delegatingClient{Client: baseClient, statusWriter: tracker}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -986,7 +1121,7 @@ func TestReconcileDeviceNoStatusPatchWhenUnchanged(t *testing.T) {
 		ComputeMajor: 8,
 		ComputeMinor: 0,
 	}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -1035,7 +1170,7 @@ func TestReconcileReturnsDeleteError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1068,7 +1203,7 @@ func TestReconcileCleanupOnMissingNode(t *testing.T) {
 	client := newTestClient(scheme, device, inventory)
 
 	module := defaultModuleSettings()
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1105,7 +1240,7 @@ func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
 
 	client := newTestClient(scheme, node)
 	module := defaultModuleSettings()
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1147,7 +1282,7 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 	}
 
 	client := newTestClient(scheme, node, feature)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1181,7 +1316,7 @@ func TestReconcileReturnsErrorOnNodeGetFailure(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1225,7 +1360,7 @@ func TestReconcileReturnsErrorOnNodeFeatureGetFailure(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1261,7 +1396,7 @@ func TestReconcileReturnsErrorOnDeviceListFailure(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1291,7 +1426,7 @@ func TestReconcilePropagatesHandlerError(t *testing.T) {
 
 	client := newTestClient(scheme, node)
 	handlerErr := errors.New("handler failed")
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), []contracts.InventoryHandler{errorHandler{err: handlerErr}})
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), []contracts.InventoryHandler{errorHandler{err: handlerErr}})
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1320,7 +1455,7 @@ func TestReconcileAggregatesHandlerResults(t *testing.T) {
 	}
 
 	client := newTestClient(scheme, node)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), []contracts.InventoryHandler{
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), []contracts.InventoryHandler{
 		resultHandler{name: "requeue", result: contracts.Result{Requeue: true, RequeueAfter: 45 * time.Second}},
 		resultHandler{name: "after", result: contracts.Result{RequeueAfter: 10 * time.Second}},
 	})
@@ -1349,7 +1484,7 @@ func TestReconcileAccountsResyncPeriodWhenNoHandlers(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-resync-only", UID: types.UID("resync-only")}}
 
 	client := newTestClient(scheme, node)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{ResyncPeriod: 5 * time.Second}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{ResyncPeriod: 5 * time.Second}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1381,7 +1516,7 @@ func TestReconcileNoStatusChangeSkipsPatch(t *testing.T) {
 	}
 
 	client := newTestClient(scheme, node)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1435,7 +1570,7 @@ func TestReconcileStatusConflictTriggersRetry(t *testing.T) {
 	conflictWriter := &conflictStatusWriter{StatusWriter: baseClient.Status()}
 	client := &delegatingClient{Client: baseClient, statusWriter: conflictWriter}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1475,7 +1610,7 @@ func TestReconcileNodeInventoryUpdatesSpec(t *testing.T) {
 	}
 
 	baseClient := newTestClient(scheme, node, inventory)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1518,7 +1653,7 @@ func TestReconcileNodeInventoryStatusPatchError(t *testing.T) {
 	statusErr := errors.New("status patch failed")
 	client := &delegatingClient{Client: baseClient, statusWriter: &errorStatusWriter{StatusWriter: baseClient.Status(), err: statusErr}}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1546,11 +1681,11 @@ func TestReconcileNodeInventoryOwnerReferenceError(t *testing.T) {
 		},
 	}
 	client := newTestClient(scheme, node)
-	reconciler := &Reconciler{client: client, scheme: runtime.NewScheme(), recorder: record.NewFakeRecorder(32), managed: ManagedNodesPolicy{LabelKey: "gpu.deckhouse.io/enabled", EnabledByDefault: true}}
+	reconciler := &Reconciler{client: client, scheme: runtime.NewScheme(), recorder: record.NewFakeRecorder(32), fallbackManaged: ManagedNodesPolicy{LabelKey: "gpu.deckhouse.io/enabled", EnabledByDefault: true}}
 
-	snapshot := buildNodeSnapshot(node, nil, reconciler.managed)
+	snapshot := buildNodeSnapshot(node, nil, reconciler.fallbackManaged)
 
-	err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil)
+	err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, reconciler.fallbackManaged)
 	if err == nil {
 		t.Fatalf("expected owner reference error due to missing scheme registration")
 	}
@@ -1582,10 +1717,10 @@ func TestReconcileNodeInventorySkipsUnknownDevices(t *testing.T) {
 	}
 
 	client := newTestClient(scheme, node, device)
-	reconciler := &Reconciler{client: client, scheme: scheme, recorder: record.NewFakeRecorder(32), managed: managedPolicyFrom(defaultModuleSettings())}
+	reconciler := &Reconciler{client: client, scheme: scheme, recorder: record.NewFakeRecorder(32), fallbackManaged: managedPolicyFrom(defaultModuleSettings())}
 
 	snapshot := nodeSnapshot{Managed: true, Devices: []deviceSnapshot{}}
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 	updated := &gpuv1alpha1.GPUNodeInventory{}
@@ -1696,7 +1831,7 @@ func TestReconcileInvokesHandlersErrorPropagation(t *testing.T) {
 	client := newTestClient(scheme, node)
 	errHandler := errorHandler{err: fmt.Errorf("boom")}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), []contracts.InventoryHandler{errHandler})
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), []contracts.InventoryHandler{errHandler})
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1753,8 +1888,8 @@ func TestSetupWithDependencies(t *testing.T) {
 	if len(builder.forObjects) != 1 || len(builder.ownedObjects) != 2 {
 		t.Fatalf("unexpected builder registrations: for=%d owns=%d", len(builder.forObjects), len(builder.ownedObjects))
 	}
-	if builder.watchedSource != fakeSource {
-		t.Fatal("expected node feature source to be passed to builder")
+	if len(builder.watchedSources) != 1 || builder.watchedSources[0] != fakeSource {
+		t.Fatalf("expected node feature source to be passed to builder, got %d watchers", len(builder.watchedSources))
 	}
 	if builder.options.MaxConcurrentReconciles != 3 {
 		t.Fatalf("expected max workers 3, got %d", builder.options.MaxConcurrentReconciles)
@@ -1770,6 +1905,76 @@ func TestSetupWithDependencies(t *testing.T) {
 	}
 	if !builder.completed {
 		t.Fatal("expected builder complete to be invoked")
+	}
+}
+
+func TestRequeueAllNodes(t *testing.T) {
+	scheme := newTestScheme(t)
+	nodeA := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
+	nodeB := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}}
+	reconciler := &Reconciler{client: newTestClient(scheme, nodeA, nodeB)}
+
+	reqs := reconciler.requeueAllNodes(context.Background())
+	if len(reqs) != 2 {
+		t.Fatalf("expected two requests, got %#v", reqs)
+	}
+	expected := map[string]struct{}{"node-a": {}, "node-b": {}}
+	for _, req := range reqs {
+		if _, ok := expected[req.NamespacedName.Name]; !ok {
+			t.Fatalf("unexpected request %#v", req)
+		}
+	}
+}
+
+func TestRequeueAllNodesHandlesError(t *testing.T) {
+	reconciler := &Reconciler{
+		client: &failingListClient{err: errors.New("list fail")},
+		log:    testr.New(t),
+	}
+
+	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
+		t.Fatalf("expected empty result on error, got %#v", reqs)
+	}
+}
+
+func TestMapModuleConfigRequeuesNodes(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-map"}}
+	reconciler := &Reconciler{
+		client: newTestClient(scheme, node),
+	}
+
+	reqs := reconciler.mapModuleConfig(context.Background(), nil)
+	if len(reqs) != 1 || reqs[0].NamespacedName.Name != node.Name {
+		t.Fatalf("unexpected requests returned from mapModuleConfig: %#v", reqs)
+	}
+}
+
+func TestSetupWithDependenciesAddsModuleWatcher(t *testing.T) {
+	scheme := newTestScheme(t)
+	indexer := &fakeFieldIndexer{}
+	builder := &fakeControllerBuilder{}
+	fakeSource := &fakeSyncingSource{}
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+
+	deps := setupDependencies{
+		client:            newTestClient(scheme),
+		scheme:            scheme,
+		recorder:          record.NewFakeRecorder(1),
+		indexer:           indexer,
+		cache:             dummyCache{},
+		nodeFeatureSource: fakeSource,
+		builder:           builder,
+	}
+
+	if err := rec.setupWithDependencies(context.Background(), deps); err != nil {
+		t.Fatalf("setupWithDependencies returned error: %v", err)
+	}
+	if len(builder.watchedSources) != 2 {
+		t.Fatalf("expected two watchers (node feature and module config), got %d", len(builder.watchedSources))
 	}
 }
 
@@ -1829,7 +2034,7 @@ func TestSetupWithManagerUsesDefaultFactories(t *testing.T) {
 		return &adapterFromControllerBuilder{builder: builder}
 	}
 
-	rec, err := New(testr.New(t), config.ControllerConfig{Workers: 2}, defaultModuleSettings(), nil)
+	rec, err := New(testr.New(t), config.ControllerConfig{Workers: 2}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -1859,7 +2064,7 @@ func TestSetupWithManagerUsesDefaultFactories(t *testing.T) {
 	if builder.name != "gpu-inventory-controller" {
 		t.Fatalf("expected controller name to be set, got %q", builder.name)
 	}
-	if builder.watchedSource != fakeSource {
+	if len(builder.watchedSources) == 0 || builder.watchedSources[0] != fakeSource {
 		t.Fatal("expected node feature source to be configured")
 	}
 	if builder.options.MaxConcurrentReconciles != 2 {
@@ -2041,7 +2246,7 @@ func TestDeviceApprovalAutoAttachPolicies(t *testing.T) {
 			}
 
 			client := newTestClient(scheme, node)
-			reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+			reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 			if err != nil {
 				t.Fatalf("unexpected error constructing reconciler: %v", err)
 			}
@@ -2067,7 +2272,7 @@ func TestDeviceApprovalAutoAttachPolicies(t *testing.T) {
 }
 
 func TestDeviceApprovalAutoAttachRespectsManagedFlag(t *testing.T) {
-	policy := DeviceApprovalPolicy{mode: config.DeviceApprovalModeAutomatic}
+	policy := DeviceApprovalPolicy{mode: moduleconfig.DeviceApprovalModeAutomatic}
 	if policy.AutoAttach(false, labels.Set{}) {
 		t.Fatalf("auto attach should be false when node not managed")
 	}
@@ -2101,7 +2306,7 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 	tracker := &trackingStatusWriter{StatusWriter: baseClient.Status()}
 	client := &delegatingClient{Client: baseClient, statusWriter: tracker}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2110,7 +2315,7 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -2173,7 +2378,7 @@ func TestReconcileDeviceSkipsStatusPatchWhenUnchanged(t *testing.T) {
 	tracker := &trackingStatusWriter{StatusWriter: baseClient.Status()}
 	client := &delegatingClient{Client: baseClient, statusWriter: tracker}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2193,7 +2398,7 @@ func TestReconcileDeviceSkipsStatusPatchWhenUnchanged(t *testing.T) {
 		Precision:    []string{"fp32"},
 	}
 
-	_, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	_, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -2226,7 +2431,7 @@ func TestReconcileCleanupPropagatesError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2244,7 +2449,7 @@ func TestReconcileNoFollowupWhenIdle(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-idle"}}
 	client := newTestClient(scheme, node)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2297,7 +2502,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 		statusWriter: base.Status(),
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2312,7 +2517,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true)
+	}, map[string]string{}, true, reconciler.fallbackApproval)
 	if err == nil || !strings.Contains(err.Error(), "device refetch failure") {
 		t.Fatalf("expected refetch failure, got %v", err)
 	}
@@ -2345,7 +2550,7 @@ func TestReconcileDeviceStatusPatchError(t *testing.T) {
 		statusWriter: &errorStatusWriter{StatusWriter: base.Status(), err: errors.New("status patch failure")},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2360,7 +2565,7 @@ func TestReconcileDeviceStatusPatchError(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true)
+	}, map[string]string{}, true, reconciler.fallbackApproval)
 	if err == nil || !strings.Contains(err.Error(), "status patch failure") {
 		t.Fatalf("expected status patch failure, got %v", err)
 	}
@@ -2387,7 +2592,7 @@ func TestCreateDeviceStatusUpdateError(t *testing.T) {
 	updateErr := errors.New("status update failure")
 	client.statusWriter = &errorStatusUpdater{StatusWriter: base.Status(), err: updateErr}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2402,7 +2607,7 @@ func TestCreateDeviceStatusUpdateError(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true)
+	}, map[string]string{}, true, reconciler.fallbackApproval)
 	if err == nil || !strings.Contains(err.Error(), "status update failure") {
 		t.Fatalf("expected status update failure, got %v", err)
 	}
@@ -2447,7 +2652,7 @@ func TestReconcileDeviceUpdatesProductPrecisionAndAutoAttach(t *testing.T) {
 	module := defaultModuleSettings()
 	module.DeviceApproval.Mode = config.DeviceApprovalModeAutomatic
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2469,7 +2674,7 @@ func TestReconcileDeviceUpdatesProductPrecisionAndAutoAttach(t *testing.T) {
 		ComputeMinor: 0,
 	}
 
-	updated, _, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true)
+	updated, _, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -2508,7 +2713,7 @@ func TestReconcileDeviceHandlerError(t *testing.T) {
 	base := newTestClient(scheme, node, device)
 	errHandler := errorHandler{err: errors.New("handler failure")}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2524,7 +2729,7 @@ func TestReconcileDeviceHandlerError(t *testing.T) {
 		Class:     "0302",
 		Product:   "GPU",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true)
+	}, map[string]string{}, true, reconciler.fallbackApproval)
 	if err == nil || !strings.Contains(err.Error(), "handler failure") {
 		t.Fatalf("expected handler failure, got %v", err)
 	}
@@ -2551,7 +2756,7 @@ func TestReconcileNodeInventoryOwnerReferenceCreateError(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-inv-create"}}
 	client := newTestClient(newTestScheme(t), node)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2559,7 +2764,7 @@ func TestReconcileNodeInventoryOwnerReferenceCreateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
 	if err == nil {
 		t.Fatal("expected owner reference error on create")
 	}
@@ -2581,7 +2786,7 @@ func TestReconcileNodeInventoryReturnsGetError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2589,7 +2794,7 @@ func TestReconcileNodeInventoryReturnsGetError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil); !errors.Is(err, getErr) {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged); !errors.Is(err, getErr) {
 		t.Fatalf("expected get error to propagate, got %v", err)
 	}
 }
@@ -2615,7 +2820,7 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2623,7 +2828,7 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -2638,7 +2843,7 @@ func TestReconcileNodeInventoryOwnerReferenceUpdateError(t *testing.T) {
 	}
 	client := newTestClient(newTestScheme(t), node, inventory)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2646,7 +2851,7 @@ func TestReconcileNodeInventoryOwnerReferenceUpdateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
 	if err == nil {
 		t.Fatal("expected owner reference error on update")
 	}
@@ -2677,7 +2882,7 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2685,7 +2890,7 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -2722,7 +2927,7 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 		},
 	}
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2752,7 +2957,7 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 				MIG:       gpuv1alpha1.GPUMIGConfig{},
 			},
 		},
-	}})
+	}}, reconciler.fallbackManaged)
 	if err == nil || !strings.Contains(err.Error(), "inventory refetch failure") {
 		t.Fatalf("expected refetch failure, got %v", err)
 	}
@@ -2778,7 +2983,7 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 
 	client := newTestClient(scheme, node, device)
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2797,7 +3002,7 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 		}},
 	}
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
@@ -2846,7 +3051,7 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 
 	client := newTestClient(scheme, node, devices[0], devices[1])
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, defaultModuleSettings(), nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2859,7 +3064,7 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 			{Index: "1", Vendor: "10de", Device: "1db5", Class: "0302"},
 			{Index: "0", Vendor: "10de", Device: "2230", Class: "0302"},
 		},
-	}, devices); err != nil {
+	}, devices, reconciler.fallbackManaged); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
@@ -2888,7 +3093,7 @@ func TestReconcileNodeInventoryDefaultManagedLabel(t *testing.T) {
 	module := defaultModuleSettings()
 	module.ManagedNodes.LabelKey = ""
 
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, module, nil)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2896,7 +3101,7 @@ func TestReconcileNodeInventoryDefaultManagedLabel(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{Managed: false}, nil); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{Managed: false}, nil, ManagedNodesPolicy{}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 	inventory := &gpuv1alpha1.GPUNodeInventory{}
