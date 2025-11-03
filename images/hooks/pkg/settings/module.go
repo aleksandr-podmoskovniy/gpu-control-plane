@@ -16,10 +16,11 @@ package settings
 
 const (
 	ModuleName         = "gpu-control-plane"
+	ModuleValuesName   = "gpuControlPlane"
 	ModuleNamespace    = "d8-gpu-operator"
 	DeckhouseNamespace = "d8-system"
 	ModuleQueue        = "modules/" + ModuleName
-	ConfigRoot         = "gpuControlPlane"
+	ConfigRoot         = ModuleValuesName
 
 	ControllerCertCN        = "gpu-control-plane-controller"
 	ControllerTLSSecretName = "gpu-control-plane-controller-tls"
