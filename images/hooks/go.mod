@@ -3,6 +3,8 @@ module hooks
 go 1.24.6
 
 require (
+	github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg v0.0.0
+	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20250424095005-9ab587d01d7a
 	github.com/deckhouse/module-sdk v0.3.7
 	github.com/tidwall/gjson v1.18.0
 	k8s.io/apimachinery v0.30.11
@@ -18,7 +20,6 @@ require (
 	github.com/cloudflare/cfssl v1.6.5 // indirect
 	github.com/containerd/stargz-snapshotter/estargz v0.14.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20250424095005-9ab587d01d7a // indirect
 	github.com/docker/cli v24.0.0+incompatible // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
 	github.com/docker/docker v25.0.6+incompatible // indirect
@@ -96,3 +97,5 @@ require (
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )
+
+replace github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg => ../../pkg

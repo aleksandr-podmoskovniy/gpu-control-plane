@@ -3,8 +3,16 @@ image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 final: false
 fromImage: builder/golang-bookworm-1.24
 git:
+  - add: {{ .ModuleDir }}/pkg
+    to: /workspace/pkg
+    stageDependencies:
+      install:
+        - go.mod
+        - go.sum
+      setup:
+        - "**/*.go"
   - add: {{ .ModuleDir }}/src/controller
-    to: /src/controller
+    to: /workspace/src/controller
     stageDependencies:
       install:
         - go.mod
@@ -21,14 +29,14 @@ shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
     - export GOTOOLCHAIN=go1.25.2
-    - cd /src/controller
+    - cd /workspace/src/controller
     - go mod download
   setup:
     - export GOTOOLCHAIN=go1.25.2
     - export GOOS=linux
     - export GOARCH=amd64
     - export CGO_ENABLED=0
-    - cd /src/controller
+    - cd /workspace/src/controller
     - mkdir -p /out
     - |
       {{- $_ := set $ "ProjectName" (printf "%s/controller" $.ImageName) -}}

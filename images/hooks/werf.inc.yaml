@@ -26,6 +26,14 @@ git:
         - images/hooks/go.sum
       setup:
         - images/hooks/**
+  - add: {{ .ModuleDir }}/pkg
+    to: /app/pkg
+    stageDependencies:
+      install:
+        - pkg/go.mod
+        - pkg/go.sum
+      setup:
+        - pkg/**
 ---
 image: {{ .ModuleNamePrefix }}go-hooks-artifact
 final: false
