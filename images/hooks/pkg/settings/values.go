@@ -17,11 +17,14 @@ package settings
 const (
 	internalRoot = ConfigRoot + ".internal"
 
-	InternalModuleConfigPath     = internalRoot + ".moduleConfig"
-	InternalModuleValidationPath = internalRoot + ".moduleConfigValidation"
-	InternalModuleConditionsPath = internalRoot + ".conditions"
-	InternalBootstrapPath        = internalRoot + ".bootstrap"
-	InternalControllerPath       = internalRoot + ".controller"
-	InternalControllerCertPath   = InternalControllerPath + ".cert"
-	InternalRootCAPath           = internalRoot + ".rootCA"
+	InternalModuleConfigPath      = internalRoot + ".moduleConfig"
+	InternalModuleValidationPath  = internalRoot + ".moduleConfigValidation"
+	InternalModuleConditionsPath  = internalRoot + ".conditions"
+	InternalBootstrapPath         = internalRoot + ".bootstrap"
+	InternalControllerPath        = internalRoot + ".controller"
+	InternalControllerCertPath    = InternalControllerPath + ".cert"
+	InternalRootCAPath            = internalRoot + ".rootCA"
+	InternalCustomCertificatePath = internalRoot + ".customCertificateData"
+
+	HTTPSConfigPath = ConfigRoot + ".https"
 )

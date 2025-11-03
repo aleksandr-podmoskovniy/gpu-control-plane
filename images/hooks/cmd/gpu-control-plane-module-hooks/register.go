@@ -17,9 +17,10 @@ limitations under the License.
 package main
 
 import (
+	_ "hooks/pkg/hooks/ca_discovery"
+	_ "hooks/pkg/hooks/copy_custom_certificate"
 	_ "hooks/pkg/hooks/discovery-node-feature-rule"
 	_ "hooks/pkg/hooks/module_status"
-	_ "hooks/pkg/hooks/prepare_internal"
 	_ "hooks/pkg/hooks/tls_certificates_controller"
 	_ "hooks/pkg/hooks/validate_module_config"
 )

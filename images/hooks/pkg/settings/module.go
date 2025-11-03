@@ -32,6 +32,8 @@ const (
 	DefaultSchedulingStrategy    = "Spread"
 	DefaultSchedulingTopology    = "topology.kubernetes.io/zone"
 	DefaultInventoryResyncPeriod = "30s"
+	DefaultHTTPSMode             = "CertManager"
+	DefaultHTTPSClusterIssuer    = "letsencrypt"
 
 	GFDDaemonSetName       = "nvidia-gpu-feature-discovery"
 	DCGMExporterDaemonName = "nvidia-dcgm-exporter"

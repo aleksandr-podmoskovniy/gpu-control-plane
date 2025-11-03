@@ -14,52 +14,50 @@
 
 type: object
 description: |
-  Пользовательские параметры модуля GPU Control Plane. Набор опций повторяет практику
-  Deckhouse: минимум крутилок, только ключевые сценарии включения и управления GPU.
+  User-facing configuration for the GPU Control Plane module. The fields below
+  enable core GPU management scenarios while the rest of the behaviour relies
+  on module defaults.
 properties:
   highAvailability:
     type: boolean
     description: |
-      Явное включение высокодоступного режима для контроллеров модуля.
+      Controls the high availability mode for controller and webhook workloads.
 
-      При значении `true` модуль всегда запускает по две реплики контроллера и вебхука,
-      независимо от топологии control plane. При значении `false` HA отключается.
-      Если параметр не задан, используется автодетекция Deckhouse.
+      * `true` — always run two replicas of each component regardless of the control plane topology.
+      * `false` — force the module to stay in single-replica mode.
+      * not set — allow the platform to auto-detect whether HA is required.
     x-examples: [true, false]
   managedNodes:
     type: object
     description: |
-      Управление охватом узлов: какую метку использовать и включено ли обслуживание по умолчанию.
+      Defines the node label that enables GPU management and whether nodes are treated as managed by default.
     properties:
       labelKey:
         type: string
         default: "gpu.deckhouse.io/enabled"
         description: |
-          Ключ метки на узлах. Пока значение метки не равно строке `false`, модуль считает узел
-          управляемым и ведёт учёт GPU.
+          Node label examined by the module. A node is considered managed while the label value is not equal to the string `false`.
         x-examples: ["gpu.deckhouse.io/enabled"]
       enabledByDefault:
         type: boolean
         default: true
         description: |
-          Если `true`, узлы считаются управляемыми до тех пор, пока администратор явно не
-          установит метку `labelKey=false`.
+          When `true`, every node is managed until the label is explicitly set to `false`. Toggle it to opt-in only selected nodes.
         x-examples: [true, false]
     additionalProperties: false
   deviceApproval:
     type: object
     description: |
-      Политика подтверждения новых GPU-устройств. Можно оставить ручной режим, включить
-      автоматический аппрув или ограничить его селектором.
+      Approval policy applied to newly discovered GPU devices: manual review, fully automatic admission or a label-based selector.
     properties:
       mode:
         type: string
         default: "Manual"
         description: |
-          Режим подтверждения:
-            * `Manual` — контроллер переводит устройства в состояние ожидания, решения принимает оператор;
-            * `Automatic` — устройства подтверждаются сразу после обнаружения;
-            * `Selector` — автоаппрув выполняется только для устройств, подходящих под селектор.
+          Approval mode:
+            * `Manual` — the controller keeps devices in a pending state until an operator acts.
+            * `Automatic` — every device is approved immediately after discovery.
+            * `Selector` — automatic approval is limited to devices that match the provided selector.
         enum:
           - Manual
           - Automatic
@@ -68,30 +66,28 @@ properties:
       selector:
         type: object
         description: |
-          Селектор меток устройства, используемый при режиме `Selector`. Формат полностью
-          повторяет Kubernetes LabelSelector.
+          Kubernetes LabelSelector applied when `mode=Selector`. Devices must satisfy the selector to get approved automatically.
         properties:
           matchLabels:
             type: object
             description: |
-              Точное соответствие меткам `ключ=значение`, обязательным на устройстве.
+              Exact label/value pairs that must be present on the device.
             additionalProperties:
               type: string
           matchExpressions:
             type: array
             description: |
-              Набор выражений, описанных как в Kubernetes LabelSelector (`In`, `NotIn`,
-              `Exists`, `DoesNotExist`).
+              Expression-based selector rules (`In`, `NotIn`, `Exists`, `DoesNotExist`) evaluated against device labels.
             items:
               type: object
-              description: Описание одного выражения селектора.
+              description: Single LabelSelector requirement.
               properties:
                 key:
                   type: string
-                  description: Имя метки, по которой выполняется проверка.
+                  description: Label key evaluated by the requirement.
                 operator:
                   type: string
-                  description: Оператор сравнения (`In`, `NotIn`, `Exists`, `DoesNotExist`).
+                  description: Comparison operator used by the requirement.
                   enum:
                     - In
                     - NotIn
@@ -100,8 +96,7 @@ properties:
                 values:
                   type: array
                   description: |
-                    Набор значений метки. Обязателен для операторов `In` и `NotIn`, запрещён
-                    для `Exists` и `DoesNotExist`.
+                    Set of label values used with `In`/`NotIn`. Must be empty for `Exists` and `DoesNotExist`.
                   items:
                     type: string
               additionalProperties: false
@@ -110,14 +105,13 @@ properties:
   scheduling:
     type: object
     description: |
-      Базовые подсказки планировщику. Их наследуют новые GPUPool, если не переопределяют явно.
+      Default scheduling hints applied by controllers when new GPU pools or workloads are created without explicit settings.
     properties:
       defaultStrategy:
         type: string
         default: "Spread"
         description: |
-          Стратегия размещения по умолчанию: `Spread` распределяет нагрузку между зонами,
-          `BinPack` собирает workload на меньшем числе узлов.
+          Placement strategy inherited by pools: `Spread` balances GPUs across zones, `BinPack` keeps workloads on the smallest number of nodes.
         enum:
           - BinPack
           - Spread
@@ -126,20 +120,59 @@ properties:
         type: string
         default: "topology.kubernetes.io/zone"
         description: |
-          Ключ топологии Kubernetes, используемый при стратегии `Spread`.
+          Kubernetes topology key used when `defaultStrategy=Spread`.
         x-examples: ["topology.kubernetes.io/zone"]
     additionalProperties: false
   inventory:
     type: object
     description: |
-      Настройки периодического опроса состояния узлов со стороны inventory-контроллера.
+      Resync settings for the GPU inventory controller.
     properties:
       resyncPeriod:
         type: string
         pattern: '^\\d+(s|m|h)$'
         default: "30s"
         description: |
-          Интервал повторной синхронизации при отсутствии событий. Указывается в формате
-          Go duration (`30s`, `1m`, `5m` и т. д.).
+          Explicit resync interval expressed as a Go duration (`30s`, `1m`, `5m`, ...).
         x-examples: ["30s", "1m", "5m"]
+    additionalProperties: false
+  https:
+    type: object
+    description: |
+      HTTPS configuration for module webhooks and auxiliary endpoints. Choose between self-signed certificates, a custom Secret or cert-manager automation.
+    properties:
+      mode:
+        type: string
+        default: "CertManager"
+        enum:
+          - Disabled
+          - CertManager
+          - CustomCertificate
+          - OnlyInURI
+        description: |
+          HTTPS mode:
+            * `CertManager` — obtain a certificate from the ClusterIssuer specified in `certManager.clusterIssuerName`.
+            * `CustomCertificate` — mount an existing Secret from the `d8-system` namespace defined in `customCertificate.secretName`.
+            * `OnlyInURI` — keep serving HTTP inside the cluster and only advertise HTTPS URLs (for external TLS termination).
+            * `Disabled` — operate over plain HTTP.
+      certManager:
+        type: object
+        description: |
+          cert-manager settings, used only when `mode=CertManager`.
+        properties:
+          clusterIssuerName:
+            type: string
+            default: "letsencrypt"
+            description: |
+              Name of the ClusterIssuer that should sign the webhook certificate.
+      customCertificate:
+        type: object
+        default: {}
+        description: |
+          Parameters for the custom certificate mode.
+        properties:
+          secretName:
+            type: string
+            description: |
+              Name of the Secret in the `d8-system` namespace that contains `tls.crt`, `tls.key` and `ca.crt`.
     additionalProperties: false

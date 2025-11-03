@@ -77,6 +77,10 @@ properties:
           ca: ""
           crt: ""
           key: ""
+        customCertificateData:
+          tls.crt: ""
+          tls.key: ""
+          ca.crt: ""
         controller:
           config: {}
           cert:
@@ -406,6 +410,7 @@ properties:
         additionalProperties: false
       internal:
         type: object
+        default: {}
         description: Computed values populated by module hooks (certificates, rendered manifests, runtime flags).
         properties:
           rootCA:
@@ -448,6 +453,21 @@ properties:
                     type: string
                     description: PEM-encoded private key for the controller webhook certificate.
                 additionalProperties: false
+            additionalProperties: false
+          customCertificateData:
+            type: object
+            description: TLS bundle provided by the operator to replace internally generated certificates for webhooks.
+            default: {}
+            properties:
+              tls.crt:
+                type: string
+                description: PEM-encoded certificate supplied by the operator.
+              tls.key:
+                type: string
+                description: PEM-encoded private key that matches `tls.crt`.
+              ca.crt:
+                type: string
+                description: PEM-encoded CA bundle associated with the custom certificate.
             additionalProperties: false
           webhook:
             type: object

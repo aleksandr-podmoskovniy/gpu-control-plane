@@ -80,6 +80,7 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 		registerValidationError(input, err)
 		input.Values.Remove(settings.InternalModuleConfigPath)
 		input.Values.Remove(settings.InternalControllerPath + ".config")
+		input.Values.Remove(settings.HTTPSConfigPath)
 		return nil
 	}
 
@@ -87,6 +88,7 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 		input.Values.Remove(settings.InternalModuleConfigPath)
 		input.Values.Remove(settings.InternalModuleValidationPath)
 		input.Values.Remove(settings.InternalControllerPath + ".config")
+		input.Values.Remove(settings.HTTPSConfigPath)
 		return nil
 	}
 
@@ -121,6 +123,12 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 		input.Values.Set(settings.ConfigRoot+".inventory", inventory)
 	} else {
 		input.Values.Remove(settings.ConfigRoot + ".inventory")
+	}
+
+	if httpsCfg, ok := state.Config["https"]; ok {
+		input.Values.Set(settings.HTTPSConfigPath, httpsCfg)
+	} else {
+		input.Values.Remove(settings.HTTPSConfigPath)
 	}
 
 	if haRaw, ok := state.Config["highAvailability"]; ok {
@@ -219,6 +227,12 @@ func sanitizeModuleSettings(raw map[string]any) (map[string]any, error) {
 	}
 	result["inventory"] = inventory
 
+	https, err := sanitizeHTTPS(fields["https"])
+	if err != nil {
+		return nil, err
+	}
+	result["https"] = https
+
 	if rawHA, ok := fields["highAvailability"]; ok {
 		if len(rawHA) != 0 && string(rawHA) != "null" {
 			var enabled bool
@@ -249,6 +263,20 @@ type rawScheduling struct {
 
 type rawInventory struct {
 	ResyncPeriod string `json:"resyncPeriod"`
+}
+
+type rawHTTPS struct {
+	Mode              string                     `json:"mode"`
+	CertManager       *rawHTTPSCertManager       `json:"certManager"`
+	CustomCertificate *rawHTTPSCustomCertificate `json:"customCertificate"`
+}
+
+type rawHTTPSCertManager struct {
+	ClusterIssuerName string `json:"clusterIssuerName"`
+}
+
+type rawHTTPSCustomCertificate struct {
+	SecretName string `json:"secretName"`
 }
 
 type labelSelector struct {
@@ -379,6 +407,74 @@ func sanitizeInventory(raw json.RawMessage) (map[string]any, error) {
 	return map[string]any{
 		"resyncPeriod": period,
 	}, nil
+}
+
+func sanitizeHTTPS(raw json.RawMessage) (map[string]any, error) {
+	mode := settings.DefaultHTTPSMode
+	certManager := map[string]any{
+		"clusterIssuerName": settings.DefaultHTTPSClusterIssuer,
+	}
+	var customCertificate map[string]any
+
+	if len(raw) > 0 && string(raw) != "null" {
+		var payload rawHTTPS
+		if err := jsonUnmarshal(raw, &payload); err != nil {
+			return nil, fmt.Errorf("decode https settings: %w", err)
+		}
+
+		if trimmed := strings.TrimSpace(payload.Mode); trimmed != "" {
+			switch strings.ToLower(trimmed) {
+			case "certmanager":
+				mode = "CertManager"
+			case "customcertificate":
+				mode = "CustomCertificate"
+			case "onlyinuri":
+				mode = "OnlyInURI"
+			case "disabled":
+				mode = "Disabled"
+			default:
+				return nil, fmt.Errorf("unknown https.mode %q", payload.Mode)
+			}
+		}
+
+		if payload.CertManager != nil {
+			issuer := strings.TrimSpace(payload.CertManager.ClusterIssuerName)
+			if issuer != "" {
+				certManager["clusterIssuerName"] = issuer
+			}
+		}
+
+		if payload.CustomCertificate != nil {
+			secret := strings.TrimSpace(payload.CustomCertificate.SecretName)
+			if secret == "" {
+				return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
+			}
+			customCertificate = map[string]any{"secretName": secret}
+		}
+	}
+
+	switch mode {
+	case "CertManager":
+		customCertificate = nil
+	case "CustomCertificate":
+		certManager = nil
+		if customCertificate == nil {
+			return nil, errors.New("https.customCertificate.secretName must be set when mode=CustomCertificate")
+		}
+	case "OnlyInURI", "Disabled":
+		certManager = nil
+		customCertificate = nil
+	}
+
+	result := map[string]any{"mode": mode}
+	if certManager != nil {
+		result["certManager"] = certManager
+	}
+	if customCertificate != nil {
+		result["customCertificate"] = customCertificate
+	}
+
+	return result, nil
 }
 
 func sanitizeSelector(sel *labelSelector) (map[string]any, error) {
