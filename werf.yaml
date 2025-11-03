@@ -103,24 +103,25 @@ import:
 git:
   - add: /
     to: /
-    excludePaths:
-      - hooks
     includePaths:
-      - .helmignore
-      - docs
       - charts
       - crds
-      - debug
+      - docs
       - openapi
       - templates
-      - images
-      - src
-      - build
-      - oss.yaml
+      - Chart.yaml
       - module.yaml
+      - .helmignore
       - README.md
       - README.ru.md
-      - Chart.yaml
+      - monitoring
+      - oss.yaml
+    excludePaths:
+      - docs/images/*.drawio
+      - docs/images/*.sh
+      - docs/internal/**
+      - docs/**/README.md
+      - monitoring/**/README.md
 ---
 image: release-channel-version
 fromImage: builder/scratch
