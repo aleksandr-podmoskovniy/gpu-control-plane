@@ -559,6 +559,7 @@ func makeStructuralPaths() map[string]struct{} {
 	return map[string]struct{}{
 		patchPath(settings.ConfigRoot):                    {},
 		patchPath(settings.ConfigRoot + ".internal"):      {},
+		patchPath(settings.ConfigRoot + ".inventory"):     {},
 		patchPath(settings.InternalModuleConfigPath):      {},
 		patchPath(settings.InternalModuleValidationPath):  {},
 		patchPath(settings.InternalModuleConditionsPath):  {},

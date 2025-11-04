@@ -171,6 +171,7 @@ func setInventoryResyncPeriod(input *pkg.HookInput, raw any) {
 	}
 
 	if period != "" {
+		ensureValuesMap(input.Values, settings.ConfigRoot+".inventory")
 		input.Values.Set(settings.ConfigRoot+".inventory.resyncPeriod", period)
 		return
 	}
@@ -269,4 +270,12 @@ func normalizeHTTPSMode(mode string) string {
 	default:
 		return ""
 	}
+}
+
+func ensureValuesMap(values pkg.OutputPatchableValuesCollector, path string) {
+	current := values.Get(path)
+	if current.Exists() && current.IsObject() {
+		return
+	}
+	values.Set(path, map[string]any{})
 }
