@@ -49,6 +49,7 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 	Queue:        settings.ModuleQueue,
 	Kubernetes: []pkg.KubernetesConfig{
 		{
+			Name:       moduleConfigSnapshot,
 			APIVersion: "deckhouse.io/v1alpha1",
 			Kind:       "ModuleConfig",
 			NameSelector: &pkg.NameSelector{
