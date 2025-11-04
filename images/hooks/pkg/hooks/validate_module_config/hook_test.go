@@ -162,7 +162,11 @@ func TestHandleValidateModuleConfigSetsValues(t *testing.T) {
 		}
 	})
 
-	assertScalar(t, patches, "/gpuControlPlane/inventory/resyncPeriod", "45s")
+	assertMap(t, patches, "/gpuControlPlane/inventory", func(values map[string]any) {
+		if values["resyncPeriod"] != "45s" {
+			t.Fatalf("unexpected inventory.resyncPeriod: %#v", values["resyncPeriod"])
+		}
+	})
 
 	assertMap(t, patches, "/gpuControlPlane/https", func(values map[string]any) {
 		if values["mode"] != "CustomCertificate" {
@@ -559,7 +563,6 @@ func makeStructuralPaths() map[string]struct{} {
 	return map[string]struct{}{
 		patchPath(settings.ConfigRoot):                    {},
 		patchPath(settings.ConfigRoot + ".internal"):      {},
-		patchPath(settings.ConfigRoot + ".inventory"):     {},
 		patchPath(settings.InternalModuleConfigPath):      {},
 		patchPath(settings.InternalModuleValidationPath):  {},
 		patchPath(settings.InternalModuleConditionsPath):  {},
@@ -573,22 +576,6 @@ func makeStructuralPaths() map[string]struct{} {
 
 func patchPath(path string) string {
 	return "/" + strings.ReplaceAll(path, ".", "/")
-}
-
-func assertScalar[T comparable](t *testing.T, patches map[string]any, path string, expected T) {
-	t.Helper()
-
-	value, ok := patches[path]
-	if !ok {
-		t.Fatalf("patch %q missing, patches: %#v", path, patches)
-	}
-	scalar, ok := value.(T)
-	if !ok {
-		t.Fatalf("patch %q type %T, want %T", path, value, expected)
-	}
-	if scalar != expected {
-		t.Fatalf("patch %q=%#v, want %#v", path, scalar, expected)
-	}
 }
 
 func assertMap(t *testing.T, patches map[string]any, path string, verify func(map[string]any)) {
