@@ -51,6 +51,8 @@ moduleConfig:
       topologyKey: topology.kubernetes.io/zone
     inventory:
       resyncPeriod: "30s"
+    monitoring:
+      serviceMonitor: false
 values:
   global:
     enabledModules:
@@ -67,6 +69,8 @@ values:
       topologyKey: topology.kubernetes.io/zone
     inventory:
       resyncPeriod: "30s"
+    monitoring:
+      serviceMonitor: false
     runtime:
       controller:
         replicas: 1
