@@ -123,6 +123,10 @@ func TestHandleModuleStatusRemovesStateWhenConfigMissing(t *testing.T) {
 }
 
 func TestHandleModuleStatusAddsConditionWhenNFDMissing(t *testing.T) {
+	prev := requireNFDModule
+	requireNFDModule = true
+	t.Cleanup(func() { requireNFDModule = prev })
+
 	values := map[string]any{
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{

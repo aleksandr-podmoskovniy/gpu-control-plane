@@ -138,7 +138,7 @@ var (
 	namespaceEnsurer   = ensureNamespace
 	nodeFeatureEnsurer = ensureNodeFeatureRule
 	yamlUnmarshal      = defaultYAMLUnmarshal
-	requireNFDModule   = true
+	requireNFDModule   = false
 )
 
 func defaultYAMLUnmarshal(data []byte, out any) error {

@@ -39,6 +39,8 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 	Queue:        settings.ModuleQueue,
 }, handleModuleStatus)
 
+var requireNFDModule = false
+
 func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 	cfg := input.Values.Get(settings.InternalModuleConfigPath)
 	if !cfg.Exists() || cfg.Type == gjson.Null || !cfg.Get("enabled").Bool() {
@@ -49,7 +51,7 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 
 	var conditions []map[string]any
 
-	if !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
+	if requireNFDModule && !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
 		msg := settings.NFDDependencyErrorMessage
 		conditions = append(conditions, map[string]any{
 			"type":    conditionTypePrereq,

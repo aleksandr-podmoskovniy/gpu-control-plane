@@ -56,8 +56,9 @@ func resetSeams() {
 
 func TestHandleNodeFeatureRuleSyncModuleDisabled(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = false
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	snapshots := mock.NewSnapshotsMock(t)
 	snapshots.GetMock.Set(func(key string) []pkg.Snapshot {
@@ -112,8 +113,9 @@ func TestHandleNodeFeatureRuleSyncModuleDisabled(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncDependencyMissing(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = true
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	snapshots := mock.NewSnapshotsMock(t)
 	snapshots.GetMock.Optional()
@@ -162,8 +164,9 @@ func TestHandleNodeFeatureRuleSyncDependencyMissing(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = false
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
@@ -240,8 +243,9 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 
 func TestModuleConfigEnabledDecodingError(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = false
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	snapshot := mock.NewSnapshotMock(t)
 	snapshot.UnmarshalToMock.Set(func(any) error {
@@ -265,8 +269,9 @@ func TestModuleConfigEnabledDecodingError(t *testing.T) {
 
 func TestModuleConfigEnabledNil(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = false
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	payload := moduleConfigSnapshotPayload{}
 	snapshot := mock.NewSnapshotMock(t)
@@ -302,8 +307,9 @@ func TestModuleConfigEnabledNil(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncNamespaceError(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = true
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
@@ -352,8 +358,9 @@ func TestHandleNodeFeatureRuleSyncNamespaceError(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncRuleError(t *testing.T) {
 	resetSeams()
+	prev := requireNFDModule
 	requireNFDModule = true
-	t.Cleanup(func() { requireNFDModule = true })
+	t.Cleanup(func() { requireNFDModule = prev })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
