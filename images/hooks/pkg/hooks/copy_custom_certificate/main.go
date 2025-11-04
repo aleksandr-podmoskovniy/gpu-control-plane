@@ -20,4 +20,4 @@ import (
 	"hooks/pkg/settings"
 )
 
-var _ = copycustomcertificate.RegisterHook(settings.ModuleValuesName)
+var _ = copycustomcertificate.RegisterHook(settings.ModuleName)

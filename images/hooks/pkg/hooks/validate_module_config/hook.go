@@ -163,14 +163,20 @@ func setValueOrRemove(input *pkg.HookInput, path string, value any) {
 }
 
 func setInventoryResyncPeriod(input *pkg.HookInput, raw any) {
+	var period string
 	if inv, ok := raw.(map[string]any); ok {
-		if period, ok := inv["resyncPeriod"].(string); ok && strings.TrimSpace(period) != "" {
-			input.Values.Set(settings.ConfigRoot+".inventory", map[string]any{
-				"resyncPeriod": period,
-			})
-			return
+		if value, ok := inv["resyncPeriod"].(string); ok {
+			period = strings.TrimSpace(value)
 		}
 	}
+
+	if period != "" {
+		input.Values.Set(settings.ConfigRoot+".inventory", map[string]any{
+			"resyncPeriod": period,
+		})
+		return
+	}
+
 	input.Values.Remove(settings.ConfigRoot + ".inventory")
 }
 
