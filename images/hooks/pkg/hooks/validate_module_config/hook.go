@@ -171,9 +171,7 @@ func setInventoryResyncPeriod(input *pkg.HookInput, raw any) {
 	}
 
 	if period != "" {
-		input.Values.Set(settings.ConfigRoot+".inventory", map[string]any{
-			"resyncPeriod": period,
-		})
+		input.Values.Set(settings.ConfigRoot+".inventory.resyncPeriod", period)
 		return
 	}
 
