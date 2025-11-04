@@ -339,6 +339,7 @@ func TestParseInventory(t *testing.T) {
 		{name: "null string", raw: json.RawMessage("null"), expect: DefaultInventoryResyncPeriod},
 		{name: "trimmed duration", raw: json.RawMessage(`{"resyncPeriod":" 60s "}`), expect: "60s"},
 		{name: "blank duration", raw: json.RawMessage(`{"resyncPeriod":"   "}`), expect: DefaultInventoryResyncPeriod},
+		{name: "unsupported unit", raw: json.RawMessage(`{"resyncPeriod":"500ms"}`), wantErr: "does not match"},
 		{name: "invalid duration", raw: json.RawMessage(`{"resyncPeriod":"bad"}`), wantErr: "parse inventory"},
 		{name: "decode error", raw: json.RawMessage(`"oops"`), wantErr: "decode inventory"},
 	}

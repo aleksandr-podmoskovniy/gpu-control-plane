@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -418,6 +419,9 @@ func parseInventory(raw json.RawMessage) (InventorySettings, error) {
 		return settings, fmt.Errorf("decode inventory settings: %w", err)
 	}
 	if trimmed := strings.TrimSpace(payload.ResyncPeriod); trimmed != "" {
+		if !inventoryResyncPattern.MatchString(trimmed) {
+			return settings, fmt.Errorf("parse inventory.resyncPeriod: value %q does not match ^\\d+(s|m|h)$", trimmed)
+		}
 		if _, err := time.ParseDuration(trimmed); err != nil {
 			return settings, fmt.Errorf("parse inventory.resyncPeriod: %w", err)
 		}
@@ -498,6 +502,8 @@ func normalizeHTTPSMode(mode string) HTTPSMode {
 		return ""
 	}
 }
+
+var inventoryResyncPattern = regexp.MustCompile(`^\d+(s|m|h)$`)
 
 func parseBool(raw json.RawMessage) *bool {
 	if len(raw) == 0 || string(raw) == "null" {
