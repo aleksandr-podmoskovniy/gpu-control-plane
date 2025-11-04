@@ -162,7 +162,11 @@ func TestHandleValidateModuleConfigSetsValues(t *testing.T) {
 		}
 	})
 
-	assertScalar(t, patches, "/gpuControlPlane/inventory/resyncPeriod", "45s")
+	assertMap(t, patches, "/gpuControlPlane/inventory", func(values map[string]any) {
+		if values["resyncPeriod"] != "45s" {
+			t.Fatalf("unexpected inventory.resyncPeriod: %#v", values["resyncPeriod"])
+		}
+	})
 
 	assertMap(t, patches, "/gpuControlPlane/https", func(values map[string]any) {
 		if values["mode"] != "CustomCertificate" {
