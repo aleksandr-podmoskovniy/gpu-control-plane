@@ -1,6 +1,9 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $config := dig "gpuControlPlane" "internal" "controller" "config" nil .Values }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $internal := $moduleValues.internal | default dict }}
+{{- $controller := $internal.controller | default dict }}
+{{- $config := $controller.config | default dict }}
 {{- if $config }}
 ---
 apiVersion: v1

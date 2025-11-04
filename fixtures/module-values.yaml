@@ -5,6 +5,7 @@ global:
     kubernetesVersion: "1.30"
     podSubnetCIDR: 10.111.0.0/16
     serviceSubnetCIDR: 10.222.0.0/16
+    clusterDomain: cluster.local
   clusterIsBootstrapped: true
   deckhouseEdition: EE
   deckhouseVersion: dev
@@ -57,6 +58,8 @@ values:
   global:
     enabledModules:
       - node-feature-discovery
+    discovery:
+      clusterDomain: cluster.local
   gpuControlPlane:
     highAvailability: true
     managedNodes:
@@ -79,6 +82,7 @@ values:
     internal:
       moduleConfig:
         enabled: true
+        settings: {}
       rootCA:
         crt: ROOT-CA-CRT
         key: ROOT-CA-KEY

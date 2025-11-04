@@ -1,7 +1,9 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- $moduleValues := .Values.gpuControlPlane | default dict }}
 {{- $monitoringValues := $moduleValues.monitoring | default dict }}
-{{- $enabledModules := .Values.global.enabledModules | default (list) }}
+{{- $globalValues := .Values.global | default dict }}
+{{- $enabledModules := $globalValues.enabledModules | default (list) }}
+{{- $clusterDomain := $globalValues.discovery.clusterDomain }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (default false $monitoringValues.serviceMonitor) ($enabledModules | has "operator-prometheus-crd") }}
 ---
 apiVersion: monitoring.coreos.com/v1alpha1
@@ -22,5 +24,5 @@ spec:
   metricsPath: /metrics
   staticConfigs:
     - targets:
-        - '{{ include "gpuControlPlane.controllerName" . }}-metrics.{{ include "gpuControlPlane.namespace" . }}.svc.{{ .Values.global.discovery.clusterDomain }}.:8080'
+        - '{{ include "gpuControlPlane.controllerName" . }}-metrics.{{ include "gpuControlPlane.namespace" . }}.svc.{{ $clusterDomain }}.:8080'
 {{- end }}
