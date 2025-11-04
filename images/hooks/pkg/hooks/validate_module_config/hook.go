@@ -90,7 +90,7 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 	setValueOrRemove(input, settings.ConfigRoot+".managedNodes", sanitized["managedNodes"])
 	setValueOrRemove(input, settings.ConfigRoot+".deviceApproval", sanitized["deviceApproval"])
 	setValueOrRemove(input, settings.ConfigRoot+".scheduling", sanitized["scheduling"])
-	setValueOrRemove(input, settings.ConfigRoot+".inventory", sanitized["inventory"])
+	setInventoryResyncPeriod(input, sanitized["inventory"])
 
 	var userHTTPS map[string]any
 	if raw, ok := sanitized["https"]; ok {
@@ -160,6 +160,16 @@ func setValueOrRemove(input *pkg.HookInput, path string, value any) {
 		return
 	}
 	input.Values.Set(path, value)
+}
+
+func setInventoryResyncPeriod(input *pkg.HookInput, raw any) {
+	if inv, ok := raw.(map[string]any); ok {
+		if period, ok := inv["resyncPeriod"].(string); ok && strings.TrimSpace(period) != "" {
+			input.Values.Set(settings.ConfigRoot+".inventory.resyncPeriod", period)
+			return
+		}
+	}
+	input.Values.Remove(settings.ConfigRoot + ".inventory.resyncPeriod")
 }
 
 func resolveHTTPSConfig(input *pkg.HookInput, user map[string]any) map[string]any {

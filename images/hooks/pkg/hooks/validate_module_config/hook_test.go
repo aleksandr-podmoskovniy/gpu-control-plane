@@ -144,33 +144,41 @@ func TestHandleValidateModuleConfigSetsValues(t *testing.T) {
 		t.Fatalf("sanitized settings missing: %#v", moduleCfg)
 	}
 
-	if managed := patches["/gpuControlPlane/managedNodes"].(map[string]any); managed["enabledByDefault"] != false {
-		t.Fatalf("managedNodes.enabledByDefault expected false, got %#v", managed["enabledByDefault"])
+	assertMap(t, patches, "/gpuControlPlane/managedNodes", func(values map[string]any) {
+		if values["enabledByDefault"] != false {
+			t.Fatalf("managedNodes.enabledByDefault expected false, got %#v", values["enabledByDefault"])
+		}
+	})
+
+	assertMap(t, patches, "/gpuControlPlane/deviceApproval", func(values map[string]any) {
+		if values["mode"] != "Automatic" {
+			t.Fatalf("deviceApproval.mode expected Automatic, got %#v", values["mode"])
+		}
+	})
+
+	assertMap(t, patches, "/gpuControlPlane/scheduling", func(values map[string]any) {
+		if values["topologyKey"] != "topology.kubernetes.io/zone" {
+			t.Fatalf("unexpected topologyKey: %#v", values["topologyKey"])
+		}
+	})
+
+	assertScalar(t, patches, "/gpuControlPlane/inventory/resyncPeriod", "45s")
+
+	assertMap(t, patches, "/gpuControlPlane/https", func(values map[string]any) {
+		if values["mode"] != "CustomCertificate" {
+			t.Fatalf("unexpected https.mode: %#v", values["mode"])
+		}
+	})
+
+	if ha, ok := patches["/gpuControlPlane/highAvailability"].(bool); !ok || !ha {
+		t.Fatalf("expected highAvailability=true, got %#v", patches["/gpuControlPlane/highAvailability"])
 	}
 
-	if approval := patches["/gpuControlPlane/deviceApproval"].(map[string]any); approval["mode"] != "Automatic" {
-		t.Fatalf("deviceApproval.mode expected Automatic, got %#v", approval["mode"])
-	}
-
-	if scheduling := patches["/gpuControlPlane/scheduling"].(map[string]any); scheduling["topologyKey"] != "topology.kubernetes.io/zone" {
-		t.Fatalf("unexpected topologyKey: %#v", scheduling["topologyKey"])
-	}
-
-	if inventory := patches["/gpuControlPlane/inventory"].(map[string]any); inventory["resyncPeriod"] != "45s" {
-		t.Fatalf("unexpected inventory.resyncPeriod: %#v", inventory["resyncPeriod"])
-	}
-
-	if https := patches["/gpuControlPlane/https"].(map[string]any); https["mode"] != "CustomCertificate" {
-		t.Fatalf("unexpected https.mode: %#v", https["mode"])
-	}
-
-	if ha, _ := patches["/gpuControlPlane/highAvailability"].(bool); !ha {
-		t.Fatalf("expected highAvailability=true, got %v", patches["/gpuControlPlane/highAvailability"])
-	}
-
-	if controllerCfg := patches["/gpuControlPlane/internal/controller/config"].(map[string]any); controllerCfg == nil {
-		t.Fatalf("controller config not generated")
-	}
+	assertMap(t, patches, "/gpuControlPlane/internal/controller/config", func(values map[string]any) {
+		if len(values) == 0 {
+			t.Fatalf("controller config not generated")
+		}
+	})
 
 	if _, exists := settings["https"]; !exists {
 		t.Fatalf("sanitized settings must contain https section: %#v", settings)
@@ -249,12 +257,97 @@ func TestHandleValidateModuleConfigUsesGlobalHTTPSFallback(t *testing.T) {
 	}
 
 	patches := filteredPatches(t, values)
-	cfg, ok := patches["/gpuControlPlane/https"].(map[string]any)
-	if !ok {
-		t.Fatalf("https patch missing, patches: %#v", patches)
+	assertMap(t, patches, "/gpuControlPlane/https", func(values map[string]any) {
+		if values["mode"] != "OnlyInURI" {
+			t.Fatalf("expected global fallback mode OnlyInURI, got %#v", values["mode"])
+		}
+	})
+}
+
+func TestHandleValidateModuleConfigRemovesStaleValues(t *testing.T) {
+	initial := map[string]any{
+		"gpuControlPlane": map[string]any{
+			"managedNodes": map[string]any{"enabledByDefault": true},
+			"deviceApproval": map[string]any{
+				"mode": "Manual",
+			},
+			"scheduling": map[string]any{
+				"defaultStrategy": "Spread",
+			},
+			"inventory": map[string]any{
+				"resyncPeriod": "30s",
+			},
+			"https": map[string]any{
+				"mode": "CertManager",
+			},
+			"highAvailability": true,
+			"internal": map[string]any{
+				"controller": map[string]any{
+					"config": map[string]any{"foo": "bar"},
+				},
+			},
+		},
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "CustomCertificate",
+				},
+			},
+		},
 	}
-	if cfg["mode"] != "OnlyInURI" {
-		t.Fatalf("expected global fallback mode OnlyInURI, got %#v", cfg["mode"])
+	input, values := newHookInput(t, initial)
+
+	customState := &moduleconfig.State{
+		Enabled:   true,
+		Sanitized: map[string]any{},
+	}
+	orig := moduleConfigFromSnapshotFn
+	moduleConfigFromSnapshotFn = func(*pkg.HookInput) (*moduleconfig.State, error) {
+		clone := customState.Clone()
+		return &clone, nil
+	}
+	t.Cleanup(func() { moduleConfigFromSnapshotFn = orig })
+
+	if err := handleValidateModuleConfig(context.Background(), input); err != nil {
+		t.Fatalf("handleValidateModuleConfig: %v", err)
+	}
+
+	removals := make(map[string]struct{})
+	for _, op := range values.GetPatches() {
+		if op.Op == "remove" {
+			removals[op.Path] = struct{}{}
+		}
+	}
+
+	expected := []string{
+		"/gpuControlPlane/managedNodes",
+		"/gpuControlPlane/deviceApproval",
+		"/gpuControlPlane/scheduling",
+		"/gpuControlPlane/inventory/resyncPeriod",
+	}
+	for _, path := range expected {
+		if _, ok := removals[path]; !ok {
+			t.Fatalf("expected remove operation for %s, removals: %#v", path, removals)
+		}
+	}
+
+	if _, ok := removals["/gpuControlPlane/https"]; !ok {
+		t.Fatalf("expected https removal, removals: %#v", removals)
+	}
+	if _, ok := removals["/gpuControlPlane/highAvailability"]; !ok {
+		t.Fatalf("expected highAvailability removal, removals: %#v", removals)
+	}
+	if _, ok := removals["/gpuControlPlane/internal/controller/config"]; !ok {
+		t.Fatalf("expected controller config removal, removals: %#v", removals)
+	}
+
+	patches := filteredPatches(t, values)
+	moduleCfg, ok := patches["/gpuControlPlane/internal/moduleConfig"].(map[string]any)
+	if !ok || len(moduleCfg) != 1 || moduleCfg["enabled"] != true {
+		t.Fatalf("module config should contain only enabled flag, got %#v", moduleCfg)
+	}
+	if _, exists := moduleCfg["settings"]; exists {
+		t.Fatalf("settings must be omitted when sanitized empty: %#v", moduleCfg)
 	}
 }
 
@@ -319,6 +412,45 @@ func TestResolveHTTPSConfigCustomCertificateRequiresSecret(t *testing.T) {
 	}
 }
 
+func TestResolveHTTPSConfigUsesDefaultsWhenGlobalsEmpty(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{})
+
+	result := resolveHTTPSConfig(input, nil)
+	if result == nil {
+		t.Fatalf("expected default https config, got nil")
+	}
+	if mode := result["mode"]; mode != "CertManager" {
+		t.Fatalf("expected default mode CertManager, got %#v", mode)
+	}
+	certMgr, _ := result["certManager"].(map[string]any)
+	if certMgr["clusterIssuerName"] != settings.DefaultHTTPSClusterIssuer {
+		t.Fatalf("expected default issuer %q, got %#v", settings.DefaultHTTPSClusterIssuer, certMgr["clusterIssuerName"])
+	}
+}
+
+func TestResolveHTTPSConfigHandlesGlobalDisabled(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "Disabled",
+				},
+			},
+		},
+	})
+
+	result := resolveHTTPSConfig(input, nil)
+	if result == nil {
+		t.Fatalf("expected disabled config map")
+	}
+	if mode := result["mode"]; mode != "Disabled" {
+		t.Fatalf("expected mode Disabled, got %#v", mode)
+	}
+	if _, exists := result["certManager"]; exists {
+		t.Fatalf("disabled mode should not include certManager block: %#v", result)
+	}
+}
+
 func TestNormalizeHTTPSMode(t *testing.T) {
 	cases := map[string]string{
 		"":                  "",
@@ -345,6 +477,54 @@ func TestModuleConfigFromSnapshotError(t *testing.T) {
 
 	if _, err := moduleConfigFromSnapshot(input); err == nil {
 		t.Fatalf("expected error when snapshot payload invalid")
+	}
+}
+
+func TestModuleConfigFromSnapshotInvalidSettings(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{})
+	input.Snapshots = simpleSnapshots{
+		moduleConfigSnapshot: {
+			simpleSnapshot{payload: moduleConfigSnapshotPayload{
+				Spec: moduleConfigSnapshotSpec{
+					Settings: map[string]any{
+						"inventory": map[string]any{
+							"resyncPeriod": "not-a-duration",
+						},
+					},
+				},
+			}},
+		},
+	}
+
+	if _, err := moduleConfigFromSnapshot(input); err == nil {
+		t.Fatalf("expected parse error for invalid inventory resyncPeriod")
+	}
+}
+
+func TestBuildControllerConfigNilInput(t *testing.T) {
+	if result := buildControllerConfig(nil); result != nil {
+		t.Fatalf("expected nil result for nil input, got %#v", result)
+	}
+}
+
+func TestBuildControllerConfigModuleSectionOnly(t *testing.T) {
+	cfg := map[string]any{
+		"managedNodes": map[string]any{
+			"labelKey":         "gpu.deckhouse.io/enabled",
+			"enabledByDefault": true,
+		},
+	}
+
+	result := buildControllerConfig(cfg)
+	if result == nil || len(result) != 1 {
+		t.Fatalf("expected module section only, got %#v", result)
+	}
+	module, ok := result["module"].(map[string]any)
+	if !ok || module["managedNodes"] == nil {
+		t.Fatalf("module section missing managedNodes: %#v", result)
+	}
+	if _, ok := result["controllers"]; ok {
+		t.Fatalf("controllers section must be absent when inventory missing: %#v", result)
 	}
 }
 
@@ -392,4 +572,34 @@ func makeStructuralPaths() map[string]struct{} {
 
 func patchPath(path string) string {
 	return "/" + strings.ReplaceAll(path, ".", "/")
+}
+
+func assertMap(t *testing.T, patches map[string]any, path string, verify func(map[string]any)) {
+	t.Helper()
+
+	value, ok := patches[path]
+	if !ok {
+		t.Fatalf("patch %q missing, patches: %#v", path, patches)
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("patch %q has unexpected type %T", path, value)
+	}
+	verify(m)
+}
+
+func assertScalar[T comparable](t *testing.T, patches map[string]any, path string, expected T) {
+	t.Helper()
+
+	value, ok := patches[path]
+	if !ok {
+		t.Fatalf("patch %q missing, patches: %#v", path, patches)
+	}
+	scalar, ok := value.(T)
+	if !ok {
+		t.Fatalf("patch %q type %T, want %T", path, value, expected)
+	}
+	if scalar != expected {
+		t.Fatalf("patch %q=%#v, want %#v", path, scalar, expected)
+	}
 }
