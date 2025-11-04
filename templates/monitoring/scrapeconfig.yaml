@@ -1,5 +1,8 @@
 {{/* Copyright 2025 Flant JSC */}}
-{{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (.Values.gpuControlPlane.monitoring.serviceMonitor) (.Values.global.enabledModules | has "operator-prometheus-crd") }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $monitoringValues := $moduleValues.monitoring | default dict }}
+{{- $enabledModules := .Values.global.enabledModules | default (list) }}
+{{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (default false $monitoringValues.serviceMonitor) ($enabledModules | has "operator-prometheus-crd") }}
 ---
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: ScrapeConfig
