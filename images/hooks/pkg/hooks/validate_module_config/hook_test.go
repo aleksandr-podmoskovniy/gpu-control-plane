@@ -162,7 +162,11 @@ func TestHandleValidateModuleConfigSetsValues(t *testing.T) {
 		}
 	})
 
-	assertScalar(t, patches, "/gpuControlPlane/inventory/resyncPeriod", "45s")
+	assertMap(t, patches, "/gpuControlPlane/inventory", func(values map[string]any) {
+		if values["resyncPeriod"] != "45s" {
+			t.Fatalf("unexpected inventory.resyncPeriod: %#v", values["resyncPeriod"])
+		}
+	})
 
 	assertMap(t, patches, "/gpuControlPlane/https", func(values map[string]any) {
 		if values["mode"] != "CustomCertificate" {
@@ -323,7 +327,7 @@ func TestHandleValidateModuleConfigRemovesStaleValues(t *testing.T) {
 		"/gpuControlPlane/managedNodes",
 		"/gpuControlPlane/deviceApproval",
 		"/gpuControlPlane/scheduling",
-		"/gpuControlPlane/inventory/resyncPeriod",
+		"/gpuControlPlane/inventory",
 	}
 	for _, path := range expected {
 		if _, ok := removals[path]; !ok {
@@ -586,20 +590,4 @@ func assertMap(t *testing.T, patches map[string]any, path string, verify func(ma
 		t.Fatalf("patch %q has unexpected type %T", path, value)
 	}
 	verify(m)
-}
-
-func assertScalar[T comparable](t *testing.T, patches map[string]any, path string, expected T) {
-	t.Helper()
-
-	value, ok := patches[path]
-	if !ok {
-		t.Fatalf("patch %q missing, patches: %#v", path, patches)
-	}
-	scalar, ok := value.(T)
-	if !ok {
-		t.Fatalf("patch %q type %T, want %T", path, value, expected)
-	}
-	if scalar != expected {
-		t.Fatalf("patch %q=%#v, want %#v", path, scalar, expected)
-	}
 }
