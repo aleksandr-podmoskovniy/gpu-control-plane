@@ -11,20 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-.git/
+crds
+docs
+enabled
+hooks
+images
+lib
+build
+debug
+openapi
+src
+pkg
+.github
+.git
 .gitignore
-.github/
-.werf/
+.werf
+werf*.yaml
 Dockerfile
-werf.yaml
-werf-giterminism.yaml
-.dmtlint.yaml
-debug/
-docs/
-build/
-images/
-monitoring/
+*.md
 *.swp
 *.bak
 *.tmp
@@ -32,3 +36,4 @@ monitoring/
 *.rej
 *~
 .DS_Store
+NOTES.txt
