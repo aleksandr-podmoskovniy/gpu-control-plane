@@ -22,7 +22,6 @@ import (
 
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
-	"github.com/tidwall/gjson"
 
 	"hooks/pkg/settings"
 )
@@ -56,29 +55,6 @@ func decodePatchValue(t *testing.T, raw json.RawMessage) any {
 
 func slashPath(dotPath string) string {
 	return "/" + strings.ReplaceAll(dotPath, ".", "/")
-}
-
-func TestIsModuleEnabled(t *testing.T) {
-	if isModuleEnabled(gjson.Parse(`"other"`), "node-feature-discovery") {
-		t.Fatalf("expected single string mismatch to return false")
-	}
-
-	if !isModuleEnabled(gjson.Parse(`"node-feature-discovery"`), "node-feature-discovery") {
-		t.Fatalf("expected case-insensitive string match")
-	}
-
-	if !isModuleEnabled(gjson.Parse(`[
-		"cert-manager",
-		" NODE-FEATURE-DISCOVERY ",
-	]`), "node-feature-discovery") {
-		t.Fatalf("expected array match with trimming and case folding")
-	}
-}
-
-func TestIsModuleEnabledMissing(t *testing.T) {
-	if isModuleEnabled(gjson.Result{}, "node-feature-discovery") {
-		t.Fatal("expected missing modules to be disabled")
-	}
 }
 
 func TestHandleModuleStatusRemovesStateWhenModuleDisabled(t *testing.T) {
@@ -145,15 +121,15 @@ func TestHandleModuleStatusRemovesStateWhenConfigMissing(t *testing.T) {
 	}
 }
 
-func TestHandleModuleStatusAddsConditionWhenNfdMissing(t *testing.T) {
+func TestHandleModuleStatusAddsConditionWhenRuleError(t *testing.T) {
 	values := map[string]any{
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"nodeFeatureRule": map[string]any{
+					"error": "failed to apply NodeFeatureRule",
+				},
 			},
-		},
-		"global": map[string]any{
-			"enabledModules": []any{"cert-manager"},
 		},
 	}
 
@@ -181,8 +157,11 @@ func TestHandleModuleStatusAddsConditionWhenNfdMissing(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected condition entry type: %#v", list[0])
 	}
-	if item["type"] != conditionTypePrereq || item["reason"] != reasonNFDDisabled {
+	if item["type"] != conditionTypePrereq || item["reason"] != reasonNodeFeatureRuleFail {
 		t.Fatalf("unexpected condition entry: %#v", item)
+	}
+	if item["message"] != "failed to apply NodeFeatureRule" {
+		t.Fatalf("unexpected condition message: %#v", item)
 	}
 
 	validationPatch := patches[1]
@@ -196,8 +175,8 @@ func TestHandleModuleStatusAddsConditionWhenNfdMissing(t *testing.T) {
 	if payload["source"] != validationSource {
 		t.Fatalf("unexpected validation source: %#v", payload)
 	}
-	if payload["error"] == "" {
-		t.Fatalf("validation error message is empty: %#v", payload)
+	if payload["error"] != "failed to apply NodeFeatureRule" {
+		t.Fatalf("unexpected validation error: %#v", payload)
 	}
 }
 
@@ -208,17 +187,17 @@ func TestHandleModuleStatusClearsStateWhenPrereqSatisfied(t *testing.T) {
 				"moduleConfig": map[string]any{"enabled": true},
 				"conditions": []any{map[string]any{
 					"type":    conditionTypePrereq,
-					"reason":  reasonNFDDisabled,
-					"message": "Module gpu-control-plane requires the node-feature-discovery module to be enabled",
+					"reason":  reasonNodeFeatureRuleFail,
+					"message": "failed to apply NodeFeatureRule",
 				}},
 				"moduleConfigValidation": map[string]any{
-					"error":  "Module gpu-control-plane requires the node-feature-discovery module to be enabled",
+					"error":  "failed to apply NodeFeatureRule",
 					"source": validationSource,
 				},
+				"nodeFeatureRule": map[string]any{
+					"name": settings.NodeFeatureRuleName,
+				},
 			},
-		},
-		"global": map[string]any{
-			"enabledModules": []any{"node-feature-discovery"},
 		},
 	}
 
@@ -242,14 +221,13 @@ func TestHandleModuleStatusClearsStateWhenPrereqSatisfied(t *testing.T) {
 }
 
 func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
-	original := nfdMissingMessage
-	nfdMissingMessage = "   "
-	defer func() { nfdMissingMessage = original }()
-
 	values := map[string]any{
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"nodeFeatureRule": map[string]any{
+					"error": "   ",
+				},
 			},
 		},
 	}
@@ -260,13 +238,8 @@ func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
 		t.Fatalf("handleModuleStatus returned error: %v", err)
 	}
 
-	patches := patchable.GetPatches()
-	if len(patches) != 1 {
-		t.Fatalf("expected only conditions patch, got %d", len(patches))
-	}
-	condPatch := patches[0]
-	if condPatch.Op != "add" || condPatch.Path != slashPath(settings.InternalModuleConditionsPath) {
-		t.Fatalf("unexpected conditions patch: %+v", condPatch)
+	if len(patchable.GetPatches()) != 0 {
+		t.Fatalf("expected no patches, got %d", len(patchable.GetPatches()))
 	}
 }
 

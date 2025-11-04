@@ -27,13 +27,11 @@ import (
 )
 
 const (
-	conditionTypePrereq = "PrerequisiteNotMet"
-	reasonNFDDisabled   = "NodeFeatureDiscoveryDisabled"
+	conditionTypePrereq       = "PrerequisiteNotMet"
+	reasonNodeFeatureRuleFail = "NodeFeatureRuleApplyFailed"
 
 	validationSource = "module-status/prerequisite"
 )
-
-var nfdMissingMessage = "Module gpu-control-plane requires the node-feature-discovery module to be enabled"
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
 	OnBeforeHelm: &pkg.OrderedConfig{Order: 12},
@@ -48,22 +46,15 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 		return nil
 	}
 
-	var (
-		conditions        []map[string]any
-		validationMessage []string
-	)
+	var conditions []map[string]any
 
-	if !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
-		msg := nfdMissingMessage
+	if msg := strings.TrimSpace(input.Values.Get(settings.InternalNodeFeatureRulePath + ".error").Str); msg != "" {
 		conditions = append(conditions, map[string]any{
 			"type":    conditionTypePrereq,
 			"status":  "False",
-			"reason":  reasonNFDDisabled,
+			"reason":  reasonNodeFeatureRuleFail,
 			"message": msg,
 		})
-		if trimmed := strings.TrimSpace(msg); trimmed != "" {
-			validationMessage = append(validationMessage, trimmed)
-		}
 	}
 
 	if len(conditions) == 0 {
@@ -74,30 +65,8 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 
 	input.Values.Set(settings.InternalModuleConditionsPath, conditions)
 
-	if len(validationMessage) == 0 {
-		clearValidationError(input)
-		return nil
-	}
-
-	setValidationError(input, strings.Join(validationMessage, "; "))
+	setValidationError(input, conditions[0]["message"].(string))
 	return nil
-}
-
-func isModuleEnabled(modules gjson.Result, name string) bool {
-	if !modules.Exists() {
-		return false
-	}
-	if modules.Type == gjson.String {
-		return strings.EqualFold(strings.TrimSpace(modules.Str), name)
-	}
-	if modules.IsArray() {
-		for _, item := range modules.Array() {
-			if strings.EqualFold(strings.TrimSpace(item.Str), name) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func setValidationError(input *pkg.HookInput, message string) {

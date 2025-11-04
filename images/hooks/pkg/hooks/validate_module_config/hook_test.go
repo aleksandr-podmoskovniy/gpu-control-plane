@@ -382,7 +382,7 @@ func makeStructuralPaths() map[string]struct{} {
 		patchPath(settings.InternalModuleConfigPath):      {},
 		patchPath(settings.InternalModuleValidationPath):  {},
 		patchPath(settings.InternalModuleConditionsPath):  {},
-		patchPath(settings.InternalBootstrapPath):         {},
+		patchPath(settings.InternalNodeFeatureRulePath):   {},
 		patchPath(settings.InternalControllerPath):        {},
 		patchPath(settings.InternalControllerCertPath):    {},
 		patchPath(settings.InternalRootCAPath):            {},

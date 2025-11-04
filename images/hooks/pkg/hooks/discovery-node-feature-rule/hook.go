@@ -18,28 +18,27 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/yaml"
+
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"sigs.k8s.io/yaml"
 
 	"hooks/pkg/settings"
 )
 
-func defaultYamlUnmarshal(data []byte, out any) error {
-	return yaml.Unmarshal(data, out)
-}
+const (
+	moduleConfigSnapshot = "module-config"
+	moduleConfigJQFilter = `{"spec":{"enabled":.spec.enabled}}`
+)
 
-var yamlUnmarshal = defaultYamlUnmarshal
-
-const moduleConfigSnapshot = "module-config"
-
-type moduleConfigSpec struct {
+type moduleConfigSnapshotSpec struct {
 	Enabled *bool `json:"enabled"`
 }
 
 type moduleConfigSnapshotPayload struct {
-	Spec moduleConfigSpec `json:"spec"`
+	Spec moduleConfigSnapshotSpec `json:"spec"`
 }
 
 const nodeFeatureRuleTemplate = `
@@ -136,10 +135,15 @@ spec:
 var (
 	namespaceEnsurer   = ensureNamespace
 	nodeFeatureEnsurer = ensureNodeFeatureRule
+	yamlUnmarshal      = defaultYAMLUnmarshal
 )
 
+func defaultYAMLUnmarshal(data []byte, out any) error {
+	return yaml.Unmarshal(data, out)
+}
+
 var _ = registry.RegisterFunc(&pkg.HookConfig{
-	OnBeforeHelm: &pkg.OrderedConfig{Order: 20},
+	OnBeforeHelm: &pkg.OrderedConfig{Order: 18},
 	Queue:        settings.ModuleQueue,
 	Kubernetes: []pkg.KubernetesConfig{
 		{
@@ -148,33 +152,48 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 			NameSelector: &pkg.NameSelector{
 				MatchNames: []string{settings.ModuleName},
 			},
+			ExecuteHookOnSynchronization: ptr.To(true),
+			ExecuteHookOnEvents:          ptr.To(true),
+			JqFilter:                     moduleConfigJQFilter,
+		},
+		{
+			APIVersion: "nfd.k8s-sigs.io/v1alpha1",
+			Kind:       "NodeFeatureRule",
+			NameSelector: &pkg.NameSelector{
+				MatchNames: []string{settings.NodeFeatureRuleName},
+			},
+			ExecuteHookOnSynchronization: ptr.To(true),
+			ExecuteHookOnEvents:          ptr.To(true),
+			AllowFailure:                 ptr.To(true),
+			WaitForSynchronization:       ptr.To(false),
 		},
 	},
 }, handleNodeFeatureRuleSync)
 
 func handleNodeFeatureRuleSync(_ context.Context, input *pkg.HookInput) error {
-	state, err := moduleConfigEnabled(input)
+	enabled, err := moduleConfigEnabled(input)
 	if err != nil {
 		return err
 	}
 
-	if !state {
+	input.Values.Remove(settings.InternalNodeFeatureRulePath)
+
+	if !enabled {
 		cleanupResources(input.PatchCollector)
-		input.Values.Remove(settings.InternalBootstrapPath)
 		return nil
 	}
 
 	if err := namespaceEnsurer(input.PatchCollector); err != nil {
-		return err
+		reportNodeFeatureRuleError(input, err)
+		return nil
 	}
 	if err := nodeFeatureEnsurer(input.PatchCollector); err != nil {
-		return err
+		reportNodeFeatureRuleError(input, err)
+		return nil
 	}
 
-	input.Values.Set(settings.InternalBootstrapPath, map[string]any{
-		"nodeFeatureRule": map[string]any{
-			"name": settings.NodeFeatureRuleName,
-		},
+	input.Values.Set(settings.InternalNodeFeatureRulePath, map[string]any{
+		"name": settings.NodeFeatureRuleName,
 	})
 
 	return nil
@@ -186,19 +205,20 @@ func moduleConfigEnabled(input *pkg.HookInput) (bool, error) {
 		return false, nil
 	}
 
-	var mc moduleConfigSnapshotPayload
-	if err := snapshot[0].UnmarshalTo(&mc); err != nil {
+	var payload moduleConfigSnapshotPayload
+	if err := snapshot[0].UnmarshalTo(&payload); err != nil {
 		return false, fmt.Errorf("decode ModuleConfig/%s: %w", settings.ModuleName, err)
 	}
 
-	if mc.Spec.Enabled == nil {
+	if payload.Spec.Enabled == nil {
 		return false, nil
 	}
-	return *mc.Spec.Enabled, nil
+
+	return ptr.Deref(payload.Spec.Enabled, false), nil
 }
 
 func ensureNamespace(pc pkg.PatchCollector) error {
-	ns := map[string]any{
+	namespace := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Namespace",
 		"metadata": map[string]any{
@@ -209,7 +229,8 @@ func ensureNamespace(pc pkg.PatchCollector) error {
 			},
 		},
 	}
-	pc.CreateIfNotExists(&unstructured.Unstructured{Object: ns})
+
+	pc.CreateIfNotExists(&unstructured.Unstructured{Object: namespace})
 	return nil
 }
 
@@ -246,4 +267,10 @@ func ensureManagedLabels(obj map[string]any) {
 
 	labels["app.kubernetes.io/name"] = settings.ModuleName
 	labels["app.kubernetes.io/managed-by"] = "deckhouse"
+}
+
+func reportNodeFeatureRuleError(input *pkg.HookInput, err error) {
+	input.Values.Set(settings.InternalNodeFeatureRulePath, map[string]any{
+		"error": err.Error(),
+	})
 }

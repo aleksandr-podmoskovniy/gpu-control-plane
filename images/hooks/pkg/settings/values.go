@@ -20,9 +20,9 @@ const (
 	InternalModuleConfigPath      = internalRoot + ".moduleConfig"
 	InternalModuleValidationPath  = internalRoot + ".moduleConfigValidation"
 	InternalModuleConditionsPath  = internalRoot + ".conditions"
-	InternalBootstrapPath         = internalRoot + ".bootstrap"
 	InternalControllerPath        = internalRoot + ".controller"
 	InternalControllerCertPath    = InternalControllerPath + ".cert"
+	InternalNodeFeatureRulePath   = internalRoot + ".nodeFeatureRule"
 	InternalRootCAPath            = internalRoot + ".rootCA"
 	InternalCustomCertificatePath = internalRoot + ".customCertificateData"
 
