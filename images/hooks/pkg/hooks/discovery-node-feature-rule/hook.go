@@ -17,7 +17,9 @@ package discovery_node_feature_rule
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
@@ -136,6 +138,7 @@ var (
 	namespaceEnsurer   = ensureNamespace
 	nodeFeatureEnsurer = ensureNodeFeatureRule
 	yamlUnmarshal      = defaultYAMLUnmarshal
+	requireNFDModule   = true
 )
 
 func defaultYAMLUnmarshal(data []byte, out any) error {
@@ -171,6 +174,12 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 }, handleNodeFeatureRuleSync)
 
 func handleNodeFeatureRuleSync(_ context.Context, input *pkg.HookInput) error {
+	if requireNFDModule && !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
+		cleanupResources(input.PatchCollector)
+		input.Values.Remove(settings.InternalNodeFeatureRulePath)
+		return fmt.Errorf(settings.NFDDependencyErrorMessage)
+	}
+
 	enabled, err := moduleConfigEnabled(input)
 	if err != nil {
 		return err
@@ -273,4 +282,21 @@ func reportNodeFeatureRuleError(input *pkg.HookInput, err error) {
 	input.Values.Set(settings.InternalNodeFeatureRulePath, map[string]any{
 		"error": err.Error(),
 	})
+}
+
+func isModuleEnabled(modules gjson.Result, name string) bool {
+	if !modules.Exists() {
+		return false
+	}
+	if modules.Type == gjson.String {
+		return strings.EqualFold(strings.TrimSpace(modules.Str), name)
+	}
+	if modules.IsArray() {
+		for _, item := range modules.Array() {
+			if strings.EqualFold(strings.TrimSpace(item.Str), name) {
+				return true
+			}
+		}
+	}
+	return false
 }

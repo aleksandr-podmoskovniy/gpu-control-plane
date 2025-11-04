@@ -26,6 +26,7 @@ import (
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
 	"github.com/deckhouse/module-sdk/pkg/utils"
 	"github.com/deckhouse/module-sdk/testing/mock"
+	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/ptr"
 
@@ -55,6 +56,8 @@ func resetSeams() {
 
 func TestHandleNodeFeatureRuleSyncModuleDisabled(t *testing.T) {
 	resetSeams()
+	requireNFDModule = false
+	t.Cleanup(func() { requireNFDModule = true })
 
 	snapshots := mock.NewSnapshotsMock(t)
 	snapshots.GetMock.Set(func(key string) []pkg.Snapshot {
@@ -107,8 +110,60 @@ func TestHandleNodeFeatureRuleSyncModuleDisabled(t *testing.T) {
 	}
 }
 
+func TestHandleNodeFeatureRuleSyncDependencyMissing(t *testing.T) {
+	resetSeams()
+	requireNFDModule = true
+	t.Cleanup(func() { requireNFDModule = true })
+
+	snapshots := mock.NewSnapshotsMock(t)
+	snapshots.GetMock.Optional()
+
+	pc := mock.NewPatchCollectorMock(t)
+	var deletes []string
+	pc.DeleteMock.Set(func(apiVersion, kind, namespace, name string) {
+		deletes = append(deletes, fmt.Sprintf("%s/%s/%s/%s", apiVersion, kind, namespace, name))
+	})
+
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"nodeFeatureRule": map[string]any{"name": "stale"},
+			},
+		},
+	}
+
+	input, patchable := newHookInput(t, snapshots, pc, values)
+
+	err := handleNodeFeatureRuleSync(context.Background(), input)
+	if err == nil || err.Error() != settings.NFDDependencyErrorMessage {
+		t.Fatalf("expected dependency error, got: %v", err)
+	}
+
+	expectedDeletes := map[string]struct{}{
+		"nfd.k8s-sigs.io/v1alpha1/NodeFeatureRule//" + settings.NodeFeatureRuleName: {},
+		"v1/Namespace//" + settings.ModuleNamespace:                                 {},
+	}
+	for _, del := range deletes {
+		if _, ok := expectedDeletes[del]; !ok {
+			t.Fatalf("unexpected delete: %s", del)
+		}
+	}
+
+	var removed bool
+	for _, patch := range patchable.GetPatches() {
+		if patch.Op == "remove" && patch.Path == expectedPatchPath(settings.InternalNodeFeatureRulePath) {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("expected removal patch for %s", settings.InternalNodeFeatureRulePath)
+	}
+}
+
 func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 	resetSeams()
+	requireNFDModule = false
+	t.Cleanup(func() { requireNFDModule = true })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
@@ -185,6 +240,8 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 
 func TestModuleConfigEnabledDecodingError(t *testing.T) {
 	resetSeams()
+	requireNFDModule = false
+	t.Cleanup(func() { requireNFDModule = true })
 
 	snapshot := mock.NewSnapshotMock(t)
 	snapshot.UnmarshalToMock.Set(func(any) error {
@@ -208,6 +265,8 @@ func TestModuleConfigEnabledDecodingError(t *testing.T) {
 
 func TestModuleConfigEnabledNil(t *testing.T) {
 	resetSeams()
+	requireNFDModule = false
+	t.Cleanup(func() { requireNFDModule = true })
 
 	payload := moduleConfigSnapshotPayload{}
 	snapshot := mock.NewSnapshotMock(t)
@@ -243,6 +302,8 @@ func TestModuleConfigEnabledNil(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncNamespaceError(t *testing.T) {
 	resetSeams()
+	requireNFDModule = true
+	t.Cleanup(func() { requireNFDModule = true })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
@@ -291,6 +352,8 @@ func TestHandleNodeFeatureRuleSyncNamespaceError(t *testing.T) {
 
 func TestHandleNodeFeatureRuleSyncRuleError(t *testing.T) {
 	resetSeams()
+	requireNFDModule = true
+	t.Cleanup(func() { requireNFDModule = true })
 
 	enabled := true
 	payload := moduleConfigSnapshotPayload{
@@ -440,6 +503,46 @@ func TestEnsureManagedLabelsPreservesExisting(t *testing.T) {
 	}
 	if labels["app.kubernetes.io/managed-by"] != "deckhouse" {
 		t.Fatalf("managed-by label missing: %#v", labels)
+	}
+}
+
+func TestIsModuleEnabled(t *testing.T) {
+	cases := []struct {
+		name    string
+		result  gjson.Result
+		enabled bool
+	}{
+		{
+			name:    "string",
+			result:  gjson.Parse(`"node-feature-discovery"`),
+			enabled: true,
+		},
+		{
+			name:    "array",
+			result:  gjson.Parse(`["foo","node-feature-discovery"]`),
+			enabled: true,
+		},
+		{
+			name:    "array-miss",
+			result:  gjson.Parse(`["foo","bar"]`),
+			enabled: false,
+		},
+		{
+			name:    "missing",
+			result:  gjson.Parse(`"other"`),
+			enabled: false,
+		},
+		{
+			name:    "empty",
+			result:  gjson.Result{},
+			enabled: false,
+		},
+	}
+
+	for _, tc := range cases {
+		if isModuleEnabled(tc.result, "node-feature-discovery") != tc.enabled {
+			t.Fatalf("case %s: expected %v", tc.name, tc.enabled)
+		}
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
+	"github.com/tidwall/gjson"
 
 	"hooks/pkg/settings"
 )
@@ -121,6 +122,53 @@ func TestHandleModuleStatusRemovesStateWhenConfigMissing(t *testing.T) {
 	}
 }
 
+func TestHandleModuleStatusAddsConditionWhenNFDMissing(t *testing.T) {
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"moduleConfig": map[string]any{"enabled": true},
+			},
+		},
+	}
+
+	input, patchable := newHookInput(t, values)
+
+	if err := handleModuleStatus(context.Background(), input); err != nil {
+		t.Fatalf("handleModuleStatus returned error: %v", err)
+	}
+
+	patches := patchable.GetPatches()
+	if len(patches) != 2 {
+		t.Fatalf("expected 2 patches, got %d", len(patches))
+	}
+
+	condPatch := patches[0]
+	if condPatch.Op != "add" || condPatch.Path != slashPath(settings.InternalModuleConditionsPath) {
+		t.Fatalf("unexpected conditions patch: %+v", condPatch)
+	}
+	conditions := decodePatchValue(t, condPatch.Value)
+	list, ok := conditions.([]any)
+	if !ok || len(list) != 1 {
+		t.Fatalf("unexpected conditions payload: %#v", conditions)
+	}
+	entry := list[0].(map[string]any)
+	if entry["reason"] != reasonNFDDisabled {
+		t.Fatalf("unexpected reason: %#v", entry)
+	}
+	if entry["message"] != settings.NFDDependencyErrorMessage {
+		t.Fatalf("unexpected message: %#v", entry)
+	}
+
+	valPatch := patches[1]
+	if valPatch.Op != "add" || valPatch.Path != slashPath(settings.InternalModuleValidationPath) {
+		t.Fatalf("unexpected validation patch: %+v", valPatch)
+	}
+	payload := decodePatchValue(t, valPatch.Value).(map[string]any)
+	if payload["error"] != settings.NFDDependencyErrorMessage {
+		t.Fatalf("unexpected validation error: %#v", payload)
+	}
+}
+
 func TestHandleModuleStatusAddsConditionWhenRuleError(t *testing.T) {
 	values := map[string]any{
 		settings.ConfigRoot: map[string]any{
@@ -130,6 +178,9 @@ func TestHandleModuleStatusAddsConditionWhenRuleError(t *testing.T) {
 					"error": "failed to apply NodeFeatureRule",
 				},
 			},
+		},
+		"global": map[string]any{
+			"enabledModules": []any{"node-feature-discovery"},
 		},
 	}
 
@@ -199,6 +250,9 @@ func TestHandleModuleStatusClearsStateWhenPrereqSatisfied(t *testing.T) {
 				},
 			},
 		},
+		"global": map[string]any{
+			"enabledModules": []any{"node-feature-discovery"},
+		},
 	}
 
 	input, patchable := newHookInput(t, values)
@@ -229,6 +283,9 @@ func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
 					"error": "   ",
 				},
 			},
+		},
+		"global": map[string]any{
+			"enabledModules": []any{"node-feature-discovery"},
 		},
 	}
 
@@ -307,5 +364,23 @@ func TestClearValidationErrorKeepsForeignSource(t *testing.T) {
 
 	if len(patchable.GetPatches()) != 0 {
 		t.Fatalf("expected no patches when validation source differs")
+	}
+}
+
+func TestIsModuleEnabled(t *testing.T) {
+	if !isModuleEnabled(gjson.Parse(`"node-feature-discovery"`), "node-feature-discovery") {
+		t.Fatal("expected string match to be true")
+	}
+	if !isModuleEnabled(gjson.Parse(`["foo","node-feature-discovery"]`), "node-feature-discovery") {
+		t.Fatal("expected array match to be true")
+	}
+	if isModuleEnabled(gjson.Parse(`["foo","bar"]`), "node-feature-discovery") {
+		t.Fatal("expected array miss to be false")
+	}
+	if isModuleEnabled(gjson.Parse(`"other"`), "node-feature-discovery") {
+		t.Fatal("expected mismatch to be false")
+	}
+	if isModuleEnabled(gjson.Result{}, "node-feature-discovery") {
+		t.Fatal("expected mismatch to be false")
 	}
 }

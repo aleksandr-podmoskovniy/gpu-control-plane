@@ -26,7 +26,8 @@ const (
 	ControllerTLSSecretName = "gpu-control-plane-controller-tls"
 	RootCASecretName        = "gpu-control-plane-ca"
 
-	NodeFeatureRuleName = "deckhouse-gpu-kernel-os"
+	NodeFeatureRuleName       = "deckhouse-gpu-kernel-os"
+	NFDDependencyErrorMessage = "Module gpu-control-plane requires the node-feature-discovery module to be enabled"
 
 	DefaultNodeLabelKey          = "gpu.deckhouse.io/enabled"
 	DefaultAutoAssignmentMode    = "Manual"

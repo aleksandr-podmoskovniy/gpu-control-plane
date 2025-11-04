@@ -29,6 +29,7 @@ import (
 const (
 	conditionTypePrereq       = "PrerequisiteNotMet"
 	reasonNodeFeatureRuleFail = "NodeFeatureRuleApplyFailed"
+	reasonNFDDisabled         = "NodeFeatureDiscoveryDisabled"
 
 	validationSource = "module-status/prerequisite"
 )
@@ -48,7 +49,15 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 
 	var conditions []map[string]any
 
-	if msg := strings.TrimSpace(input.Values.Get(settings.InternalNodeFeatureRulePath + ".error").Str); msg != "" {
+	if !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
+		msg := settings.NFDDependencyErrorMessage
+		conditions = append(conditions, map[string]any{
+			"type":    conditionTypePrereq,
+			"status":  "False",
+			"reason":  reasonNFDDisabled,
+			"message": msg,
+		})
+	} else if msg := strings.TrimSpace(input.Values.Get(settings.InternalNodeFeatureRulePath + ".error").Str); msg != "" {
 		conditions = append(conditions, map[string]any{
 			"type":    conditionTypePrereq,
 			"status":  "False",
@@ -93,4 +102,21 @@ func clearValidationError(input *pkg.HookInput) {
 	if current.Get("source").Str == validationSource {
 		input.Values.Remove(settings.InternalModuleValidationPath)
 	}
+}
+
+func isModuleEnabled(modules gjson.Result, name string) bool {
+	if !modules.Exists() {
+		return false
+	}
+	if modules.Type == gjson.String {
+		return strings.EqualFold(strings.TrimSpace(modules.Str), name)
+	}
+	if modules.IsArray() {
+		for _, item := range modules.Array() {
+			if strings.EqualFold(strings.TrimSpace(item.Str), name) {
+				return true
+			}
+		}
+	}
+	return false
 }
