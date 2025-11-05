@@ -56,10 +56,13 @@ spec:
           matchExpressions:
             vendor:
               op: In
-              value: ["10de"]
+              value:
+                - "10de"
             class:
               op: In
-              value: ["0300", "0302"]
+              value:
+                - "0300"
+                - "0302"
       labelsTemplate: |
         {{- $devices := index . "pci.device" -}}
         {{- if $devices }}
@@ -125,13 +128,33 @@ spec:
       labelsTemplate: |
         {{- $kernel := index . "kernel.version" -}}
         {{- $os := index . "system.osrelease" -}}
-        {{- $kattrs := (index $kernel 0).Attributes -}}
-        {{- $oattrs := (index $os 0).Attributes -}}
-        gpu.deckhouse.io/kernel.version.full={{ index $kattrs "full" }}
-        gpu.deckhouse.io/kernel.version.major={{ index $kattrs "major" }}
-        gpu.deckhouse.io/kernel.version.minor={{ index $kattrs "minor" }}
-        gpu.deckhouse.io/os.id={{ index $oattrs "ID" }}
-        gpu.deckhouse.io/os.version_id={{ index $oattrs "VERSION_ID" }}
+        {{- $kernelSource := dict -}}
+        {{- if kindIs "slice" $kernel -}}
+        {{- $kernelSource = (index $kernel 0).Attributes -}}
+        {{- else if kindIs "map" $kernel -}}
+        {{- $kernelSource = $kernel -}}
+        {{- end -}}
+        {{- $osSource := dict -}}
+        {{- if kindIs "slice" $os -}}
+        {{- $osSource = (index $os 0).Attributes -}}
+        {{- else if kindIs "map" $os -}}
+        {{- $osSource = $os -}}
+        {{- end -}}
+        {{- with index $kernelSource "full" }}
+        gpu.deckhouse.io/kernel.version.full={{ printf "%v" . }}
+        {{- end }}
+        {{- with index $kernelSource "major" }}
+        gpu.deckhouse.io/kernel.version.major={{ printf "%v" . }}
+        {{- end }}
+        {{- with index $kernelSource "minor" }}
+        gpu.deckhouse.io/kernel.version.minor={{ printf "%v" . }}
+        {{- end }}
+        {{- with index $osSource "ID" }}
+        gpu.deckhouse.io/os.id={{ printf "%v" . }}
+        {{- end }}
+        {{- with index $osSource "VERSION_ID" }}
+        gpu.deckhouse.io/os.version_id={{ printf "%v" . }}
+        {{- end }}
 `
 
 var (

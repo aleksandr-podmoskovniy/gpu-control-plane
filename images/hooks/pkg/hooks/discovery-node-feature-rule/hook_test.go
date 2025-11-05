@@ -15,20 +15,27 @@
 package discovery_node_feature_rule
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+	"text/template"
 
+	sprig "github.com/Masterminds/sprig/v3"
 	pkg "github.com/deckhouse/module-sdk/pkg"
-	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
-	"github.com/deckhouse/module-sdk/pkg/utils"
-	"github.com/deckhouse/module-sdk/testing/mock"
+	patchablevalues "github.com/deckhouse.module-sdk/pkg/patchable-values"
+	"github.com/deckhouse.module-sdk/pkg/utils"
+	"github.com/deckhouse.module-sdk/testing/mock"
 	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+
+	nfdv1alpha1 "sigs.k8s.io.node-feature-discovery/api/nfd/v1alpha1"
 
 	"hooks/pkg/settings"
 )
@@ -218,6 +225,116 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 	labels := unstr.GetLabels()
 	if labels["app.kubernetes.io/name"] != settings.ModuleName {
 		t.Fatalf("module label missing: %v", labels)
+	}
+
+	nfr := &nfdv1alpha1.NodeFeatureRule{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, nfr); err != nil {
+		t.Fatalf("convert unstructured NodeFeatureRule: %v", err)
+	}
+	if len(nfr.Spec.Rules) == 0 {
+		t.Fatalf("expected at least one rule")
+	}
+	gpuRule := nfr.Spec.Rules[0]
+	if len(gpuRule.MatchFeatures) != 1 {
+		t.Fatalf("expected single matchFeatures entry for GPU rule, got %d", len(gpuRule.MatchFeatures))
+	}
+	expressions := gpuRule.MatchFeatures[0].MatchExpressions
+	if expressions == nil {
+		t.Fatalf("gpu rule expressions nil")
+	}
+	expectMatch := func(name string, op nfdv1alpha1.MatchOp, values []string) {
+		expr, ok := (*expressions)[name]
+		if !ok {
+			t.Fatalf("expression %s missing", name)
+		}
+		if expr.Op != op {
+			t.Fatalf("expression %s expected op %s, got %s", name, op, expr.Op)
+		}
+		if values == nil {
+			if len(expr.Value) != 0 {
+				t.Fatalf("expression %s expected empty value, got %#v", name, expr.Value)
+			}
+		} else if !reflect.DeepEqual([]string(expr.Value), values) {
+			t.Fatalf("expression %s values mismatch: want %v got %v", name, values, expr.Value)
+		}
+	}
+	expectMatch("vendor", nfdv1alpha1.MatchIn, []string{"10de"})
+	expectMatch("class", nfdv1alpha1.MatchIn, []string{"0300", "0302"})
+
+	findRule := func(name string) *nfdv1alpha1.Rule {
+		for i := range nfr.Spec.Rules {
+			if nfr.Spec.Rules[i].Name == name {
+				return &nfr.Spec.Rules[i]
+			}
+		}
+		t.Fatalf("rule %s not found", name)
+		return nil
+	}
+
+	checkExists := func(ruleName, feature, expression string) {
+		rule := findRule(ruleName)
+		if len(rule.MatchFeatures) != 1 {
+			t.Fatalf("rule %s expected single match feature, got %d", ruleName, len(rule.MatchFeatures))
+		}
+		if rule.MatchFeatures[0].Feature != feature {
+			t.Fatalf("rule %s expected feature %s, got %s", ruleName, feature, rule.MatchFeatures[0].Feature)
+		}
+		exprs := rule.MatchFeatures[0].MatchExpressions
+		if exprs == nil {
+			t.Fatalf("rule %s expressions nil", ruleName)
+		}
+		expr, ok := (*exprs)[expression]
+		if !ok {
+			t.Fatalf("rule %s missing expression %s", ruleName, expression)
+		}
+		if expr.Op != nfdv1alpha1.MatchExists {
+			t.Fatalf("rule %s expression %s expected Exists, got %s", ruleName, expression, expr.Op)
+		}
+		if len(expr.Value) != 0 {
+			t.Fatalf("rule %s expression %s expected empty value, got %#v", ruleName, expression, expr.Value)
+		}
+	}
+
+	checkExists("deckhouse.gpu.nvidia-driver", "kernel.loadedmodule", "nvidia")
+	checkExists("deckhouse.gpu.nvidia-modeset", "kernel.loadedmodule", "nvidia_modeset")
+	checkExists("deckhouse.gpu.nvidia-uvm", "kernel.loadedmodule", "nvidia_uvm")
+	checkExists("deckhouse.gpu.nvidia-drm", "kernel.loadedmodule", "nvidia_drm")
+
+	kernelRule := findRule("deckhouse.system.kernel-os")
+	if len(kernelRule.MatchFeatures) != 2 {
+		t.Fatalf("kernel rule expected two match features, got %d", len(kernelRule.MatchFeatures))
+	}
+	var kernelExprs, osExprs *nfdv1alpha1.MatchExpressionSet
+	for _, mf := range kernelRule.MatchFeatures {
+		switch mf.Feature {
+		case "kernel.version":
+			kernelExprs = mf.MatchExpressions
+		case "system.osrelease":
+			osExprs = mf.MatchExpressions
+		default:
+			t.Fatalf("unexpected feature %s in kernel rule", mf.Feature)
+		}
+	}
+	if kernelExprs == nil || osExprs == nil {
+		t.Fatalf("kernel/os expressions missing")
+	}
+	for _, key := range []string{"major", "minor", "full"} {
+		expr, ok := (*kernelExprs)[key]
+		if !ok || expr.Op != nfdv1alpha1.MatchExists {
+			t.Fatalf("kernel expression %s invalid: %+v", key, expr)
+		}
+		if len(expr.Value) != 0 {
+			t.Fatalf("kernel expression %s expected empty value, got %#v", key, expr.Value)
+		}
+	}
+	for _, key := range []string{"ID", "VERSION_ID"} {
+		expr, ok := (*osExprs)[key]
+		if !ok || expr.Op != nfdv1alpha1.MatchExists {
+			t.Fatalf("os expression %s invalid: %+v", key, expr)
+		}
+		if len(expr.Value) != 0 {
+			t.Fatalf("os expression %s expected empty value, got %#v", key, expr.Value)
+		}
 	}
 
 	var set bool
@@ -416,6 +533,115 @@ func TestCleanupResources(t *testing.T) {
 		if _, ok := expected[delete]; !ok {
 			t.Fatalf("unexpected delete: %s", delete)
 		}
+	}
+}
+
+func TestKernelLabelsTemplateHandlesMapPayload(t *testing.T) {
+	rule := buildNodeFeatureRuleFromTemplate(t)
+	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
+
+	data := map[string]any{
+		"kernel.version": map[string]any{
+			"full":  "5.15.0-1075-azure",
+			"major": 5,
+			"minor": 15,
+		},
+		"system.osrelease": map[string]any{
+			"ID":         "ubuntu",
+			"VERSION_ID": "22.04",
+		},
+	}
+
+	rendered := executeTemplate(t, kernelRule.LabelsTemplate, data)
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.full=5.15.0-1075-azure")
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.major=5")
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.minor=15")
+	assertContains(t, rendered, "gpu.deckhouse.io/os.id=ubuntu")
+	assertContains(t, rendered, "gpu.deckhouse.io/os.version_id=22.04")
+}
+
+func TestKernelLabelsTemplateHandlesLegacySlicePayload(t *testing.T) {
+	rule := buildNodeFeatureRuleFromTemplate(t)
+	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
+
+	data := map[string]any{
+		"kernel.version": []map[string]any{
+			{
+				"Attributes": map[string]any{
+					"full":  "6.6.1-custom",
+					"major": "6",
+					"minor": "6",
+				},
+			},
+		},
+		"system.osrelease": []map[string]any{
+			{
+				"Attributes": map[string]any{
+					"ID":         "talos",
+					"VERSION_ID": "1.6.7",
+				},
+			},
+		},
+	}
+
+	rendered := executeTemplate(t, kernelRule.LabelsTemplate, data)
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.full=6.6.1-custom")
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.major=6")
+	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.minor=6")
+	assertContains(t, rendered, "gpu.deckhouse.io/os.id=talos")
+	assertContains(t, rendered, "gpu.deckhouse.io/os.version_id=1.6.7")
+}
+
+func executeTemplate(t *testing.T, tpl string, data map[string]any) string {
+	t.Helper()
+	parsed, err := template.New("labels").Funcs(sprig.FuncMap()).Parse(tpl)
+	if err != nil {
+		t.Fatalf("parse template: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := parsed.Execute(&buf, data); err != nil {
+		t.Fatalf("render template: %v", err)
+	}
+	return buf.String()
+}
+
+func buildNodeFeatureRuleFromTemplate(t *testing.T) *nfdv1alpha1.NodeFeatureRule {
+	t.Helper()
+	pc := mock.NewPatchCollectorMock(t)
+	var created any
+	pc.CreateOrUpdateMock.Set(func(obj any) { created = obj })
+
+	if err := ensureNodeFeatureRule(pc); err != nil {
+		t.Fatalf("ensureNodeFeatureRule: %v", err)
+	}
+
+	unstr, ok := created.(*unstructured.Unstructured)
+	if !ok {
+		t.Fatalf("unexpected type %T", created)
+	}
+
+	rule := &nfdv1alpha1.NodeFeatureRule{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstr.Object, rule); err != nil {
+		t.Fatalf("convert NodeFeatureRule: %v", err)
+	}
+	return rule
+}
+
+func findRuleByName(t *testing.T, rule *nfdv1alpha1.NodeFeatureRule, name string) *nfdv1alpha1.Rule {
+	t.Helper()
+	for i := range rule.Spec.Rules {
+		if rule.Spec.Rules[i].Name == name {
+			return &rule.Spec.Rules[i]
+		}
+	}
+	t.Fatalf("rule %s not found", name)
+	return nil
+}
+
+func assertContains(t *testing.T, rendered, fragment string) {
+	t.Helper()
+	if !strings.Contains(rendered, fragment) {
+		t.Fatalf("expected template output to contain %q, got %q", fragment, rendered)
 	}
 }
 
