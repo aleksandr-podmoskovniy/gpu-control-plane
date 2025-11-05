@@ -2,7 +2,7 @@ global:
   clusterConfiguration:
     apiVersion: deckhouse.io/v1
     clusterType: Static
-    kubernetesVersion: "1.30"
+    kubernetesVersion: '1.30'
     podSubnetCIDR: 10.111.0.0/16
     serviceSubnetCIDR: 10.222.0.0/16
     clusterDomain: cluster.local
@@ -14,12 +14,14 @@ global:
     d8IsBootstrapped: true
     d8SpecificNodeCountByRole:
       master: 1
+    clusterDomain: cluster.local
   modulesImages:
     registry:
       address: registry.example.com
       path: sys/deckhouse
-      scheme: HTTPS
+      scheme: https
       dockercfg: ZmFrZQ==
+      base: registry.example.com/sys/deckhouse
     tags: {}
     digests:
       common:
@@ -34,10 +36,15 @@ global:
   internal:
     modules:
       kubeRBACProxyCA:
-        cert: |
-          -----BEGIN CERTIFICATE-----
+        cert: '-----BEGIN CERTIFICATE-----
+
           KUBE-RBAC-PROXY-CA
+
           -----END CERTIFICATE-----
+
+          '
+  enabledModules:
+  - node-feature-discovery
 moduleConfig:
   enabled: true
   settings:
@@ -51,44 +58,38 @@ moduleConfig:
       defaultStrategy: Spread
       topologyKey: topology.kubernetes.io/zone
     inventory:
-      resyncPeriod: "30s"
+      resyncPeriod: 30s
     monitoring:
       serviceMonitor: false
-values:
-  global:
-    enabledModules:
-      - node-feature-discovery
-    discovery:
-      clusterDomain: cluster.local
-  gpuControlPlane:
-    highAvailability: true
-    managedNodes:
-      labelKey: gpu.deckhouse.io/enabled
-      enabledByDefault: true
-    deviceApproval:
-      mode: Manual
-    scheduling:
-      defaultStrategy: Spread
-      topologyKey: topology.kubernetes.io/zone
+gpuControlPlane:
+  highAvailability: true
+  managedNodes:
+    labelKey: gpu.deckhouse.io/enabled
+    enabledByDefault: true
+  deviceApproval:
+    mode: Manual
+  scheduling:
+    defaultStrategy: Spread
+    topologyKey: topology.kubernetes.io/zone
+  inventory:
+    resyncPeriod: 30s
+  monitoring:
+    serviceMonitor: false
+  runtime:
+    controller:
+      replicas: 1
     inventory:
-      resyncPeriod: "30s"
-    monitoring:
-      serviceMonitor: false
-    runtime:
-      controller:
-        replicas: 1
-      inventory:
-        resyncPeriod: "30s"
-    internal:
-      moduleConfig:
-        enabled: true
-        settings: {}
-      rootCA:
-        crt: ROOT-CA-CRT
-        key: ROOT-CA-KEY
-      controller:
-        config: {}
-        cert:
-          ca: CONTROLLER-CA-CRT
-          crt: CONTROLLER-CRT
-          key: CONTROLLER-KEY
+      resyncPeriod: 30s
+  internal:
+    moduleConfig:
+      enabled: true
+      settings: {}
+    rootCA:
+      crt: ROOT-CA-CRT
+      key: ROOT-CA-KEY
+    controller:
+      config: {}
+      cert:
+        ca: CONTROLLER-CA-CRT
+        crt: CONTROLLER-CRT
+        key: CONTROLLER-KEY

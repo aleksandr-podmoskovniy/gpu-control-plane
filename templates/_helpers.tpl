@@ -58,13 +58,13 @@ deckhouse-gpu-kernel-os
 {{- end -}}
 
 {{- define "gpuControlPlane.defaultNodeSelector" -}}
-{{- $ctx := index . 0 -}}
-{{- $systemCount := dig "global" "discovery" "d8SpecificNodeCountByRole" "system" 0 $ctx.Values | int -}}
-{{- if gt $systemCount 0 -}}
-{{ include "helm_lib_node_selector" (tuple $ctx "system") }}
+{{ $ctx := index . 0 }}
+{{ $module := $ctx.Values.gpuControlPlane }}
+{{- if and $module $module.runtime $module.runtime.controller $module.runtime.controller.nodeSelector }}
+  {{- include "helm_lib_node_selector" (tuple $ctx "custom" $module.runtime.controller.nodeSelector) }}
 {{- else -}}
-{{ include "helm_lib_node_selector" (tuple $ctx "worker") }}
-{{- end -}}
+  {{- include "helm_lib_node_selector" (tuple $ctx "system") }}
+{{- end }}
 {{- end -}}
 
 {{- define "gpuControlPlane.isEnabled" -}}

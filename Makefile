@@ -96,7 +96,7 @@ lint: lint-go lint-docs lint-dmt
 
 test: controller-test hooks-test
 
-verify: lint test
+verify: lint test kubeconform
 
 clean:
 	@rm -rf $(GOMODCACHE)
