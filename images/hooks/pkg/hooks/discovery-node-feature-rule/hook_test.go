@@ -25,7 +25,6 @@ import (
 	"testing"
 	"text/template"
 
-	sprig "github.com/Masterminds/sprig/v3"
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
 	"github.com/deckhouse/module-sdk/pkg/utils"
@@ -594,7 +593,7 @@ func TestKernelLabelsTemplateHandlesLegacySlicePayload(t *testing.T) {
 
 func executeTemplate(t *testing.T, tpl string, data map[string]any) string {
 	t.Helper()
-	parsed, err := template.New("labels").Funcs(sprig.FuncMap()).Parse(tpl)
+	parsed, err := template.New("labels").Parse(tpl)
 	if err != nil {
 		t.Fatalf("parse template: %v", err)
 	}

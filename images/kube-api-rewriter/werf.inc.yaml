@@ -1,0 +1,40 @@
+---
+image: kube-api-rewriter-builder
+final: false
+fromImage: builder/golang-bookworm-1.24
+git:
+  - add: /
+    to: /src
+    includePaths:
+      - images/kube-api-rewriter
+secrets:
+  - id: GOPROXY
+    value: {{ env "GOPROXY" "https://proxy.golang.org,direct" }}
+mount:
+  - fromPath: ~/go-pkg-cache
+    to: /go/pkg
+shell:
+  install:
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - cd /src/images/kube-api-rewriter
+    - go mod download
+  setup:
+    - export CGO_ENABLED=0
+    - export GOOS=linux
+    - export GOARCH=amd64
+    - cd /src/images/kube-api-rewriter
+    - go build -o /tmp/kube-api-rewriter ./...
+
+---
+image: kube-api-rewriter
+fromImage: builder/scratch
+import:
+  - image: kube-api-rewriter-builder
+    add: /tmp/kube-api-rewriter
+    to: /app/kube-api-rewriter
+    after: setup
+imageSpec:
+  config:
+    entrypoint:
+      - /app/kube-api-rewriter
+    user: "64535:64535"

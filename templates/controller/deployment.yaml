@@ -32,6 +32,7 @@ spec:
       {{ include "helm_lib_pod_anti_affinity_for_ha" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 6 }}
       serviceAccountName: {{ include "gpuControlPlane.controllerName" . }}
       containers:
+        {{- include "kube_api_rewriter.sidecar_container" (tuple .) | nindent 8 }}
         - name: controller
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
           image: {{ include "helm_lib_module_image" (list . "controller" (include "gpuControlPlane.moduleName" .)) }}
@@ -52,14 +53,11 @@ spec:
                   fieldPath: metadata.namespace
             - name: LEADER_ELECTION_ID
               value: {{ include "gpuControlPlane.controllerName" . }}-leader-election
-            - name: TLS_CERT_FILE
-              value: /var/lib/gpu-control-plane/tls/tls.crt
-            - name: TLS_PRIVATE_KEY_FILE
-              value: /var/lib/gpu-control-plane/tls/tls.key
-            - name: TLS_CA_FILE
-              value: /var/lib/gpu-control-plane/tls/ca.crt
             - name: CONFIG_PATH
               value: /etc/gpu-control-plane/config.yaml
+            {{- include "kube_api_rewriter.kubeconfig_env" . | nindent 12 }}
+            - name: METRICS_BIND_ADDRESS
+              value: 127.0.0.1:8080
             {{- range $item := default (list) $controllerRuntime.env }}
             - name: {{ $item.name }}
               {{- if hasKey $item "valueFrom" }}
@@ -78,6 +76,7 @@ spec:
             - name: controller-config
               mountPath: /etc/gpu-control-plane
               readOnly: true
+            {{- include "kube_api_rewriter.kubeconfig_volume_mount" . | nindent 12 }}
           ports:
             - name: metrics
               containerPort: {{ include "gpuControlPlane.metricsPort" . | int }}
@@ -105,10 +104,40 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
-              {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
+              ephemeral-storage: 50Mi
             limits:
               memory: 256Mi
             {{- end }}
+        {{- $kubeRbacProxySettings := dict }}
+        {{- $_ := set $kubeRbacProxySettings "runAsUserNobody" false }}
+        {{- $_ := set $kubeRbacProxySettings "ignorePaths" "/proxy/healthz,/proxy/readyz" }}
+        {{- $_ := set $kubeRbacProxySettings "upstreams" (list
+              (dict
+                "upstream" "http://127.0.0.1:8080/metrics"
+                "path" "/metrics"
+                "name" (include "gpuControlPlane.controllerName" .)
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/metrics"
+                "path" "/proxy/metrics"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/healthz"
+                "path" "/proxy/healthz"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/readyz"
+                "path" "/proxy/readyz"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+            ) }}
+        {{- include "kube_rbac_proxy.sidecar_container" (tuple . $kubeRbacProxySettings) | nindent 8 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- if $controllerRuntime.nodeSelector }}
       nodeSelector:
@@ -130,4 +159,5 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "gpuControlPlane.controllerConfigName" . }}
+        {{- include "kube_api_rewriter.kubeconfig_volume" . | nindent 8 }}
 {{- end }}

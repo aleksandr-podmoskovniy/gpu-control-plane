@@ -144,6 +144,10 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 func metricsOptionsFromEnv() (server.Options, error) {
 	opts := server.Options{BindAddress: server.DefaultBindAddress}
 
+	if addr := strings.TrimSpace(os.Getenv("METRICS_BIND_ADDRESS")); addr != "" {
+		opts.BindAddress = addr
+	}
+
 	certFile := strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
 	keyFile := strings.TrimSpace(os.Getenv("TLS_PRIVATE_KEY_FILE"))
 

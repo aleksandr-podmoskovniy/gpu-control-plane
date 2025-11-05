@@ -127,33 +127,50 @@ spec:
               op: Exists
       labelsTemplate: |
         {{- $kernel := index . "kernel.version" -}}
-        {{- $os := index . "system.osrelease" -}}
-        {{- $kernelSource := dict -}}
-        {{- if kindIs "slice" $kernel -}}
-        {{- $kernelSource = (index $kernel 0).Attributes -}}
-        {{- else if kindIs "map" $kernel -}}
-        {{- $kernelSource = $kernel -}}
-        {{- end -}}
-        {{- $osSource := dict -}}
-        {{- if kindIs "slice" $os -}}
-        {{- $osSource = (index $os 0).Attributes -}}
-        {{- else if kindIs "map" $os -}}
-        {{- $osSource = $os -}}
-        {{- end -}}
-        {{- with index $kernelSource "full" }}
+        {{- $kernelType := printf "%%T" $kernel -}}
+        {{- if eq $kernelType "map[string]interface {}" -}}
+          {{- with index $kernel "full" }}
         gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
-        {{- end }}
-        {{- with index $kernelSource "major" }}
+          {{- end }}
+          {{- with index $kernel "major" }}
         gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
-        {{- end }}
-        {{- with index $kernelSource "minor" }}
+          {{- end }}
+          {{- with index $kernel "minor" }}
         gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
+          {{- end }}
+        {{- else -}}
+          {{- with index $kernel 0 }}
+            {{- $attrs := index . "Attributes" -}}
+            {{- with index $attrs "full" }}
+        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
+            {{- end }}
+            {{- with index $attrs "major" }}
+        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
+            {{- end }}
+            {{- with index $attrs "minor" }}
+        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
+            {{- end }}
+          {{- end }}
         {{- end }}
-        {{- with index $osSource "ID" }}
+        {{- $os := index . "system.osrelease" -}}
+        {{- $osType := printf "%%T" $os -}}
+        {{- if eq $osType "map[string]interface {}" -}}
+          {{- with index $os "ID" }}
         gpu.deckhouse.io/os.id={{ printf "%%v" . }}
-        {{- end }}
-        {{- with index $osSource "VERSION_ID" }}
+          {{- end }}
+          {{- with index $os "VERSION_ID" }}
         gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
+          {{- end }}
+        {{- else -}}
+          {{- with index $os 0 }}
+            {{- $attrs := index . "Attributes" -}}
+            {{- with index $attrs "ID" }}
+        gpu.deckhouse.io/os.id={{ printf "%%v" . }}
+            {{- end }}
+            {{- with index $attrs "VERSION_ID" }}
+        gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
+            {{- end }}
+          {{- end }}
         {{- end }}
 `
 
