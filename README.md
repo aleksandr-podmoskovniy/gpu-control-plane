@@ -23,9 +23,9 @@ powered by `deckhouse_lib_helm`, and a `werf` build pipeline.
 ## Prerequisites
 
 - **Deckhouse cluster** (>= 1.68) with ClusterConfiguration populated.
-- **Node Feature Discovery module** must be enabled. The `module_status` hook
-  marks the module as `PrerequisiteNotMet` and blocks deployment if
-  `node-feature-discovery` is absent.
+- **Node Feature Discovery module** (v0.17 or newer) must be enabled. The
+  `module_status` hook marks the module as `PrerequisiteNotMet` and blocks
+  deployment if `node-feature-discovery` is absent.
 - Nodes that should be inventoried must expose GPU topology via NFD (the module
   ships a `NodeFeatureRule` automatically).
 

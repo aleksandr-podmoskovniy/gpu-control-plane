@@ -23,8 +23,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	nvidiacatalog "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/hardware/nvidia"
 
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 const (
@@ -115,6 +116,7 @@ func buildNodeSnapshot(node *corev1.Node, feature *nfdv1alpha1.NodeFeature, poli
 		}
 	}
 	devices = enrichDevicesFromFeature(devices, feature)
+	enrichDevicesFromCatalog(devices)
 
 	return nodeSnapshot{
 		Managed:         nodeManaged(labels, policy),
@@ -280,6 +282,20 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 	}
 
 	return devices
+}
+
+func enrichDevicesFromCatalog(devices []deviceSnapshot) {
+	for i := range devices {
+		if devices[i].Product != "" {
+			continue
+		}
+		if vendor := strings.ToLower(devices[i].Vendor); vendor == "10de" {
+			key := vendor + ":" + strings.ToLower(devices[i].Device)
+			if name, ok := nvidiacatalog.DeviceNames[key]; ok {
+				devices[i].Product = name
+			}
+		}
+	}
 }
 
 func extractPrecision(attrs map[string]string) []string {

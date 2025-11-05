@@ -175,3 +175,32 @@ func lastPatchForPath(patches []*utils.ValuesPatchOperation, path string) *utils
 	}
 	return result
 }
+
+func TestDecodeMaybeBase64(t *testing.T) {
+	crt := "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----"
+	crtB64 := base64.StdEncoding.EncodeToString([]byte(crt))
+	pem := "-----BEGIN KEY-----\nTEST\n-----END"
+	pemB64 := base64.StdEncoding.EncodeToString([]byte(pem))
+	rawHello := base64.StdEncoding.EncodeToString([]byte("hello"))
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "pem", input: crtB64, want: crt},
+		{name: "pem with bare end marker", input: pemB64, want: pem},
+		{name: "plain text base64", input: rawHello, want: "hello"},
+		{name: "invalid base64 falls back", input: "!!!not-base64!!!", want: "!!!not-base64!!!"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := decodeMaybeBase64(tc.input); got != tc.want {
+				t.Fatalf("decodeMaybeBase64(%q)=%q want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

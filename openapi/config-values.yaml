@@ -123,6 +123,18 @@ properties:
           Kubernetes topology key used when `defaultStrategy=Spread`.
         x-examples: ["topology.kubernetes.io/zone"]
     additionalProperties: false
+  monitoring:
+    type: object
+    description: |
+      Monitoring integration options.
+    properties:
+      serviceMonitor:
+        type: boolean
+        default: true
+        description: |
+          Expose controller metrics to Deckhouse Prometheus (`true`) or disable the ServiceMonitor (`false`).
+        x-examples: [true, false]
+    additionalProperties: false
   inventory:
     type: object
     description: |

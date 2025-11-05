@@ -135,7 +135,6 @@ spec:
 `
 
 var (
-	namespaceEnsurer   = ensureNamespace
 	nodeFeatureEnsurer = ensureNodeFeatureRule
 	yamlUnmarshal      = defaultYAMLUnmarshal
 	requireNFDModule   = false
@@ -194,10 +193,6 @@ func handleNodeFeatureRuleSync(_ context.Context, input *pkg.HookInput) error {
 		return nil
 	}
 
-	if err := namespaceEnsurer(input.PatchCollector); err != nil {
-		reportNodeFeatureRuleError(input, err)
-		return nil
-	}
 	if err := nodeFeatureEnsurer(input.PatchCollector); err != nil {
 		reportNodeFeatureRuleError(input, err)
 		return nil
@@ -260,7 +255,6 @@ func ensureNodeFeatureRule(pc pkg.PatchCollector) error {
 
 func cleanupResources(pc pkg.PatchCollector) {
 	pc.Delete("nfd.k8s-sigs.io/v1alpha1", "NodeFeatureRule", "", settings.NodeFeatureRuleName)
-	pc.Delete("v1", "Namespace", "", settings.ModuleNamespace)
 }
 
 func ensureManagedLabels(obj map[string]any) {

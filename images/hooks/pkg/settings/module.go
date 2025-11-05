@@ -33,6 +33,7 @@ const (
 	DefaultAutoAssignmentMode    = "Manual"
 	DefaultSchedulingStrategy    = "Spread"
 	DefaultSchedulingTopology    = "topology.kubernetes.io/zone"
+	DefaultServiceMonitor        = true
 	DefaultInventoryResyncPeriod = "30s"
 	DefaultHTTPSMode             = "CertManager"
 	DefaultHTTPSClusterIssuer    = "letsencrypt"

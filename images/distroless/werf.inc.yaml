@@ -29,8 +29,6 @@ shell:
     echo "deckhouse:x:64535:64535:deckhouse:/:/sbin/nologin" >> /relocate/etc/passwd
     echo "deckhouse:x:64535:" >> /relocate/etc/group
     echo "deckhouse:!::0:::::" >> /relocate/etc/shadow
-
-    /relocate_binaries.sh -i "/usr/bin/env /bin/sh"
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 final: false

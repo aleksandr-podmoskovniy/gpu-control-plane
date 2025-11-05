@@ -50,11 +50,16 @@ type Settings struct {
 	ManagedNodes   ManagedNodesSettings
 	DeviceApproval DeviceApprovalSettings
 	Scheduling     SchedulingSettings
+	Monitoring     MonitoringSettings
 }
 
 type ManagedNodesSettings struct {
 	LabelKey         string
 	EnabledByDefault bool
+}
+
+type MonitoringSettings struct {
+	ServiceMonitor bool
 }
 
 type DeviceApprovalMode string
@@ -99,6 +104,7 @@ const (
 	DefaultDeviceApprovalMode     = DeviceApprovalModeManual
 	DefaultSchedulingStrategy     = "Spread"
 	DefaultSchedulingTopology     = "topology.kubernetes.io/zone"
+	DefaultMonitoringService      = true
 	DefaultInventoryResyncPeriod  = "30s"
 	DefaultHTTPSMode              = HTTPSModeCertManager
 	DefaultHTTPSCertManagerIssuer = "letsencrypt"
@@ -109,11 +115,13 @@ func DefaultState() State {
 		ManagedNodes:   ManagedNodesSettings{LabelKey: DefaultNodeLabelKey, EnabledByDefault: true},
 		DeviceApproval: DeviceApprovalSettings{Mode: DeviceApprovalModeManual},
 		Scheduling:     SchedulingSettings{DefaultStrategy: DefaultSchedulingStrategy, TopologyKey: DefaultSchedulingTopology},
+		Monitoring:     MonitoringSettings{ServiceMonitor: DefaultMonitoringService},
 	}
 	sanitized := map[string]any{
 		"managedNodes":   map[string]any{"labelKey": DefaultNodeLabelKey, "enabledByDefault": true},
 		"deviceApproval": map[string]any{"mode": string(DefaultDeviceApprovalMode)},
 		"scheduling":     map[string]any{"defaultStrategy": DefaultSchedulingStrategy, "topologyKey": DefaultSchedulingTopology},
+		"monitoring":     map[string]any{"serviceMonitor": DefaultMonitoringService},
 		"inventory":      map[string]any{"resyncPeriod": DefaultInventoryResyncPeriod},
 		"https":          map[string]any{"mode": string(DefaultHTTPSMode), "certManager": map[string]any{"clusterIssuerName": DefaultHTTPSCertManagerIssuer}},
 	}
@@ -165,6 +173,13 @@ func Parse(input Input) (State, error) {
 	state.Settings.Scheduling = scheduling
 	state.Sanitized["scheduling"] = map[string]any{"defaultStrategy": scheduling.DefaultStrategy, "topologyKey": scheduling.TopologyKey}
 
+	monitoring, err := parseMonitoring(raw["monitoring"])
+	if err != nil {
+		return state, err
+	}
+	state.Settings.Monitoring = monitoring
+	state.Sanitized["monitoring"] = map[string]any{"serviceMonitor": monitoring.ServiceMonitor}
+
 	inventory, err := parseInventory(raw["inventory"])
 	if err != nil {
 		return state, err
@@ -192,6 +207,7 @@ func (s State) Values() map[string]any {
 		"managedNodes":   map[string]any{"labelKey": s.Settings.ManagedNodes.LabelKey, "enabledByDefault": s.Settings.ManagedNodes.EnabledByDefault},
 		"deviceApproval": map[string]any{"mode": string(s.Settings.DeviceApproval.Mode)},
 		"scheduling":     map[string]any{"defaultStrategy": s.Settings.Scheduling.DefaultStrategy},
+		"monitoring":     map[string]any{"serviceMonitor": s.Settings.Monitoring.ServiceMonitor},
 		"inventory":      map[string]any{"resyncPeriod": s.Inventory.ResyncPeriod},
 		"https":          map[string]any{"mode": string(s.HTTPS.Mode)},
 		"internal":       map[string]any{"moduleConfig": map[string]any{"enabled": s.Enabled, "settings": s.Sanitized}},
@@ -405,6 +421,23 @@ func normalizeStrategy(strategy string) string {
 	default:
 		return ""
 	}
+}
+
+func parseMonitoring(raw json.RawMessage) (MonitoringSettings, error) {
+	settings := MonitoringSettings{ServiceMonitor: DefaultMonitoringService}
+	if len(raw) == 0 || string(raw) == "null" {
+		return settings, nil
+	}
+	var payload struct {
+		ServiceMonitor *bool `json:"serviceMonitor"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return settings, fmt.Errorf("decode monitoring settings: %w", err)
+	}
+	if payload.ServiceMonitor != nil {
+		settings.ServiceMonitor = *payload.ServiceMonitor
+	}
+	return settings, nil
 }
 
 func parseInventory(raw json.RawMessage) (InventorySettings, error) {

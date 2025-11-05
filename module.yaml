@@ -18,8 +18,8 @@ stage: Experimental
 weight: 960
 requirements:
   deckhouse: ">= 1.71.0"
-  # modules:
-  #   node-feature-discovery: ">= 0.0.0"
+  modules:
+    node-feature-discovery: ">= 0.17.0"
 subsystems:
   - gpu
   - ai

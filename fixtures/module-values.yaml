@@ -60,7 +60,7 @@ moduleConfig:
     inventory:
       resyncPeriod: 30s
     monitoring:
-      serviceMonitor: false
+      serviceMonitor: true
 gpuControlPlane:
   highAvailability: true
   managedNodes:
@@ -74,7 +74,7 @@ gpuControlPlane:
   inventory:
     resyncPeriod: 30s
   monitoring:
-    serviceMonitor: false
+    serviceMonitor: true
   runtime:
     controller:
       replicas: 1

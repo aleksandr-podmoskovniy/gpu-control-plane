@@ -58,6 +58,9 @@ func TestParse(t *testing.T) {
 				if got.Inventory.ResyncPeriod != DefaultInventoryResyncPeriod {
 					t.Fatalf("unexpected inventory default: %s", got.Inventory.ResyncPeriod)
 				}
+				if !got.Settings.Monitoring.ServiceMonitor {
+					t.Fatalf("expected monitoring serviceMonitor default true")
+				}
 				if got.HighAvailability != nil {
 					t.Fatalf("expected highAvailability=nil")
 				}
@@ -79,6 +82,7 @@ func TestParse(t *testing.T) {
 						},
 					},
 					"scheduling": map[string]any{"defaultStrategy": "BinPack", "topologyKey": " zone "},
+					"monitoring": map[string]any{"serviceMonitor": false},
 					"inventory":  map[string]any{"resyncPeriod": "45s"},
 					"https": map[string]any{
 						"mode":              "CustomCertificate",
@@ -102,6 +106,9 @@ func TestParse(t *testing.T) {
 				}
 				if got.Inventory.ResyncPeriod != "45s" {
 					t.Fatalf("unexpected inventory resync: %s", got.Inventory.ResyncPeriod)
+				}
+				if got.Settings.Monitoring.ServiceMonitor {
+					t.Fatalf("expected monitoring serviceMonitor to be false")
 				}
 				if got.HTTPS.Mode != HTTPSModeCustomCertificate || got.HTTPS.CustomCertificateSecret != "corp-secret" {
 					t.Fatalf("unexpected HTTPS settings: %+v", got.HTTPS)
@@ -153,8 +160,10 @@ func TestParseErrors(t *testing.T) {
 		{"unknown approval mode", Input{Settings: map[string]any{"deviceApproval": map[string]any{"mode": "unsupported"}}}, "unknown deviceApproval.mode"},
 		{"selector error", Input{Settings: map[string]any{"deviceApproval": map[string]any{"mode": "Selector", "selector": map[string]any{"matchLabels": map[string]any{"": "value"}}}}}, "matchLabels"},
 		{"scheduling error", Input{Settings: map[string]any{"scheduling": map[string]any{"defaultStrategy": "invalid"}}}, "unknown scheduling"},
+		{"monitoring decode", Input{Settings: map[string]any{"monitoring": "oops"}}, "decode monitoring"},
 		{"inventory decode", Input{Settings: map[string]any{"inventory": "oops"}}, "decode inventory settings"},
 		{"inventory error", Input{Settings: map[string]any{"inventory": map[string]any{"resyncPeriod": "bad"}}}, "parse inventory"},
+		{"inventory duration overflow", Input{Settings: map[string]any{"inventory": map[string]any{"resyncPeriod": "9223372036854775808h"}}}, "parse inventory"},
 		{"https decode", Input{Settings: map[string]any{"https": "oops"}}, "decode https settings"},
 		{"https unknown mode", Input{Settings: map[string]any{"https": map[string]any{"mode": "unsupported"}}}, "unknown https.mode"},
 		{"https custom certificate missing secret", Input{Settings: map[string]any{"https": map[string]any{"mode": "CustomCertificate"}}}, "secretName must be set"},
@@ -180,6 +189,7 @@ func TestValues(t *testing.T) {
 				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"gpu": "true"}},
 			},
 			Scheduling: SchedulingSettings{DefaultStrategy: "BinPack", TopologyKey: "zone"},
+			Monitoring: MonitoringSettings{ServiceMonitor: false},
 		},
 		Inventory:        InventorySettings{ResyncPeriod: "45s"},
 		HTTPS:            HTTPSSettings{Mode: HTTPSModeCustomCertificate, CustomCertificateSecret: "secret"},
@@ -194,6 +204,9 @@ func TestValues(t *testing.T) {
 	}
 	if !values["highAvailability"].(bool) {
 		t.Fatalf("expected highAvailability flag")
+	}
+	if monitor := values["monitoring"].(map[string]any)["serviceMonitor"].(bool); monitor {
+		t.Fatalf("expected serviceMonitor value propagated")
 	}
 
 	state.HTTPS = HTTPSSettings{Mode: HTTPSModeCertManager, CertManagerIssuer: "issuer"}

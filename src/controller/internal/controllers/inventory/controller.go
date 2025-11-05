@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 const (
@@ -74,6 +75,8 @@ const (
 	eventInventoryChanged = "GPUInventoryConditionChanged"
 
 	defaultResyncPeriod = 30 * time.Second
+
+	nodeFeatureNodeNameLabel = "nfd.node.kubernetes.io/node-name"
 )
 
 var (
@@ -402,14 +405,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	var nodeFeature *nfdv1alpha1.NodeFeature
-	feature := &nfdv1alpha1.NodeFeature{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, feature); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-	} else {
-		nodeFeature = feature
+	nodeFeature, err := r.findNodeFeature(ctx, node.Name)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	nodeSnapshot := buildNodeSnapshot(node, nodeFeature, managedPolicy)
@@ -471,6 +469,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return ctrlResult, nil
+}
+
+func (r *Reconciler) findNodeFeature(ctx context.Context, nodeName string) (*nfdv1alpha1.NodeFeature, error) {
+	feature := &nfdv1alpha1.NodeFeature{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, feature); err == nil {
+		return feature, nil
+	} else if !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+
+	list := &nfdv1alpha1.NodeFeatureList{}
+	if err := r.client.List(ctx, list, client.MatchingLabels{nodeFeatureNodeNameLabel: nodeName}); err != nil {
+		return nil, err
+	}
+
+	return chooseNodeFeature(list.Items, nodeName), nil
+}
+
+func chooseNodeFeature(items []nfdv1alpha1.NodeFeature, nodeName string) *nfdv1alpha1.NodeFeature {
+	if len(items) == 0 {
+		return nil
+	}
+
+	selected := items[0].DeepCopy()
+	for i := 1; i < len(items); i++ {
+		item := items[i]
+		if item.GetName() == nodeName && selected.GetName() != nodeName {
+			selected = item.DeepCopy()
+			continue
+		}
+		if resourceVersionNewer(item.GetResourceVersion(), selected.GetResourceVersion()) {
+			selected = item.DeepCopy()
+		}
+	}
+	return selected
 }
 
 func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
@@ -828,6 +861,29 @@ func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
 	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryIncomplete)
 
 	return nil
+}
+
+func resourceVersionNewer(candidate, current string) bool {
+	if candidate == "" {
+		return false
+	}
+	if current == "" {
+		return true
+	}
+
+	candidateInt, errCandidate := strconv.ParseUint(candidate, 10, 64)
+	currentInt, errCurrent := strconv.ParseUint(current, 10, 64)
+
+	switch {
+	case errCandidate == nil && errCurrent == nil:
+		return candidateInt > currentInt
+	case errCandidate == nil:
+		return true
+	case errCurrent == nil:
+		return false
+	default:
+		return candidate > current
+	}
 }
 
 func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature) []reconcile.Request {

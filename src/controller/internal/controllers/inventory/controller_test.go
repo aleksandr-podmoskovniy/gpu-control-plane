@@ -46,7 +46,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 type trackingHandler struct {
@@ -600,6 +600,102 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	}
 	if cond := getCondition(inventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ManagedDisabled=false, got %+v", cond)
+	}
+}
+
+func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
+	module := defaultModuleSettings()
+	scheme := newTestScheme(t)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-namespaced",
+			UID:  types.UID("node-worker-namespaced"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+				"nvidia.com/gpu.product":            "NVIDIA A100-PCIE-40GB",
+				"nvidia.com/gpu.memory":             "40536 MiB",
+				"nvidia.com/gpu.compute.major":      "8",
+				"nvidia.com/gpu.compute.minor":      "0",
+				"nvidia.com/mig.capable":            "true",
+				"nvidia.com/mig.strategy":           "single",
+			},
+		},
+	}
+
+	feature := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "gpu-operator",
+			Name:      node.Name,
+			Labels: map[string]string{
+				nodeFeatureNodeNameLabel: node.Name,
+			},
+		},
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Labels: map[string]string{
+				"nvidia.com/gpu.driver":          "535.86.05",
+				"nvidia.com/cuda.driver.major":   "12",
+				"nvidia.com/cuda.driver.minor":   "2",
+				"gpu.deckhouse.io/toolkit.ready": "true",
+			},
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{
+								"index":         "0",
+								"uuid":          "GPU-TEST-UUID-NAMESPACED",
+								"precision":     "fp32,fp16",
+								"memory.total":  "40536 MiB",
+								"compute.major": "8",
+								"compute.minor": "0",
+								"product":       "NVIDIA A100-PCIE-40GB",
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node, feature)
+	handler := &trackingHandler{state: gpuv1alpha1.GPUDeviceStateReserved}
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), []contracts.InventoryHandler{handler})
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	ctx := context.Background()
+	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+
+	nodeSnapshot := buildNodeSnapshot(node, feature, managedPolicyFrom(module))
+	if len(nodeSnapshot.Devices) != 1 {
+		t.Fatalf("expected single device snapshot, got %d", len(nodeSnapshot.Devices))
+	}
+
+	deviceName := buildDeviceName(node.Name, nodeSnapshot.Devices[0])
+	device := &gpuv1alpha1.GPUDevice{}
+	if err := client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
+		t.Fatalf("device not found: %v", err)
+	}
+	if device.Status.NodeName != node.Name {
+		t.Fatalf("expected NodeName %q, got %q", node.Name, device.Status.NodeName)
+	}
+
+	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
+		t.Fatalf("inventory not found: %v", err)
+	}
+	cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != reasonInventorySynced {
+		t.Fatalf("expected InventoryIncomplete=false reason=%s, got %+v", reasonInventorySynced, cond)
 	}
 }
 
@@ -1184,6 +1280,49 @@ func TestReconcileReturnsDeleteError(t *testing.T) {
 	}
 }
 
+func TestReconcileReturnsDeviceListError(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-list-error",
+			UID:  types.UID("node-list-error"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+	feature := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker-list-error"},
+	}
+
+	baseClient := newTestClient(scheme, node, feature)
+	listErr := errors.New("list failure")
+	client := &delegatingClient{
+		Client: baseClient,
+		list: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*gpuv1alpha1.GPUDeviceList); ok {
+				return listErr
+			}
+			return baseClient.List(ctx, list, opts...)
+		},
+	}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if !errors.Is(err, listErr) {
+		t.Fatalf("expected device list error, got %v", err)
+	}
+}
+
 func TestReconcileCleanupOnMissingNode(t *testing.T) {
 	scheme := newTestScheme(t)
 	device := &gpuv1alpha1.GPUDevice{
@@ -1221,6 +1360,201 @@ func TestReconcileCleanupOnMissingNode(t *testing.T) {
 	}
 	if err := client.Get(ctx, types.NamespacedName{Name: inventory.Name}, &gpuv1alpha1.GPUNodeInventory{}); err == nil || !apierrors.IsNotFound(err) {
 		t.Fatalf("expected inventory to be removed, err=%v", err)
+	}
+}
+
+func TestFindNodeFeaturePrefersExactMatch(t *testing.T) {
+	scheme := newTestScheme(t)
+	exact := &nfdv1alpha1.NodeFeature{ObjectMeta: metav1.ObjectMeta{Name: "worker-exact", ResourceVersion: "5"}}
+	labeled := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "worker-exact-labeled",
+			Namespace:       "gpu-operator",
+			ResourceVersion: "7",
+			Labels:          map[string]string{nodeFeatureNodeNameLabel: "worker-exact"},
+		},
+	}
+
+	client := newTestClient(scheme, exact, labeled)
+	reconciler := &Reconciler{client: client}
+
+	feature, err := reconciler.findNodeFeature(context.Background(), "worker-exact")
+	if err != nil {
+		t.Fatalf("findNodeFeature returned error: %v", err)
+	}
+	if feature == nil || feature.GetName() != "worker-exact" {
+		t.Fatalf("expected exact NodeFeature, got %+v", feature)
+	}
+}
+
+func TestFindNodeFeatureSelectsNewestByResourceVersion(t *testing.T) {
+	scheme := newTestScheme(t)
+	older := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "nfd-old",
+			Namespace:       "gpu-operator",
+			ResourceVersion: "5",
+			Labels:          map[string]string{nodeFeatureNodeNameLabel: "worker-rv"},
+		},
+	}
+	newer := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "nfd-new",
+			Namespace:       "gpu-operator",
+			ResourceVersion: "8",
+			Labels:          map[string]string{nodeFeatureNodeNameLabel: "worker-rv"},
+		},
+	}
+
+	client := newTestClient(scheme, older, newer)
+	reconciler := &Reconciler{client: client}
+
+	feature, err := reconciler.findNodeFeature(context.Background(), "worker-rv")
+	if err != nil {
+		t.Fatalf("findNodeFeature returned error: %v", err)
+	}
+	if feature == nil || feature.GetName() != "nfd-new" {
+		t.Fatalf("expected newest NodeFeature, got %+v", feature)
+	}
+}
+
+func TestFindNodeFeatureReturnsNilWhenMissing(t *testing.T) {
+	reconciler := &Reconciler{client: newTestClient(newTestScheme(t))}
+	feature, err := reconciler.findNodeFeature(context.Background(), "absent")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if feature != nil {
+		t.Fatalf("expected nil feature, got %+v", feature)
+	}
+}
+
+func TestResourceVersionNewer(t *testing.T) {
+	cases := []struct {
+		name      string
+		candidate string
+		current   string
+		expect    bool
+	}{
+		{"empty candidate", "", "10", false},
+		{"empty current", "5", "", true},
+		{"numeric greater", "6", "5", true},
+		{"numeric smaller", "4", "5", false},
+		{"candidate numeric current non-numeric", "5", "xyz", true},
+		{"candidate non-numeric current numeric", "abc", "4", false},
+		{"both non-numeric", "def", "abc", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resourceVersionNewer(tc.candidate, tc.current); got != tc.expect {
+				t.Fatalf("resourceVersionNewer(%q,%q)=%v, want %v", tc.candidate, tc.current, got, tc.expect)
+			}
+		})
+	}
+}
+
+func TestFindNodeFeatureGetError(t *testing.T) {
+	scheme := newTestScheme(t)
+	baseClient := newTestClient(scheme)
+	boom := errors.New("get failed")
+	client := &delegatingClient{
+		Client: baseClient,
+		get: func(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+			return boom
+		},
+	}
+
+	reconciler := &Reconciler{client: client}
+
+	_, err := reconciler.findNodeFeature(context.Background(), "node-error")
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected get error, got %v", err)
+	}
+}
+
+func TestFindNodeFeatureListError(t *testing.T) {
+	scheme := newTestScheme(t)
+	baseClient := newTestClient(scheme)
+	boom := errors.New("list failed")
+	client := &delegatingClient{
+		Client: baseClient,
+		get: func(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+			return apierrors.NewNotFound(schema.GroupResource{Group: "nfd", Resource: "nodefeatures"}, "node")
+		},
+		list: func(context.Context, client.ObjectList, ...client.ListOption) error {
+			return boom
+		},
+	}
+
+	reconciler := &Reconciler{client: client}
+
+	_, err := reconciler.findNodeFeature(context.Background(), "node-list")
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected list error, got %v", err)
+	}
+}
+
+func TestChooseNodeFeaturePrefersExactName(t *testing.T) {
+	items := []nfdv1alpha1.NodeFeature{
+		{ObjectMeta: metav1.ObjectMeta{Name: "other", ResourceVersion: "1"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "node-1", ResourceVersion: "2"}},
+	}
+	selected := chooseNodeFeature(items, "node-1")
+	if selected == nil || selected.GetName() != "node-1" {
+		t.Fatalf("expected exact match, got %+v", selected)
+	}
+}
+
+func TestChooseNodeFeatureUsesNewestResourceVersion(t *testing.T) {
+	items := []nfdv1alpha1.NodeFeature{
+		{ObjectMeta: metav1.ObjectMeta{Name: "nf-1", ResourceVersion: "5"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "nf-2", ResourceVersion: "7"}},
+	}
+	selected := chooseNodeFeature(items, "node")
+	if selected == nil || selected.GetName() != "nf-2" {
+		t.Fatalf("expected latest resource version, got %+v", selected)
+	}
+}
+
+func TestChooseNodeFeatureHandlesEmptySlice(t *testing.T) {
+	if chooseNodeFeature(nil, "node") != nil {
+		t.Fatal("expected nil when slice empty")
+	}
+}
+
+func TestReconcileDefaultsResyncPeriodWhenZero(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-no-requeue",
+			UID:  types.UID("node-no-requeue"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{ResyncPeriod: 0}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if res.Requeue {
+		t.Fatalf("expected no immediate requeue, got %+v", res)
+	}
+	if res.RequeueAfter != defaultResyncPeriod {
+		t.Fatalf("expected default resync period of %s, got %+v", defaultResyncPeriod, res)
 	}
 }
 
@@ -1371,6 +1705,47 @@ func TestReconcileReturnsErrorOnNodeFeatureGetFailure(t *testing.T) {
 	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if !errors.Is(err, featureErr) {
 		t.Fatalf("expected feature get error, got %v", err)
+	}
+}
+
+func TestReconcileReturnsErrorOnNodeFeatureListFailure(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-feature-list-error",
+			UID:  types.UID("node-feature-list-error"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	baseClient := newTestClient(scheme, node)
+	listErr := errors.New("feature list failed")
+	client := &delegatingClient{
+		Client: baseClient,
+		list: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+			switch list.(type) {
+			case *nfdv1alpha1.NodeFeatureList:
+				return listErr
+			default:
+				return baseClient.List(ctx, list, opts...)
+			}
+		},
+	}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); !errors.Is(err, listErr) {
+		t.Fatalf("expected feature list error, got %v", err)
 	}
 }
 
@@ -3254,6 +3629,12 @@ func newTestScheme(t *testing.T) *runtime.Scheme {
 	if err := nfdv1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add nfd scheme: %v", err)
 	}
+	scheme.AddKnownTypes(
+		nfdv1alpha1.SchemeGroupVersion,
+		&nfdv1alpha1.NodeFeatureList{},
+		&nfdv1alpha1.NodeFeatureRuleList{},
+		&nfdv1alpha1.NodeFeatureGroupList{},
+	)
 	return scheme
 }
 

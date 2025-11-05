@@ -106,8 +106,8 @@ The module relies on `module-sdk` hooks to integrate with addon-operator:
 
 1. A working [Deckhouse Kubernetes Platform](https://deckhouse.io) cluster
    (version 1.71 or newer).
-2. The **node-feature-discovery** module must be enabled; hooks guard this
-   prerequisite.
+2. The **node-feature-discovery** module (v0.17 or newer) must be enabled;
+   hooks guard this prerequisite.
 3. GPU nodes have to export hardware information through node-feature-discovery
    so that the provided `NodeFeatureRule` can derive the `gpu.deckhouse.io/*`
    label set.

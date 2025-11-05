@@ -24,7 +24,7 @@ import (
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 func defaultManagedPolicy() ManagedNodesPolicy {
@@ -185,6 +185,27 @@ func TestCanonicalIndexNormalization(t *testing.T) {
 	}
 	if snapshot.Devices[1].Product != "NVIDIA Test GPU" {
 		t.Fatalf("expected product from NodeFeature, got %q", snapshot.Devices[1].Product)
+	}
+}
+
+func TestCatalogFallbackProvidesProductName(t *testing.T) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-catalog",
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db6",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	snapshot := buildNodeSnapshot(node, nil, defaultManagedPolicy())
+	if len(snapshot.Devices) != 1 {
+		t.Fatalf("expected single device, got %d", len(snapshot.Devices))
+	}
+	if snapshot.Devices[0].Product != "GV100GL [Tesla V100 PCIe 32GB]" {
+		t.Fatalf("expected product from catalog, got %q", snapshot.Devices[0].Product)
 	}
 }
 

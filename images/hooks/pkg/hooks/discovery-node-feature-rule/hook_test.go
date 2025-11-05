@@ -49,7 +49,6 @@ func newHookInput(t *testing.T, snapshots pkg.Snapshots, pc pkg.OutputPatchColle
 }
 
 func resetSeams() {
-	namespaceEnsurer = ensureNamespace
 	nodeFeatureEnsurer = ensureNodeFeatureRule
 	yamlUnmarshal = defaultYAMLUnmarshal
 }
@@ -92,7 +91,6 @@ func TestHandleNodeFeatureRuleSyncModuleDisabled(t *testing.T) {
 
 	expected := map[string]struct{}{
 		"nfd.k8s-sigs.io/v1alpha1/NodeFeatureRule//" + settings.NodeFeatureRuleName: {},
-		"v1/Namespace//" + settings.ModuleNamespace:                                 {},
 	}
 	for _, delete := range deletes {
 		if _, ok := expected[delete]; !ok {
@@ -143,7 +141,6 @@ func TestHandleNodeFeatureRuleSyncDependencyMissing(t *testing.T) {
 
 	expectedDeletes := map[string]struct{}{
 		"nfd.k8s-sigs.io/v1alpha1/NodeFeatureRule//" + settings.NodeFeatureRuleName: {},
-		"v1/Namespace//" + settings.ModuleNamespace:                                 {},
 	}
 	for _, del := range deletes {
 		if _, ok := expectedDeletes[del]; !ok {
@@ -189,7 +186,6 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 
 	pc := mock.NewPatchCollectorMock(t)
 	var created []any
-	pc.CreateIfNotExistsMock.Set(func(obj any) { created = append(created, obj) })
 	pc.CreateOrUpdateMock.Set(func(obj any) { created = append(created, obj) })
 
 	values := map[string]any{
@@ -209,25 +205,19 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 		t.Fatalf("handleNodeFeatureRuleSync returned error: %v", err)
 	}
 
-	if len(created) != 2 {
-		t.Fatalf("expected namespace and NodeFeatureRule creations, got %d", len(created))
+	if len(created) != 1 {
+		t.Fatalf("expected NodeFeatureRule creation, got %d", len(created))
 	}
-
-	foundNF := false
-	for _, obj := range created {
-		if unstr, ok := obj.(*unstructured.Unstructured); ok && unstr.GetKind() == "NodeFeatureRule" {
-			if unstr.GetName() != settings.NodeFeatureRuleName {
-				t.Fatalf("unexpected NodeFeatureRule name: %s", unstr.GetName())
-			}
-			labels := unstr.GetLabels()
-			if labels["app.kubernetes.io/name"] != settings.ModuleName {
-				t.Fatalf("module label missing: %v", labels)
-			}
-			foundNF = true
-		}
+	unstr, ok := created[0].(*unstructured.Unstructured)
+	if !ok || unstr.GetKind() != "NodeFeatureRule" {
+		t.Fatalf("unexpected object created: %#v", created[0])
 	}
-	if !foundNF {
-		t.Fatal("NodeFeatureRule was not created")
+	if unstr.GetName() != settings.NodeFeatureRuleName {
+		t.Fatalf("unexpected NodeFeatureRule name: %s", unstr.GetName())
+	}
+	labels := unstr.GetLabels()
+	if labels["app.kubernetes.io/name"] != settings.ModuleName {
+		t.Fatalf("module label missing: %v", labels)
 	}
 
 	var set bool
@@ -295,64 +285,10 @@ func TestModuleConfigEnabledNil(t *testing.T) {
 	if err := handleNodeFeatureRuleSync(context.Background(), input); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pc.CreateIfNotExistsBeforeCounter() != 0 {
-		t.Fatalf("expected no namespace creation when enabled not set")
-	}
 	for _, patch := range patchable.GetPatches() {
 		if patch.Path == expectedPatchPath(settings.InternalNodeFeatureRulePath) {
 			t.Fatalf("did not expect nodeFeatureRule patch, got %+v", patch)
 		}
-	}
-}
-
-func TestHandleNodeFeatureRuleSyncNamespaceError(t *testing.T) {
-	resetSeams()
-	prev := requireNFDModule
-	requireNFDModule = true
-	t.Cleanup(func() { requireNFDModule = prev })
-
-	enabled := true
-	payload := moduleConfigSnapshotPayload{
-		Spec: moduleConfigSnapshotSpec{
-			Enabled: ptr.To(enabled),
-		},
-	}
-	snapshot := mock.NewSnapshotMock(t)
-	snapshot.UnmarshalToMock.Set(func(target any) error {
-		return json.Unmarshal(mustMarshal(payload), target)
-	})
-
-	snapshots := mock.NewSnapshotsMock(t)
-	snapshots.GetMock.Set(func(key string) []pkg.Snapshot {
-		if key != moduleConfigSnapshot {
-			t.Fatalf("unexpected snapshot key: %s", key)
-		}
-		return []pkg.Snapshot{snapshot}
-	})
-
-	namespaceEnsurer = func(pkg.PatchCollector) error {
-		return errors.New("namespace error")
-	}
-
-	values := map[string]any{
-		"global": map[string]any{
-			"enabledModules": []any{"node-feature-discovery"},
-		},
-	}
-
-	pc := mock.NewPatchCollectorMock(t)
-	pc.CreateIfNotExistsMock.Optional()
-
-	input, patchable := newHookInput(t, snapshots, pc, values)
-
-	if err := handleNodeFeatureRuleSync(context.Background(), input); err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	patch := findPatchByPath(t, patchable, settings.InternalNodeFeatureRulePath)
-	status := decodePatchMap(t, patch.Value)
-	if !strings.Contains(status["error"].(string), "namespace error") {
-		t.Fatalf("unexpected error payload: %#v", status)
 	}
 }
 
@@ -392,7 +328,7 @@ func TestHandleNodeFeatureRuleSyncRuleError(t *testing.T) {
 	}
 
 	pc := mock.NewPatchCollectorMock(t)
-	pc.CreateIfNotExistsMock.Set(func(any) {})
+	pc.CreateIfNotExistsMock.Optional()
 
 	input, patchable := newHookInput(t, snapshots, pc, values)
 
@@ -427,6 +363,31 @@ func TestEnsureNodeFeatureRuleMetadataInitialization(t *testing.T) {
 	}
 }
 
+func TestEnsureNamespaceCreatesNamespaceWithLabels(t *testing.T) {
+	pc := mock.NewPatchCollectorMock(t)
+	var captured any
+	pc.CreateIfNotExistsMock.Set(func(obj any) { captured = obj })
+
+	if err := ensureNamespace(pc); err != nil {
+		t.Fatalf("ensureNamespace returned error: %v", err)
+	}
+
+	unstr, ok := captured.(*unstructured.Unstructured)
+	if !ok {
+		t.Fatalf("unexpected object type: %T", captured)
+	}
+	if unstr.GetName() != settings.ModuleNamespace {
+		t.Fatalf("unexpected namespace name: %s", unstr.GetName())
+	}
+	labels := unstr.GetLabels()
+	if labels["app.kubernetes.io/name"] != settings.ModuleName {
+		t.Fatalf("unexpected module label: %#v", labels)
+	}
+	if labels["app.kubernetes.io/managed-by"] != "deckhouse" {
+		t.Fatalf("unexpected managed-by label: %#v", labels)
+	}
+}
+
 func TestEnsureNodeFeatureRuleUnmarshalError(t *testing.T) {
 	resetSeams()
 
@@ -440,24 +401,6 @@ func TestEnsureNodeFeatureRuleUnmarshalError(t *testing.T) {
 	}
 }
 
-func TestEnsureNamespaceSetsLabels(t *testing.T) {
-	pc := mock.NewPatchCollectorMock(t)
-	var captured any
-	pc.CreateIfNotExistsMock.Set(func(obj any) { captured = obj })
-
-	if err := ensureNamespace(pc); err != nil {
-		t.Fatalf("ensureNamespace returned error: %v", err)
-	}
-
-	unstr, ok := captured.(*unstructured.Unstructured)
-	if !ok {
-		t.Fatalf("unexpected type: %T", captured)
-	}
-	if unstr.GetName() != settings.ModuleNamespace {
-		t.Fatalf("unexpected namespace: %s", unstr.GetName())
-	}
-}
-
 func TestCleanupResources(t *testing.T) {
 	pc := mock.NewPatchCollectorMock(t)
 	var deletes []string
@@ -468,7 +411,6 @@ func TestCleanupResources(t *testing.T) {
 
 	expected := map[string]struct{}{
 		"nfd.k8s-sigs.io/v1alpha1/NodeFeatureRule//" + settings.NodeFeatureRuleName: {},
-		"v1/Namespace//" + settings.ModuleNamespace:                                 {},
 	}
 	for _, delete := range deletes {
 		if _, ok := expected[delete]; !ok {

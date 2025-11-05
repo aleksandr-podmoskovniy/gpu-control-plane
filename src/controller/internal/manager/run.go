@@ -36,7 +36,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 var (
@@ -89,11 +89,17 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	if err := addGPUScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("register gpu scheme: %w", err)
 	}
-	if err := addNFDScheme(mgr.GetScheme()); err != nil {
+	nfdScheme := mgr.GetScheme()
+	if err := addNFDScheme(nfdScheme); err != nil {
 		return fmt.Errorf("register nfd scheme: %w", err)
 	}
-	// Explicitly register list types to avoid informer start errors when schema is incomplete.
-	mgr.GetScheme().AddKnownTypeWithName(nfdv1alpha1.SchemeGroupVersion.WithKind("NodeFeatureList"), &nfdv1alpha1.NodeFeatureList{})
+	// Register list types explicitly because upstream AddToScheme omits them.
+	nfdScheme.AddKnownTypes(
+		nfdv1alpha1.SchemeGroupVersion,
+		&nfdv1alpha1.NodeFeatureList{},
+		&nfdv1alpha1.NodeFeatureRuleList{},
+		&nfdv1alpha1.NodeFeatureGroupList{},
+	)
 
 	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 		return fmt.Errorf("healthz: %w", err)

@@ -26,5 +26,6 @@ import:
     after: install
 imageSpec:
   config:
+    user: 64535
     workingDir: "/app"
     entrypoint: ["/app/gpu-control-plane-controller"]
