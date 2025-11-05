@@ -278,7 +278,7 @@ spec:
               op: In
               value: ["0300", "0302"]
       labelsTemplate: |
-        {{- $devices := index .Match.Features "pci.device" -}}
+        {{- $devices := index .Features "pci.device" -}}
         {{- if $devices }}
         gpu.deckhouse.io/present=true
         gpu.deckhouse.io/device-count={{ len $devices }}
@@ -340,8 +340,8 @@ spec:
             VERSION_ID:
               op: Exists
       labelsTemplate: |
-        {{- $kernel := index .Match.Features "kernel.version" -}}
-        {{- $os := index .Match.Features "system.osrelease" -}}
+        {{- $kernel := index .Features "kernel.version" -}}
+        {{- $os := index .Features "system.osrelease" -}}
         {{- $kattrs := (index $kernel 0).Attributes -}}
         {{- $oattrs := (index $os 0).Attributes -}}
         gpu.deckhouse.io/kernel.version.full={{ index $kattrs "full" }}

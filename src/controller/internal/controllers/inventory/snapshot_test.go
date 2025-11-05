@@ -258,6 +258,52 @@ func TestExtractDeviceSnapshotsSkipsMalformedEntries(t *testing.T) {
 	}
 }
 
+func TestEnrichDevicesFromFeatureCreatesMissingDevices(t *testing.T) {
+	devices := []deviceSnapshot{
+		{Index: "0", Vendor: "10de", Device: "1db6", Class: "0302"},
+	}
+
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{
+								"index":        "0",
+								"uuid":         "GPU-0",
+								"memory.total": "16384 MiB",
+							}},
+							{Attributes: map[string]string{
+								"index":  "1",
+								"vendor": "10de",
+								"device": "2230",
+								"class":  "0300",
+								"uuid":   "GPU-1",
+							}},
+							{Attributes: map[string]string{
+								"index": "2",
+								"uuid":  "GPU-2",
+								// missing vendor/device/class -> should be skipped
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	enriched := enrichDevicesFromFeature(devices, feature)
+	if len(enriched) != 2 {
+		t.Fatalf("expected two devices after enrichment, got %+v", enriched)
+	}
+	sortDeviceSnapshots(enriched)
+
+	if enriched[1].Index != "1" || enriched[1].Vendor != "10de" || enriched[1].Device != "2230" || enriched[1].UUID != "GPU-1" {
+		t.Fatalf("unexpected device created from feature: %+v", enriched[1])
+	}
+}
+
 func TestSortDeviceSnapshotsOrdersIndices(t *testing.T) {
 	devices := []deviceSnapshot{{Index: "10"}, {Index: "2"}, {Index: "001"}}
 	sortDeviceSnapshots(devices)

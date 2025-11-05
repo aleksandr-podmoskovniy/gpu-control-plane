@@ -16,9 +16,7 @@ package ca_discovery
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
-	"strings"
 
 	"k8s.io/utils/ptr"
 
@@ -37,8 +35,8 @@ const (
 )
 
 type caSecret struct {
-	Crt string `json:"crt"`
-	Key string `json:"key"`
+	Crt []byte `json:"crt"`
+	Key []byte `json:"key"`
 }
 
 var _ = registry.RegisterFunc(configModuleCommonCA, handleModuleCommonCA)
@@ -77,32 +75,17 @@ func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
 		return fmt.Errorf("unmarshal CA secret: %w", err)
 	}
 
-	decoded := map[string]any{}
-	if crt := decodeMaybeBase64(secret.Crt); crt != "" {
-		decoded["crt"] = crt
+	values := map[string]any{}
+	if len(secret.Crt) > 0 {
+		values["crt"] = secret.Crt
 	}
-	if key := decodeMaybeBase64(secret.Key); key != "" {
-		decoded["key"] = key
+	if len(secret.Key) > 0 {
+		values["key"] = secret.Key
 	}
 
-	input.Values.Set(settings.InternalRootCAPath, decoded)
+	if len(values) > 0 {
+		input.Values.Set(settings.InternalRootCAPath, values)
+	}
 
 	return nil
-}
-
-func decodeMaybeBase64(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-
-	if data, err := base64.StdEncoding.DecodeString(raw); err == nil {
-		trimmed := strings.TrimSpace(string(data))
-		if strings.HasPrefix(trimmed, "-----BEGIN") && strings.HasSuffix(trimmed, "-----END") {
-			return trimmed
-		}
-		return string(data)
-	}
-
-	return raw
 }
