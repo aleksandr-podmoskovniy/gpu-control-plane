@@ -21,11 +21,6 @@ if [[ ! -d ../../templates ]]; then
   exit 1
 fi
 
-if ! command -v helm >/dev/null 2>&1; then
-  echo "Error: helm v3 binary not found in PATH" >&2
-  exit 1
-fi
-
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq binary not found in PATH" >&2
   exit 1
@@ -85,16 +80,65 @@ if [[ ! -d schemas ]]; then
   popd >/dev/null
 fi
 
+ensure_helm() {
+  local min_version="3.14.0"
+  local desired_version="${HELM_DESIRED_VERSION:-3.17.2}"
+
+  version_ge() {
+    [ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+  }
+
+  if command -v helm >/dev/null 2>&1; then
+    local current
+    current="$(helm version --template '{{.Version}}' 2>/dev/null | sed 's/^v//')"
+    if [ -n "$current" ] && version_ge "$current" "$min_version"; then
+      HELM_BIN="$(command -v helm)"
+      return
+    fi
+  fi
+
+  local os arch
+  case "$(uname -s)" in
+    Linux) os="linux" ;;
+    Darwin) os="darwin" ;;
+    *)
+      echo "Error: unsupported OS $(uname -s). Install Helm >= ${min_version} and re-run." >&2
+      exit 1
+      ;;
+  esac
+
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    arm64|aarch64) arch="arm64" ;;
+    *)
+      echo "Error: unsupported arch $(uname -m). Install Helm >= ${min_version} and re-run." >&2
+      exit 1
+      ;;
+  esac
+
+  echo "Downloading Helm v${desired_version} (${os}/${arch}) ..." >&2
+  HELM_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/helm.XXXXXX")
+  trap 'rm -rf "${HELM_TMPDIR}" "${KUBECONFORM_REPO}"' EXIT
+  curl -sSL "https://get.helm.sh/helm-v${desired_version}-${os}-${arch}.tar.gz" -o "${HELM_TMPDIR}/helm.tar.gz"
+  tar -xzf "${HELM_TMPDIR}/helm.tar.gz" -C "${HELM_TMPDIR}"
+  HELM_BIN="${HELM_TMPDIR}/${os}-${arch}/helm"
+  chmod +x "${HELM_BIN}"
+}
+
 HELM_RENDER=helm-template-render.yaml
+HELM_BIN=""
+HELM_TMPDIR=""
 
 render_with_helm() {
-  helm template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel
+  "${HELM_BIN}" template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel
 }
 
 render_with_werf() {
   WERF_DEV=1 werf helm template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel \
     | awk 'BEGIN{emit=0} { if (!emit && ($0 ~ /^#/ || $0 ~ /^apiVersion:/)) emit=1 } emit { print }'
 }
+
+ensure_helm
 
 if render_with_helm > "${HELM_RENDER}" 2>/tmp/kubeconform.render.log; then
   :
@@ -120,9 +164,9 @@ if ! jq type kubeconform-report.json >/dev/null 2>&1; then
 fi
 
 echo "--- Kubeconform report ---"
-jq -r '(.resources // [])[] | "\(.status)\t\(.kind) \(.name)"' kubeconform-report.json
+jq -r '(.resources // [])[] | select(.status != "") | "\(.status)\t\(.kind) \(.name)"' kubeconform-report.json
 
-errors=$(jq -r '[.resources[] | select(.status != "statusValid")] | length' kubeconform-report.json)
+errors=$(jq -r '[.resources[] | select(.status != "" and .status != "statusValid")] | length' kubeconform-report.json)
 if [[ ${errors} -ne 0 ]]; then
   echo "Detailed report saved to tools/kubeconform/kubeconform-report.json" >&2
   exit 1

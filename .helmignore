@@ -25,3 +25,4 @@ werf*.yaml
 NOTES.txt
 .git
 .bin
+.cache
