@@ -27,15 +27,15 @@ import (
 
 	sprig "github.com/Masterminds/sprig/v3"
 	pkg "github.com/deckhouse/module-sdk/pkg"
-	patchablevalues "github.com/deckhouse.module-sdk/pkg/patchable-values"
-	"github.com/deckhouse.module-sdk/pkg/utils"
-	"github.com/deckhouse.module-sdk/testing/mock"
+	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
+	"github.com/deckhouse/module-sdk/pkg/utils"
+	"github.com/deckhouse/module-sdk/testing/mock"
 	"github.com/tidwall/gjson"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 
-	nfdv1alpha1 "sigs.k8s.io.node-feature-discovery/api/nfd/v1alpha1"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 
 	"hooks/pkg/settings"
 )

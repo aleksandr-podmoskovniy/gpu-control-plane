@@ -141,19 +141,19 @@ spec:
         {{- $osSource = $os -}}
         {{- end -}}
         {{- with index $kernelSource "full" }}
-        gpu.deckhouse.io/kernel.version.full={{ printf "%v" . }}
+        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
         {{- end }}
         {{- with index $kernelSource "major" }}
-        gpu.deckhouse.io/kernel.version.major={{ printf "%v" . }}
+        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
         {{- end }}
         {{- with index $kernelSource "minor" }}
-        gpu.deckhouse.io/kernel.version.minor={{ printf "%v" . }}
+        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
         {{- end }}
         {{- with index $osSource "ID" }}
-        gpu.deckhouse.io/os.id={{ printf "%v" . }}
+        gpu.deckhouse.io/os.id={{ printf "%%v" . }}
         {{- end }}
         {{- with index $osSource "VERSION_ID" }}
-        gpu.deckhouse.io/os.version_id={{ printf "%v" . }}
+        gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
         {{- end }}
 `
 
