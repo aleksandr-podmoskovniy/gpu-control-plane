@@ -444,12 +444,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.recorder.Eventf(node, corev1.EventTypeNormal, eventDeviceRemoved, "GPU device %s removed from inventory", name)
 	}
 
+	ctrlResult := ctrl.Result{}
+	if len(reconciledDevices) == 0 {
+		r.clearInventoryMetrics(node.Name)
+		if err := r.deleteInventory(ctx, node.Name); err != nil {
+			return ctrlResult, err
+		}
+		if r.resyncPeriod > 0 {
+			ctrlResult.RequeueAfter = r.resyncPeriod
+		}
+		return ctrlResult, nil
+	}
+
 	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(float64(len(reconciledDevices)))
 
-	ctrlResult := ctrl.Result{}
 	if aggregate.Requeue {
 		ctrlResult.Requeue = true
 	}
@@ -841,6 +852,26 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 	return nil
 }
 
+func (r *Reconciler) deleteInventory(ctx context.Context, nodeName string) error {
+	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, inventory); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if err := r.client.Delete(ctx, inventory); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func (r *Reconciler) clearInventoryMetrics(nodeName string) {
+	inventoryDevicesGauge.DeleteLabelValues(nodeName)
+	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionManagedDisabled)
+	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryIncomplete)
+}
+
 func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
 	deviceList := &gpuv1alpha1.GPUDeviceList{}
 	if err := r.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
@@ -853,12 +884,10 @@ func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
 		}
 	}
 
-	if err := r.client.Delete(ctx, &gpuv1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.deleteInventory(ctx, nodeName); err != nil {
 		return err
 	}
-	inventoryDevicesGauge.DeleteLabelValues(nodeName)
-	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionManagedDisabled)
-	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryIncomplete)
+	r.clearInventoryMetrics(nodeName)
 
 	return nil
 }

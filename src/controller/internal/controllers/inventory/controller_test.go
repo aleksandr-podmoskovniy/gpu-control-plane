@@ -23,8 +23,10 @@ import (
 	"time"
 
 	"github.com/go-logr/logr/testr"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1558,6 +1560,42 @@ func TestReconcileDefaultsResyncPeriodWhenZero(t *testing.T) {
 	}
 }
 
+func TestReconcileSkipsFollowupWhenResyncDisabled(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-no-followup",
+			UID:  types.UID("worker-no-followup"),
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	client := newTestClient(scheme, node)
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+	reconciler.resyncPeriod = 0
+
+	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if res.Requeue {
+		t.Fatalf("expected no requeue, got %+v", res)
+	}
+	if res.RequeueAfter != 0 {
+		t.Fatalf("expected no delayed requeue, got %+v", res)
+	}
+}
+
 func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
 	scheme := newTestScheme(t)
 	node := &corev1.Node{
@@ -1583,16 +1621,24 @@ func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	ctx := context.Background()
-	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+	res, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if res.RequeueAfter != defaultResyncPeriod {
+		t.Fatalf("expected default resync period (%s), got %+v", defaultResyncPeriod, res)
 	}
 
 	inventory := &gpuv1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
-		t.Fatalf("inventory missing: %v", err)
+		t.Fatalf("expected inventory to be created, got error: %v", err)
 	}
-	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Reason != reasonNodeFeatureMissing || cond.Status != metav1.ConditionTrue {
-		t.Fatalf("expected InventoryIncomplete=true reason=%s, got %+v", reasonNodeFeatureMissing, cond)
+	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	if condition == nil {
+		t.Fatalf("expected incomplete condition to be set")
+	}
+	if condition.Status != metav1.ConditionTrue || condition.Reason != reasonNodeFeatureMissing {
+		t.Fatalf("expected incomplete condition (true, %s), got status=%s reason=%s", reasonNodeFeatureMissing, condition.Status, condition.Reason)
 	}
 }
 
@@ -1625,16 +1671,177 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	ctx := context.Background()
-	if _, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+	res, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if res.RequeueAfter != defaultResyncPeriod {
+		t.Fatalf("expected default resync period (%s), got %+v", defaultResyncPeriod, res)
 	}
 
 	inventory := &gpuv1alpha1.GPUNodeInventory{}
-	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
-		t.Fatalf("inventory missing: %v", err)
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); !apierrors.IsNotFound(err) {
+		if err != nil {
+			t.Fatalf("expected inventory to be absent, got error: %v", err)
+		} else {
+			t.Fatalf("expected inventory to be absent, but resource still exists")
+		}
 	}
-	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Reason != reasonNoDevicesDiscovered {
-		t.Fatalf("expected no devices discovered condition, got %+v", cond)
+}
+
+func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
+	inventoryDevicesGauge.Reset()
+	inventoryConditionGauge.Reset()
+
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-stale",
+			UID:  types.UID("worker-stale"),
+		},
+	}
+	device := &gpuv1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "stale-device",
+		},
+	}
+	device.Status.NodeName = node.Name
+	device.Status.InventoryID = "stale-inventory"
+
+	inventory := &gpuv1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name,
+		},
+		Spec: gpuv1alpha1.GPUNodeInventorySpec{
+			NodeName: node.Name,
+		},
+	}
+
+	client := newTestClient(scheme, node, device, inventory)
+
+	inventoryDevicesGauge.WithLabelValues(node.Name).Set(5)
+	inventoryConditionGauge.WithLabelValues(node.Name, conditionManagedDisabled).Set(1)
+	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryIncomplete).Set(1)
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	ctx := context.Background()
+	res, err := reconciler.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if res.RequeueAfter != defaultResyncPeriod {
+		t.Fatalf("expected resync period=%s, got %+v", defaultResyncPeriod, res)
+	}
+
+	if err := client.Get(ctx, types.NamespacedName{Name: device.Name}, &gpuv1alpha1.GPUDevice{}); !apierrors.IsNotFound(err) {
+		if err != nil {
+			t.Fatalf("expected GPUDevice to be deleted, got error: %v", err)
+		} else {
+			t.Fatalf("expected GPUDevice to be deleted, but resource still exists")
+		}
+	}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, &gpuv1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
+		if err != nil {
+			t.Fatalf("expected GPUNodeInventory to be deleted, got error: %v", err)
+		} else {
+			t.Fatalf("expected GPUNodeInventory to be deleted, but resource still exists")
+		}
+	}
+
+	if count := testutil.CollectAndCount(inventoryDevicesGauge); count != 0 {
+		t.Fatalf("expected inventoryDevicesGauge to be empty, got %d metrics", count)
+	}
+	if count := testutil.CollectAndCount(inventoryConditionGauge); count != 0 {
+		t.Fatalf("expected inventoryConditionGauge to be empty, got %d metrics", count)
+	}
+}
+
+func TestReconcileReturnsInventoryDeleteError(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-delete-inventory",
+			UID:  types.UID("worker-delete-inventory"),
+		},
+	}
+	inventory := &gpuv1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name,
+		},
+		Spec: gpuv1alpha1.GPUNodeInventorySpec{
+			NodeName: node.Name,
+		},
+	}
+
+	baseClient := newTestClient(scheme, node, inventory)
+	deleteErr := errors.New("inventory delete failed")
+	client := &delegatingClient{
+		Client: baseClient,
+		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+			if inv, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok && inv.Name == node.Name {
+				return deleteErr
+			}
+			return baseClient.Delete(ctx, obj, opts...)
+		},
+	}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if !errors.Is(err, deleteErr) {
+		t.Fatalf("expected delete error, got %v", err)
+	}
+}
+
+func TestReconcileReturnsInventoryGetError(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-get-inventory",
+			UID:  types.UID("worker-get-inventory"),
+		},
+	}
+
+	baseClient := newTestClient(scheme, node)
+	getErr := errors.New("inventory get failure")
+	client := &delegatingClient{
+		Client: baseClient,
+		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			switch obj.(type) {
+			case *corev1.Node:
+				return baseClient.Get(ctx, key, obj, opts...)
+			case *gpuv1alpha1.GPUNodeInventory:
+				return getErr
+			default:
+				return baseClient.Get(ctx, key, obj, opts...)
+			}
+		},
+	}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("unexpected error constructing reconciler: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+
+	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if !errors.Is(err, getErr) {
+		t.Fatalf("expected inventory get error, got %v", err)
 	}
 }
 
@@ -2039,6 +2246,51 @@ func TestReconcileNodeInventoryStatusPatchError(t *testing.T) {
 	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if !errors.Is(err, statusErr) {
 		t.Fatalf("expected status patch error, got %v", err)
+	}
+}
+
+func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
+	inventoryDevicesGauge.Reset()
+	inventoryConditionGauge.Reset()
+
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-no-devices-inventory",
+			UID:  types.UID("worker-no-devices-inventory"),
+		},
+	}
+
+	client := newTestClient(scheme, node)
+	reconciler := &Reconciler{
+		client:       client,
+		scheme:       scheme,
+		recorder:     record.NewFakeRecorder(32),
+		log:          testr.New(t),
+		resyncPeriod: defaultResyncPeriod,
+	}
+
+	snapshot := nodeSnapshot{
+		Managed:         true,
+		FeatureDetected: true,
+		Labels:          map[string]string{},
+	}
+
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}); err != nil {
+		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
+	}
+
+	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
+		t.Fatalf("expected inventory to be created, got error: %v", err)
+	}
+
+	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	if condition == nil {
+		t.Fatalf("expected incomplete condition to be present")
+	}
+	if condition.Reason != reasonNoDevicesDiscovered || condition.Status != metav1.ConditionTrue {
+		t.Fatalf("expected condition=%s/true, got reason=%s status=%s", reasonNoDevicesDiscovered, condition.Reason, condition.Status)
 	}
 }
 

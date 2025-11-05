@@ -74,6 +74,8 @@ jobs:
         run: make verify
       - name: Controller coverage
         run: cd src/controller && go test ./... -cover
+      - name: Hooks coverage
+        run: cd images/hooks && go test ./... -cover
 
   build:
     needs:
