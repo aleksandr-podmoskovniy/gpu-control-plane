@@ -57,6 +57,9 @@ KUBECONFORM_REPO=$(mktemp -d "${TMPDIR:-/tmp}/kubeconform.XXXXXX")
 trap 'rm -rf "${KUBECONFORM_REPO}"' EXIT
 git clone https://github.com/yannh/kubeconform.git "${KUBECONFORM_REPO}" >/dev/null 2>&1
 
+# Helm limits packaged files to 5MiB by default which is not enough for some Deckhouse charts.
+export HELM_MAX_FILE_SIZE="${HELM_MAX_FILE_SIZE:-52428800}"
+
 if [[ ! -d schemas ]]; then
   mkdir -p schemas
   pushd schemas >/dev/null
