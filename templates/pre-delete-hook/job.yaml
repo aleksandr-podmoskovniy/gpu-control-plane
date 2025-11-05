@@ -19,7 +19,11 @@ spec:
       serviceAccountName: gpu-control-plane-pre-delete-hook
       containers:
         - name: gpu-control-plane-pre-delete-hook
-          {{- $resources := list (dict "gvr" (dict "Group" "nfd.k8s-sigs.io" "Version" "v1alpha1" "Resource" "nodefeaturerules") "name" (include "gpuControlPlane.nodeFeatureRuleName" .)) }}
+          {{- $resources := list
+                (dict "gvr" (dict "Group" "nfd.k8s-sigs.io" "Version" "v1alpha1" "Resource" "nodefeaturerules") "name" (include "gpuControlPlane.nodeFeatureRuleName" .))
+                (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpudevices") "name" "")
+                (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpunodeinventories") "name" "")
+          }}
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
           image: "{{ include "helm_lib_module_image" (list . "preDeleteHook" (include "gpuControlPlane.moduleName" .)) }}"
           env:

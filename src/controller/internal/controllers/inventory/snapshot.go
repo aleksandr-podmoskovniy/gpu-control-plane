@@ -256,7 +256,18 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 		index := canonicalIndex(inst.Attributes["index"])
 		i, ok := indexMap[index]
 		if !ok {
-			continue
+			snap := deviceSnapshot{
+				Index:  index,
+				Vendor: strings.ToLower(inst.Attributes["vendor"]),
+				Device: strings.ToLower(inst.Attributes["device"]),
+				Class:  strings.ToLower(inst.Attributes["class"]),
+			}
+			if snap.Vendor == "" || snap.Device == "" || snap.Class == "" {
+				continue
+			}
+			devices = append(devices, snap)
+			i = len(devices) - 1
+			indexMap[index] = i
 		}
 
 		if uuid := strings.TrimSpace(inst.Attributes["uuid"]); uuid != "" {
@@ -281,6 +292,7 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 		}
 	}
 
+	sortDeviceSnapshots(devices)
 	return devices
 }
 

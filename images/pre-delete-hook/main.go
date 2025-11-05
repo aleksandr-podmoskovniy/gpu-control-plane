@@ -37,6 +37,7 @@ type Resource struct {
 	GVR       schema.GroupVersionResource `json:"gvr"`
 	Name      string                      `json:"name"`
 	Namespace string                      `json:"namespace,omitempty"`
+	Selector  string                      `json:"selector,omitempty"`
 }
 
 func (r *Resource) gvrString() string {
@@ -116,6 +117,24 @@ func (p *PreDeleteHook) Run(ctx context.Context) {
 func (p *PreDeleteHook) deleteResource(ctx context.Context, res Resource) {
 	resourceClient := p.resourceClient(res)
 
+	if res.Name == "" {
+		if err := resourceClient.DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: res.Selector}); err != nil {
+			p.handleDeleteError(err, res)
+			return
+		}
+
+		if p.waitForCollectionRemoval(ctx, resourceClient, res) {
+			return
+		}
+
+		slog.Error("Timeout waiting for collection deletion",
+			slog.String("gvr", res.gvrString()),
+			slog.String("namespace", res.Namespace),
+			slog.String("selector", res.Selector),
+		)
+		return
+	}
+
 	if err := resourceClient.Delete(ctx, res.Name, metav1.DeleteOptions{}); err != nil {
 		p.handleDeleteError(err, res)
 		return
@@ -179,6 +198,46 @@ func (p *PreDeleteHook) waitForRemoval(ctx context.Context, client dynamic.Resou
 				slog.String("gvr", res.gvrString()),
 				slog.String("namespace", res.Namespace),
 				slog.String("name", res.Name),
+			)
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *PreDeleteHook) waitForCollectionRemoval(ctx context.Context, client dynamic.ResourceInterface, res Resource) bool {
+	deadline := time.Now().Add(p.WaitTimeout)
+	listOptions := metav1.ListOptions{LabelSelector: res.Selector}
+
+	for time.Now().Before(deadline) {
+		list, err := client.List(ctx, listOptions)
+		if err != nil {
+			slog.Error("Failed to list resources while waiting collection removal",
+				slog.Any("err", err),
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("selector", res.Selector),
+			)
+			return true
+		}
+		if len(list.Items) == 0 {
+			slog.Info("Collection removed",
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("selector", res.Selector),
+			)
+			return true
+		}
+
+		select {
+		case <-sleepAfter(2 * time.Second):
+		case <-ctx.Done():
+			slog.Error("Context cancelled while waiting collection removal",
+				slog.Any("err", ctx.Err()),
+				slog.String("gvr", res.gvrString()),
+				slog.String("namespace", res.Namespace),
+				slog.String("selector", res.Selector),
 			)
 			return true
 		}
