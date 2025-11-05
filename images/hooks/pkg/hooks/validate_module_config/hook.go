@@ -81,6 +81,8 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 
 	input.Values.Remove(settings.InternalModuleValidationPath)
 
+	ensureValuesMap(input.Values, settings.ConfigRoot)
+
 	payload := map[string]any{"enabled": state.Enabled}
 	if len(sanitized) > 0 {
 		payload["settings"] = sanitized

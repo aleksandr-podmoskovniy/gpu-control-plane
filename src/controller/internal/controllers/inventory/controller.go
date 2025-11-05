@@ -97,9 +97,12 @@ var newControllerManagedBy = func(mgr ctrl.Manager) controllerRuntimeAdapter {
 }
 
 var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
+	obj := &nfdv1alpha1.NodeFeature{}
+	obj.SetGroupVersionKind(nfdv1alpha1.SchemeGroupVersion.WithKind("NodeFeature"))
+
 	return source.Kind(
 		cache,
-		&nfdv1alpha1.NodeFeature{},
+		obj,
 		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
 	)
 }

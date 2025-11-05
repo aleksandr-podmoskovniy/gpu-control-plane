@@ -114,7 +114,7 @@ spec:
       nodeSelector:
         {{- toYaml $controllerRuntime.nodeSelector | nindent 8 }}
       {{- else }}
-      {{ include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
+      {{ include "gpuControlPlane.defaultNodeSelector" (list .) | nindent 6 }}
       {{- end }}
       {{- if $controllerRuntime.tolerations }}
       tolerations:

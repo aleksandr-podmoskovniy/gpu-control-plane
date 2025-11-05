@@ -57,6 +57,16 @@ deckhouse-gpu-kernel-os
 {{- toYaml (dict "kubectl.kubernetes.io/default-container" "controller") -}}
 {{- end -}}
 
+{{- define "gpuControlPlane.defaultNodeSelector" -}}
+{{- $ctx := index . 0 -}}
+{{- $systemCount := dig "global" "discovery" "d8SpecificNodeCountByRole" "system" 0 $ctx.Values | int -}}
+{{- if gt $systemCount 0 -}}
+{{ include "helm_lib_node_selector" (tuple $ctx "system") }}
+{{- else -}}
+{{ include "helm_lib_node_selector" (tuple $ctx "worker") }}
+{{- end -}}
+{{- end -}}
+
 {{- define "gpuControlPlane.isEnabled" -}}
 {{- if and (hasKey .Values "gpuControlPlane") (hasKey .Values.gpuControlPlane "internal") }}
   {{- if (dig "internal" "moduleConfig" "enabled" false .Values.gpuControlPlane) -}}

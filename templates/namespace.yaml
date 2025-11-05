@@ -1,11 +1,12 @@
 {{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
 {{- $ns := include "gpuControlPlane.namespace" . }}
-{{- if not (lookup "v1" "Namespace" "" $ns) }}
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   {{- include "helm_lib_module_labels" (list . (dict "prometheus.deckhouse.io/rules-watcher-enabled" "true")) | nindent 2 }}
   name: {{ $ns }}
-{{- end }}
 ---
 {{- include "helm_lib_kube_rbac_proxy_ca_certificate" (list . $ns) }}
+{{- end }}
