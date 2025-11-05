@@ -83,7 +83,26 @@ if [[ ! -d schemas ]]; then
 fi
 
 HELM_RENDER=helm-template-render.yaml
-WERF_DEV=1 werf helm template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml > "${HELM_RENDER}"
+
+render_with_helm() {
+  helm template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel
+}
+
+render_with_werf() {
+  WERF_DEV=1 werf helm template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel \
+    | awk 'BEGIN{emit=0} { if (!emit && ($0 ~ /^#/ || $0 ~ /^apiVersion:/)) emit=1 } emit { print }'
+}
+
+if render_with_helm > "${HELM_RENDER}" 2>/tmp/kubeconform.render.log; then
+  :
+elif command -v werf >/dev/null 2>&1; then
+  echo "helm template failed; falling back to werf helm template" >&2
+  render_with_werf > "${HELM_RENDER}"
+else
+  echo "helm template failed; install werf or fix helm rendering" >&2
+  cat /tmp/kubeconform.render.log >&2 || true
+  exit 1
+fi
 
 _kubeconform -verbose -strict \
   -kubernetes-version 1.30.0 \
