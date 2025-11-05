@@ -92,6 +92,8 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	if err := addNFDScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("register nfd scheme: %w", err)
 	}
+	// Explicitly register list types to avoid informer start errors when schema is incomplete.
+	mgr.GetScheme().AddKnownTypeWithName(nfdv1alpha1.SchemeGroupVersion.WithKind("NodeFeatureList"), &nfdv1alpha1.NodeFeatureList{})
 
 	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
 		return fmt.Errorf("healthz: %w", err)

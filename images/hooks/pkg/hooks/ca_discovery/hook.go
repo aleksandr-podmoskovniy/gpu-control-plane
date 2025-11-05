@@ -16,7 +16,9 @@ package ca_discovery
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"k8s.io/utils/ptr"
 
@@ -35,8 +37,8 @@ const (
 )
 
 type caSecret struct {
-	Crt []byte `json:"crt"`
-	Key []byte `json:"key"`
+	Crt string `json:"crt"`
+	Key string `json:"key"`
 }
 
 var _ = registry.RegisterFunc(configModuleCommonCA, handleModuleCommonCA)
@@ -75,7 +77,32 @@ func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
 		return fmt.Errorf("unmarshal CA secret: %w", err)
 	}
 
-	input.Values.Set(settings.InternalRootCAPath, secret)
+	decoded := map[string]any{}
+	if crt := decodeMaybeBase64(secret.Crt); crt != "" {
+		decoded["crt"] = crt
+	}
+	if key := decodeMaybeBase64(secret.Key); key != "" {
+		decoded["key"] = key
+	}
+
+	input.Values.Set(settings.InternalRootCAPath, decoded)
 
 	return nil
+}
+
+func decodeMaybeBase64(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if data, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		trimmed := strings.TrimSpace(string(data))
+		if strings.HasPrefix(trimmed, "-----BEGIN") && strings.HasSuffix(trimmed, "-----END") {
+			return trimmed
+		}
+		return string(data)
+	}
+
+	return raw
 }

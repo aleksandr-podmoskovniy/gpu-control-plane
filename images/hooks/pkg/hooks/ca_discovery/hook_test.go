@@ -16,6 +16,7 @@ package ca_discovery
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -87,9 +88,12 @@ func TestHandleModuleCommonCANoSecret(t *testing.T) {
 }
 
 func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
+	crtPEM := "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"
+	keyPEM := "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
+
 	secret := caSecret{
-		Crt: []byte("crt"),
-		Key: []byte("key"),
+		Crt: base64.StdEncoding.EncodeToString([]byte(crtPEM)),
+		Key: base64.StdEncoding.EncodeToString([]byte(keyPEM)),
 	}
 
 	input, patches := newInput(t, map[string][]pkg.Snapshot{
@@ -112,8 +116,37 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 		t.Fatalf("unmarshal patch value: %v", err)
 	}
 
-	if payload["crt"] == "" || payload["key"] == "" {
-		t.Fatalf("expected crt and key to be present, got %#v", payload)
+	if payload["crt"] != crtPEM {
+		t.Fatalf("unexpected crt payload: %q", payload["crt"])
+	}
+	if payload["key"] != keyPEM {
+		t.Fatalf("unexpected key payload: %q", payload["key"])
+	}
+}
+
+func TestHandleModuleCommonCAHandlesPlainValues(t *testing.T) {
+	secret := caSecret{Crt: "plain-cert", Key: "plain-key"}
+
+	input, patches := newInput(t, map[string][]pkg.Snapshot{
+		commonCASecretSnapshot: {jsonSnapshot{value: secret}},
+	})
+
+	if err := handleModuleCommonCA(context.Background(), input); err != nil {
+		t.Fatalf("handleModuleCommonCA returned error: %v", err)
+	}
+
+	patch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath))
+	if patch == nil {
+		t.Fatalf("expected patch for %s", settings.InternalRootCAPath)
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(patch.Value, &payload); err != nil {
+		t.Fatalf("unmarshal patch value: %v", err)
+	}
+
+	if payload["crt"] != "plain-cert" || payload["key"] != "plain-key" {
+		t.Fatalf("unexpected payload: %#v", payload)
 	}
 }
 
