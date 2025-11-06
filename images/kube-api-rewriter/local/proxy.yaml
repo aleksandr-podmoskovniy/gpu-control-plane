@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-control-plane-local
+---
+# Secret with TLS materials for the proxy listener. Generate it with
+# local/proxy-gen-certs.sh before applying the manifest.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gpu-api-rewriter-tls
+  namespace: gpu-control-plane-local
+type: Opaque
+stringData:
+  tls.crt: |
+    # populate with the contents of tls.crt
+  tls.key: |
+    # populate with the contents of tls.key
+  ca.crt: |
+    # populate with the contents of ca.crt
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-api-rewriter
+  namespace: gpu-control-plane-local
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-api-rewriter
+  template:
+    metadata:
+      labels:
+        app: gpu-api-rewriter
+    spec:
+      containers:
+        - name: proxy
+          image: gpu-api-rewriter:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PROXY_LISTEN_ADDR
+              value: 0.0.0.0:23915
+            - name: METRICS_LISTEN_ADDR
+              value: 0.0.0.0:9090
+            - name: LOG_LEVEL
+              value: info
+            - name: LOG_FORMAT
+              value: json
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /etc/kube-api-rewriter
+            - name: tls
+              mountPath: /etc/kube-api-rewriter/tls
+              readOnly: true
+      volumes:
+        # Create the ConfigMap manually:
+        # kubectl create configmap gpu-api-rewriter-kubeconfig \
+        #   --from-file=kubeconfig=local/kube-api-rewriter.kubeconfig \
+        #   -n gpu-control-plane-local
+        - name: kubeconfig
+          projected:
+            sources:
+              - configMap:
+                  name: gpu-api-rewriter-kubeconfig
+                  items:
+                    - key: kubeconfig
+                      path: config
+        - name: tls
+          secret:
+            secretName: gpu-api-rewriter-tls
+*** End Patch

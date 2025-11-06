@@ -1,0 +1,4 @@
+# A list of directories that must exist in the resulting image beforehand.
+# Required by containerd strict mode.
+
+dirs: []

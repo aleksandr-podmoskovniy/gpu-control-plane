@@ -195,20 +195,27 @@ spec:
 
 #### Компоненты модуля
 
-| Имя                            | Тип        | Назначение                                                                             |
-| ------------------------------ | ---------- | -------------------------------------------------------------------------------------- |
-| `gpu-inventory-controller-*`   | Deployment | Создаёт `GPUDevice`, `GPUNodeInventory`, публикует события/метрики по инвентаризации.  |
-| `gpu-bootstrap-controller-*`   | Deployment | Проверяет драйвер/toolkit, запускает GFD и DCGM, изменяет состояния устройств и узлов. |
-| `gpupool-controller-*`         | Deployment | Управляет `GPUPool`, запускает per-pool device-plugin/MIG manager, следит за ёмкостью. |
-| `gpu-admission-webhook-*`      | Deployment | Admission webhook: валидация доступа, бронирование и очистка устройств.                |
-| `nvidia-device-plugin-<pool>`  | DaemonSet  | Публикует ресурс `gpu.deckhouse.io/<pool>` на узлах пула; создаётся для каждого пула.  |
-| `nvidia-mig-manager-<pool>`    | DaemonSet  | (Опционально) конфигурирует MIG-профиль на узлах пула.                                 |
-| `nvidia-dcgm-exporter`         | DaemonSet  | Снимает телеметрию DCGM на всех GPU-узлах и отдаёт её в Prometheus.                    |
-| `nvidia-gpu-feature-discovery` | DaemonSet  | Дополняет узлы GPU-лейблами, используется inventory/bootstrap.                         |
+| Имя                          | Тип        | Назначение                                                                                    |
+| ---------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `gpu-inventory-controller-*` | Deployment | Создаёт `GPUDevice`, `GPUNodeInventory`, публикует события/метрики по инвентаризации.         |
+| `gpu-bootstrap-controller-*` | Deployment | Проверяет драйвер/toolkit, запускает nvidia-оператор и базовые сервисы, меняет статусы узлов. |
+| `gpupool-controller-*`       | Deployment | Управляет `GPUPool`, запускает per-pool device-plugin, следит за ёмкостью пула.               |
+| `gpu-admission-webhook-*`    | Deployment | Admission webhook: валидация доступа, бронирование и очистка устройств.                       |
+| `gpu-feature-discovery`      | DaemonSet  | Наклеивает GPU-лейблы и NodeFeature, используется inventory/bootstrap.                        |
+| `gpu-dcgm-exporter`          | DaemonSet  | Снимает телеметрию DCGM на всех GPU-узлах и отдаёт её в Prometheus.                           |
+| `gpu-device-plugin-<pool>`   | DaemonSet  | Публикует ресурс `gpu.deckhouse.io/<pool>` на узлах пула; создаётся для каждого пула.         |
 
 `gpu-bootstrap-controller` управляет базовыми DaemonSet'ами (`nvidia-gpu-feature-discovery`,
 `nvidia-dcgm-exporter`), а `gpupool-controller` —
 пер-пуловыми (`nvidia-device-plugin-<pool>`, `nvidia-mig-manager-<pool>`).
+
+Каждый контроллерный pod дополнительно содержит сайдкар `kube-api-rewriter`.
+Сейчас он работает в режиме pass-through: проксирует запросы на
+`https://kubernetes.default.svc`, собирает метрики (`/proxy/metrics`) и держит
+единую точку, куда можно добавить лёгкие преобразования (например, скрыть
+третьесторонние API за `internal.gpu.deckhouse.io`, подсунуть служебные поля,
+подготовить интеграцию с admission/webhook). Благодаря этому контроллеры остаются
+примитивными HTTP-клиентами и не знают о дополнительных alias-ах.
 
 Все control-plane компоненты используют self-signed TLS, выпускаемый hook'ом модуля и
 хранящийся в `gpu-control-plane-controller-tls` и `gpu-control-plane-ca` секретах. Это

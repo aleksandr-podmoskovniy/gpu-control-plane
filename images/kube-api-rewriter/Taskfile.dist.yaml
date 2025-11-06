@@ -1,0 +1,39 @@
+version: "3"
+
+env:
+  GOFLAGS: "-trimpath"
+
+tasks:
+  build:
+    desc: Build kube-api-rewriter binary for linux/amd64
+    dir: .
+    cmds:
+      - mkdir -p bin
+      - GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/kube-api-rewriter ./cmd/kube-api-rewriter
+    sources:
+      - cmd/**/*.go
+      - pkg/**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - bin/kube-api-rewriter
+
+  test:
+    desc: Run unit tests for proxy helpers
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run golangci-lint if it is available in PATH
+    cmds:
+      - |
+        if command -v golangci-lint >/dev/null 2>&1; then
+          golangci-lint run ./...
+        else
+          echo "golangci-lint is not installed, skipping" >&2
+        fi
+
+  docker-build:
+    desc: Build a local debug image using local/Dockerfile
+    cmds:
+      - DOCKER_BUILDKIT=1 docker build -f local/Dockerfile -t gpu-api-rewriter:dev .

@@ -1,40 +1,55 @@
 ---
-image: kube-api-rewriter-builder
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
 final: false
-fromImage: builder/golang-bookworm-1.24
+fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/alt-go-svace" }}
 git:
-  - add: /
-    to: /src
-    includePaths:
-      - images/kube-api-rewriter
+  - add: {{ .ModuleDir }}/images/{{ .ImageName }}
+    to: /src/kube-api-rewriter
+    stageDependencies:
+      install:
+        - go.mod
+        - go.sum
+      setup:
+        - "**/*.go"
 secrets:
   - id: GOPROXY
-    value: {{ env "GOPROXY" "https://proxy.golang.org,direct" }}
+    value: {{ .GOPROXY }}
 mount:
   - fromPath: ~/go-pkg-cache
     to: /go/pkg
 shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
-    - cd /src/images/kube-api-rewriter
+    - cd /src/kube-api-rewriter
     - go mod download
   setup:
-    - export CGO_ENABLED=0
+    - cd /src/kube-api-rewriter
     - export GOOS=linux
     - export GOARCH=amd64
-    - cd /src/images/kube-api-rewriter
-    - go build -o /tmp/kube-api-rewriter ./...
+    - export CGO_ENABLED=0
+    - |
+    {{- $_ := set $ "ProjectName" (list $.ImageName "kube-api-rewriter" | join "/") }}
+    {{- include "image-build.build" (set $ "BuildCommand" `go build -v -o kube-api-rewriter ./cmd/kube-api-rewriter`) | nindent 6 }}
 
 ---
-image: kube-api-rewriter
+
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 fromImage: builder/scratch
+git:
+  {{- include "image mount points" . }}
 import:
-  - image: kube-api-rewriter-builder
-    add: /tmp/kube-api-rewriter
+  - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
+    add: /src/kube-api-rewriter/kube-api-rewriter
     to: /app/kube-api-rewriter
-    after: setup
+    after: install
+  - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
+    add: /var
+    to: /var
+    includePaths:
+      - run
+    after: install
 imageSpec:
   config:
-    entrypoint:
-      - /app/kube-api-rewriter
     user: "64535:64535"
+    workingDir: "/app"
+    entrypoint: ["/app/kube-api-rewriter"]
