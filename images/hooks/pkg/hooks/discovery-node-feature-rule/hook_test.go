@@ -535,19 +535,23 @@ func TestCleanupResources(t *testing.T) {
 	}
 }
 
-func TestKernelLabelsTemplateHandlesMapPayload(t *testing.T) {
+func TestKernelLabelsTemplateHandlesStructuredPayload(t *testing.T) {
 	rule := buildNodeFeatureRuleFromTemplate(t)
 	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
 
 	data := map[string]any{
-		"kernel.version": map[string]any{
-			"full":  "5.15.0-1075-azure",
-			"major": 5,
-			"minor": 15,
+		"kernel": map[string]any{
+			"version": []map[string]any{
+				{"Name": "full", "Value": "5.15.0-1075-azure"},
+				{"Name": "major", "Value": 5},
+				{"Name": "minor", "Value": 15},
+			},
 		},
-		"system.osrelease": map[string]any{
-			"ID":         "ubuntu",
-			"VERSION_ID": "22.04",
+		"system": map[string]any{
+			"osrelease": []map[string]any{
+				{"Name": "ID", "Value": "ubuntu"},
+				{"Name": "VERSION_ID", "Value": "22.04"},
+			},
 		},
 	}
 
@@ -559,25 +563,36 @@ func TestKernelLabelsTemplateHandlesMapPayload(t *testing.T) {
 	assertContains(t, rendered, "gpu.deckhouse.io/os.version_id=22.04")
 }
 
-func TestKernelLabelsTemplateHandlesLegacySlicePayload(t *testing.T) {
+func TestKernelLabelsTemplateHandlesAdditionalValues(t *testing.T) {
 	rule := buildNodeFeatureRuleFromTemplate(t)
 	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
 
 	data := map[string]any{
-		"kernel.version": []map[string]any{
-			{
-				"Attributes": map[string]any{
-					"full":  "6.6.1-custom",
-					"major": "6",
-					"minor": "6",
+		"kernel": map[string]any{
+			"version": []map[string]any{
+				{
+					"Name":  "full",
+					"Value": "6.6.1-custom",
+				},
+				{
+					"Name":  "major",
+					"Value": "6",
+				},
+				{
+					"Name":  "minor",
+					"Value": "6",
 				},
 			},
 		},
-		"system.osrelease": []map[string]any{
-			{
-				"Attributes": map[string]any{
-					"ID":         "talos",
-					"VERSION_ID": "1.6.7",
+		"system": map[string]any{
+			"osrelease": []map[string]any{
+				{
+					"Name":  "ID",
+					"Value": "talos",
+				},
+				{
+					"Name":  "VERSION_ID",
+					"Value": "1.6.7",
 				},
 			},
 		},

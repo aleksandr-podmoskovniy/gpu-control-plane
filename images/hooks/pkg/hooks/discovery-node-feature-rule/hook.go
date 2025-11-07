@@ -64,16 +64,21 @@ spec:
                 - "0300"
                 - "0302"
       labelsTemplate: |
-        {{- $devices := index . "pci.device" -}}
+        {{- $devices := .pci.device }}
         {{- if $devices }}
         gpu.deckhouse.io/present=true
         gpu.deckhouse.io/device-count={{ len $devices }}
         {{- range $idx, $dev := $devices }}
-        {{- $slot := printf "%%02d" $idx -}}
-        {{- $attrs := $dev.Attributes -}}
-        gpu.deckhouse.io/device.{{ $slot }}.vendor={{ index $attrs "vendor" }}
-        gpu.deckhouse.io/device.{{ $slot }}.device={{ index $attrs "device" }}
-        gpu.deckhouse.io/device.{{ $slot }}.class={{ index $attrs "class" }}
+        {{- $slot := printf "%%02d" $idx }}
+        {{- with $dev.vendor }}
+        gpu.deckhouse.io/device.{{ $slot }}.vendor={{ printf "%%v" . }}
+        {{- end }}
+        {{- with $dev.device }}
+        gpu.deckhouse.io/device.{{ $slot }}.device={{ printf "%%v" . }}
+        {{- end }}
+        {{- with $dev.class }}
+        gpu.deckhouse.io/device.{{ $slot }}.class={{ printf "%%v" . }}
+        {{- end }}
         {{- end }}
         {{- end }}
     - name: deckhouse.gpu.nvidia-driver
@@ -126,50 +131,23 @@ spec:
             VERSION_ID:
               op: Exists
       labelsTemplate: |
-        {{- $kernel := index . "kernel.version" -}}
-        {{- $kernelType := printf "%%T" $kernel -}}
-        {{- if eq $kernelType "map[string]interface {}" -}}
-          {{- with index $kernel "full" }}
-        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
+        {{- range .kernel.version }}
+          {{- if eq .Name "full" }}
+        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" .Value }}
           {{- end }}
-          {{- with index $kernel "major" }}
-        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
+          {{- if eq .Name "major" }}
+        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" .Value }}
           {{- end }}
-          {{- with index $kernel "minor" }}
-        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
-          {{- end }}
-        {{- else -}}
-          {{- with index $kernel 0 }}
-            {{- $attrs := index . "Attributes" -}}
-            {{- with index $attrs "full" }}
-        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
-            {{- end }}
-            {{- with index $attrs "major" }}
-        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
-            {{- end }}
-            {{- with index $attrs "minor" }}
-        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
-            {{- end }}
+          {{- if eq .Name "minor" }}
+        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" .Value }}
           {{- end }}
         {{- end }}
-        {{- $os := index . "system.osrelease" -}}
-        {{- $osType := printf "%%T" $os -}}
-        {{- if eq $osType "map[string]interface {}" -}}
-          {{- with index $os "ID" }}
-        gpu.deckhouse.io/os.id={{ printf "%%v" . }}
+        {{- range .system.osrelease }}
+          {{- if eq .Name "ID" }}
+        gpu.deckhouse.io/os.id={{ printf "%%v" .Value }}
           {{- end }}
-          {{- with index $os "VERSION_ID" }}
-        gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
-          {{- end }}
-        {{- else -}}
-          {{- with index $os 0 }}
-            {{- $attrs := index . "Attributes" -}}
-            {{- with index $attrs "ID" }}
-        gpu.deckhouse.io/os.id={{ printf "%%v" . }}
-            {{- end }}
-            {{- with index $attrs "VERSION_ID" }}
-        gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
-            {{- end }}
+          {{- if eq .Name "VERSION_ID" }}
+        gpu.deckhouse.io/os.version_id={{ printf "%%v" .Value }}
           {{- end }}
         {{- end }}
 `

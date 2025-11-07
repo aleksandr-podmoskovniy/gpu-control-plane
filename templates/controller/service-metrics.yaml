@@ -12,7 +12,7 @@ spec:
     - name: metrics
       port: 8080
       protocol: TCP
-      targetPort: https-metrics
+      targetPort: metrics
   selector:
     {{- include "gpuControlPlane.selectorLabels" . | nindent 4 }}
 {{- end }}
