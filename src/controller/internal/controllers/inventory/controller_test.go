@@ -1692,6 +1692,7 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 	inventoryDevicesGauge.Reset()
 	inventoryConditionGauge.Reset()
+	inventoryDeviceStateGauge.Reset()
 
 	scheme := newTestScheme(t)
 	node := &corev1.Node{
@@ -2252,6 +2253,7 @@ func TestReconcileNodeInventoryStatusPatchError(t *testing.T) {
 func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 	inventoryDevicesGauge.Reset()
 	inventoryConditionGauge.Reset()
+	inventoryDeviceStateGauge.Reset()
 
 	scheme := newTestScheme(t)
 	node := &corev1.Node{

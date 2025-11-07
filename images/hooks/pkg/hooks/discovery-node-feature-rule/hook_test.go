@@ -308,7 +308,7 @@ func TestHandleNodeFeatureRuleSyncCreatesResources(t *testing.T) {
 		switch mf.Feature {
 		case "kernel.version":
 			kernelExprs = mf.MatchExpressions
-		case "system.osrelease":
+		case "system.os_release":
 			osExprs = mf.MatchExpressions
 		default:
 			t.Fatalf("unexpected feature %s in kernel rule", mf.Feature)
@@ -545,7 +545,7 @@ func TestKernelLabelsTemplateHandlesMapPayload(t *testing.T) {
 			"major": 5,
 			"minor": 15,
 		},
-		"system.osrelease": map[string]any{
+		"system.os_release": map[string]any{
 			"ID":         "ubuntu",
 			"VERSION_ID": "22.04",
 		},

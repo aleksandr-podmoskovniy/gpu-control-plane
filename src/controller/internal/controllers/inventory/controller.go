@@ -93,6 +93,27 @@ var (
 		Name:      "condition",
 		Help:      "Inventory condition status (0 or 1).",
 	}, []string{"node", "condition"})
+
+	inventoryDeviceStateGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "gpu",
+		Subsystem: "inventory",
+		Name:      "devices_state",
+		Help:      "Number of GPU devices on a node grouped by state.",
+	}, []string{"node", "state"})
+
+	inventoryHandlerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gpu",
+		Subsystem: "inventory",
+		Name:      "handler_errors_total",
+		Help:      "Number of errors returned by inventory handlers.",
+	}, []string{"handler"})
+
+	knownDeviceStates = []gpuv1alpha1.GPUDeviceState{
+		gpuv1alpha1.GPUDeviceStateUnassigned,
+		gpuv1alpha1.GPUDeviceStateReserved,
+		gpuv1alpha1.GPUDeviceStateAssigned,
+		gpuv1alpha1.GPUDeviceStateFaulted,
+	}
 )
 
 var newControllerManagedBy = func(mgr ctrl.Manager) controllerRuntimeAdapter {
@@ -111,7 +132,12 @@ var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
 }
 
 func init() {
-	metrics.Registry.MustRegister(inventoryDevicesGauge, inventoryConditionGauge)
+	metrics.Registry.MustRegister(
+		inventoryDevicesGauge,
+		inventoryConditionGauge,
+		inventoryDeviceStateGauge,
+		inventoryHandlerErrors,
+	)
 }
 
 type controllerBuilder interface {
@@ -459,6 +485,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
+	updateDeviceStateMetrics(node.Name, reconciledDevices)
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(float64(len(reconciledDevices)))
 
 	if aggregate.Requeue {
@@ -683,7 +710,11 @@ func (r *Reconciler) invokeHandlers(ctx context.Context, device *gpuv1alpha1.GPU
 
 	rec := reconciler.NewBase(r.handlers)
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.InventoryHandler) (contracts.Result, error) {
-		return handler.HandleDevice(ctx, device)
+		result, err := handler.HandleDevice(ctx, device)
+		if err != nil {
+			inventoryHandlerErrors.WithLabelValues(handler.Name()).Inc()
+		}
+		return result, err
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return nil })
 
@@ -870,6 +901,9 @@ func (r *Reconciler) clearInventoryMetrics(nodeName string) {
 	inventoryDevicesGauge.DeleteLabelValues(nodeName)
 	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionManagedDisabled)
 	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryIncomplete)
+	for _, state := range knownDeviceStates {
+		inventoryDeviceStateGauge.DeleteLabelValues(nodeName, string(state))
+	}
 }
 
 func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
@@ -936,6 +970,27 @@ func boolToFloat(value bool) float64 {
 		return 1
 	}
 	return 0
+}
+
+func updateDeviceStateMetrics(nodeName string, devices []*gpuv1alpha1.GPUDevice) {
+	counts := make(map[string]float64, len(devices))
+	for _, device := range devices {
+		state := string(device.Status.State)
+		if state == "" {
+			state = string(gpuv1alpha1.GPUDeviceStateUnassigned)
+		}
+		counts[state]++
+	}
+	seen := make(map[string]struct{}, len(counts))
+	for state, count := range counts {
+		inventoryDeviceStateGauge.WithLabelValues(nodeName, state).Set(count)
+		seen[state] = struct{}{}
+	}
+	for _, state := range knownDeviceStates {
+		if _, ok := seen[string(state)]; !ok {
+			inventoryDeviceStateGauge.DeleteLabelValues(nodeName, string(state))
+		}
+	}
 }
 
 func capabilityFromSnapshot(snapshot deviceSnapshot) *gpuv1alpha1.GPUComputeCapability {

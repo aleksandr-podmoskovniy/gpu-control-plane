@@ -58,6 +58,9 @@ tools/runtimegen/runtimegen
 tools/kubeconform/kubeconform.git/
 tools/kubeconform/helm-template-render.yaml
 tools/kubeconform/kubeconform-report.json
+
+# Generated vendor datasets
+fixtures/pci.ids
 tools/kubeconform/schemas/
 
 

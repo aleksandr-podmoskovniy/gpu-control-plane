@@ -124,7 +124,7 @@ spec:
               op: Exists
             full:
               op: Exists
-        - feature: system.osrelease
+        - feature: system.os_release
           matchExpressions:
             ID:
               op: Exists
@@ -143,7 +143,7 @@ spec:
         gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
           {{- end }}
         {{- end }}
-        {{- $os := index . "system.osrelease" -}}
+        {{- $os := index . "system.os_release" -}}
         {{- if $os }}
           {{- with index $os "ID" }}
         gpu.deckhouse.io/os.id={{ printf "%%v" . }}
