@@ -16,65 +16,9 @@ limitations under the License.
 
 package gpu
 
-import (
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/images/kube-api-rewriter/pkg/rewriter"
-)
+import "github.com/aleksandr-podmoskovniy/gpu-control-plane/images/kube-api-rewriter/pkg/rewriter"
 
-const (
-	apiGroup            = "gpu.deckhouse.io"
-	internalAPIGroup    = "internal.gpu.deckhouse.io"
-	internalKindPrefix  = "InternalGPU"
-	internalResourceTag = "internalgpu"
-	internalShortName   = "igpu"
-)
-
-// GPURewriteRules describes how public GPU API resources are mirrored to an
-// internal group consumed by the control plane. The structure is intentionally
-// compact: we only rename the API group and reuse existing plural/short names.
-var GPURewriteRules = &rewriter.RewriteRules{
-	KindPrefix:         internalKindPrefix,
-	ResourceTypePrefix: internalResourceTag,
-	ShortNamePrefix:    internalShortName,
-	Categories:         []string{"gpu"},
-	Rules: map[string]rewriter.APIGroupRule{
-		apiGroup: {
-			GroupRule: rewriter.GroupRule{
-				Group:            apiGroup,
-				Versions:         []string{"v1alpha1"},
-				PreferredVersion: "v1alpha1",
-				Renamed:          internalAPIGroup,
-			},
-			ResourceRules: map[string]rewriter.ResourceRule{
-				"gpudevices": {
-					Kind:             "GPUDevice",
-					ListKind:         "GPUDeviceList",
-					Plural:           "gpudevices",
-					Singular:         "gpudevice",
-					ShortNames:       []string{"gdevice", "gpudev"},
-					Categories:       []string{"gpu"},
-					Versions:         []string{"v1alpha1"},
-					PreferredVersion: "v1alpha1",
-				},
-				"gpunodeinventories": {
-					Kind:             "GPUNodeInventory",
-					ListKind:         "GPUNodeInventoryList",
-					Plural:           "gpunodeinventories",
-					Singular:         "gpunodeinventory",
-					ShortNames:       []string{"gpunode", "gpnode"},
-					Categories:       []string{"gpu"},
-					Versions:         []string{"v1alpha1"},
-					PreferredVersion: "v1alpha1",
-				},
-				"gpupools": {
-					Kind:             "GPUPool",
-					ListKind:         "GPUPoolList",
-					Plural:           "gpupools",
-					Singular:         "gpupool",
-					Categories:       []string{"gpu"},
-					Versions:         []string{"v1alpha1"},
-					PreferredVersion: "v1alpha1",
-				},
-			},
-		},
-	},
-}
+// GPURewriteRules is intentionally empty: GPU API resources are native to the
+// module and must not be renamed. Keeping the structure non-nil allows us to
+// reuse it as a placeholder if we ever need to extend rewriting rules.
+var GPURewriteRules = &rewriter.RewriteRules{}

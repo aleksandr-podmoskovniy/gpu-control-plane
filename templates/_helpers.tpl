@@ -36,10 +36,6 @@ gpu-control-plane
 {{ include "gpuControlPlane.moduleName" . }}-ca
 {{- end -}}
 
-{{- define "gpuControlPlane.monitoringCASecretName" -}}
-{{ include "gpuControlPlane.moduleName" . }}-monitoring-ca
-{{- end -}}
-
 {{- define "gpuControlPlane.nodeFeatureRuleName" -}}
 deckhouse-gpu-kernel-os
 {{- end -}}

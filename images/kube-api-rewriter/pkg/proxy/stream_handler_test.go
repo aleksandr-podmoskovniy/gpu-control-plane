@@ -42,10 +42,8 @@ func TestStreamHandlerHandleSuccess(t *testing.T) {
 		MetricsProvider: provider,
 	}
 
-	internalKind := rules.RenameKind("GPUDevice")
-	internalAPIVersion := rules.RenameApiVersion("gpu.deckhouse.io/v1alpha1")
-	stream := []byte(fmt.Sprintf(`{"type":"%s","object":{"apiVersion":"%s","kind":"%s","metadata":{"name":"device-1"}}}`,
-		watch.Added, internalAPIVersion, internalKind))
+	stream := []byte(fmt.Sprintf(`{"type":"%s","object":{"apiVersion":"gpu.deckhouse.io/v1alpha1","kind":"GPUDevice","metadata":{"name":"device-1"}}}`,
+		watch.Added))
 	resp := &http.Response{
 		Body:       io.NopCloser(bytes.NewReader(stream)),
 		Header:     http.Header{"Content-Type": []string{"application/json"}},

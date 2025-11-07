@@ -16,76 +16,19 @@ limitations under the License.
 
 package gpu
 
-import (
-	"testing"
-
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/images/kube-api-rewriter/pkg/rewriter"
-)
-
-func cloneRules(t *testing.T, src *rewriter.RewriteRules) *rewriter.RewriteRules {
-	t.Helper()
-
-	cloned := *src
-	cloned.Rules = make(map[string]rewriter.APIGroupRule, len(src.Rules))
-	for group, rule := range src.Rules {
-		resourceRules := make(map[string]rewriter.ResourceRule, len(rule.ResourceRules))
-		for resource, resRule := range rule.ResourceRules {
-			resourceRules[resource] = resRule
-		}
-		cloned.Rules[group] = rewriter.APIGroupRule{
-			GroupRule:     rule.GroupRule,
-			ResourceRules: resourceRules,
-		}
-	}
-	return &cloned
-}
+import "testing"
 
 func TestGPURewriteRulesInit(t *testing.T) {
-	rules := cloneRules(t, GPURewriteRules)
-	rules.Init()
+	t.Helper()
 
-	groupRule, ok := rules.Rules[apiGroup]
-	if !ok {
-		t.Fatalf("expected %q present in rules", apiGroup)
-	}
-	if groupRule.GroupRule.Renamed != internalAPIGroup {
-		t.Fatalf("expected renamed group %q, got %q", internalAPIGroup, groupRule.GroupRule.Renamed)
+	GPURewriteRules.Init()
+	if GPURewriteRules.LabelsRewriter() == nil ||
+		GPURewriteRules.AnnotationsRewriter() == nil ||
+		GPURewriteRules.FinalizersRewriter() == nil {
+		t.Fatalf("metadata rewriters must be initialized even without custom rules")
 	}
 
-	deviceRule, ok := groupRule.ResourceRules["gpudevices"]
-	if !ok {
-		t.Fatalf("gpudevices rule missing")
-	}
-	if deviceRule.Kind != "GPUDevice" {
-		t.Fatalf("unexpected kind: %s", deviceRule.Kind)
-	}
-	if deviceRule.ListKind != "GPUDeviceList" {
-		t.Fatalf("unexpected list kind: %s", deviceRule.ListKind)
-	}
-	if deviceRule.PreferredVersion != "v1alpha1" {
-		t.Fatalf("unexpected preferred version: %s", deviceRule.PreferredVersion)
-	}
-
-	if rules.Rules[apiGroup].GroupRule.Group != apiGroup {
-		t.Fatalf("original group should remain intact")
-	}
-
-	if rules.LabelsRewriter() == nil || rules.AnnotationsRewriter() == nil {
-		t.Fatalf("expected metadata rewriters to be initialized")
-	}
-}
-
-func TestGPURewriteRulesProvideCategories(t *testing.T) {
-	rules := cloneRules(t, GPURewriteRules)
-	rules.Init()
-
-	groupRule := rules.Rules[apiGroup]
-	for _, res := range []string{"gpudevices", "gpunodeinventories", "gpupools"} {
-		if _, ok := groupRule.ResourceRules[res]; !ok {
-			t.Fatalf("expected resource %s in rule set", res)
-		}
-		if len(groupRule.ResourceRules[res].Categories) == 0 {
-			t.Fatalf("resource %s must expose categories for discovery", res)
-		}
+	if len(GPURewriteRules.Excludes) != 0 {
+		t.Fatalf("expected no excludes for native GPU resources")
 	}
 }
