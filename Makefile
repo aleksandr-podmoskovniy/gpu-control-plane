@@ -16,8 +16,10 @@ SHELL := /bin/bash
 
 ROOT := $(CURDIR)
 CONTROLLER_DIR := $(ROOT)/src/controller
+KUBE_API_REWRITER_DIR := $(ROOT)/images/kube-api-rewriter
 GOMODCACHE := $(ROOT)/.cache/gomod
 BIN_DIR := $(ROOT)/.bin
+COVERAGE_DIR := $(ROOT)/artifacts/coverage
 
 export PATH := $(BIN_DIR):$(PATH)
 
@@ -35,7 +37,7 @@ WERF ?= werf
 export GOMODCACHE
 
 .PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-tools \
-	fmt tidy controller-build controller-test hooks-test lint-go lint-docs lint-dmt \
+	fmt tidy controller-build controller-test hooks-test rewriter-test lint-go lint-docs lint-dmt \
 	lint test verify clean cache docs werf-build kubeconform e2e
 
 ensure-bin-dir:
@@ -54,6 +56,9 @@ ensure-tools: ensure-golangci-lint ensure-dmt
 
 cache:
 	@mkdir -p $(GOMODCACHE)
+
+coverage-dir:
+	@mkdir -p $(COVERAGE_DIR)
 
 fmt:
 	@echo "==> gofmt"
@@ -76,6 +81,10 @@ hooks-test: cache
 	@echo "==> go test (hooks)"
 	@cd images/hooks && $(GO) test $(GOFLAGS) ./...
 
+rewriter-test: cache coverage-dir
+	@echo "==> go test (kube-api-rewriter)"
+	@cd $(KUBE_API_REWRITER_DIR) && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/kube-api-rewriter.out ./...
+
 lint-docs:
 	@echo "==> prettier (markdown)"
 	@docker run --rm \
@@ -94,7 +103,7 @@ lint-dmt: ensure-dmt
 
 lint: lint-go lint-docs lint-dmt
 
-test: controller-test hooks-test
+test: controller-test hooks-test rewriter-test
 
 verify: lint test kubeconform
 

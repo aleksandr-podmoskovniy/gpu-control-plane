@@ -111,6 +111,10 @@ spec:
         {{- $kubeRbacProxySettings := dict }}
         {{- $_ := set $kubeRbacProxySettings "runAsUserNobody" false }}
         {{- $_ := set $kubeRbacProxySettings "ignorePaths" "/proxy/healthz,/proxy/readyz" }}
+        {{- $_ := set $kubeRbacProxySettings "tlsCertFile" "/var/lib/gpu-control-plane/tls/tls.crt" }}
+        {{- $_ := set $kubeRbacProxySettings "tlsKeyFile" "/var/lib/gpu-control-plane/tls/tls.key" }}
+        {{- $_ := set $kubeRbacProxySettings "clientCAFile" "/var/lib/gpu-control-plane/tls/ca.crt" }}
+        {{- $_ := set $kubeRbacProxySettings "volumeMounts" (list (dict "name" "controller-tls" "mountPath" "/var/lib/gpu-control-plane/tls")) }}
         {{- $_ := set $kubeRbacProxySettings "upstreams" (list
               (dict
                 "upstream" "http://127.0.0.1:8080/metrics"

@@ -4,6 +4,8 @@
 {{- $globalValues := .Values.global | default dict }}
 {{- $enabledModules := $globalValues.enabledModules | default (list) }}
 {{- $clusterDomain := $globalValues.discovery.clusterDomain }}
+{{- $metricsServiceHost := printf "%s-metrics.%s.svc" (include "gpuControlPlane.controllerName" .) (include "gpuControlPlane.namespace" .) }}
+{{- $metricsServiceFQDN := printf "%s.%s" $metricsServiceHost $clusterDomain }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (default false $monitoringValues.serviceMonitor) ($enabledModules | has "operator-prometheus-crd") }}
 ---
 apiVersion: monitoring.coreos.com/v1alpha1
@@ -20,9 +22,13 @@ spec:
       key: token
   scheme: HTTPS
   tlsConfig:
-    insecureSkipVerify: true
+    serverName: {{ $metricsServiceFQDN }}
+    ca:
+      secret:
+        name: {{ include "gpuControlPlane.monitoringCASecretName" . }}
+        key: ca.crt
   metricsPath: /metrics
   staticConfigs:
     - targets:
-        - '{{ include "gpuControlPlane.controllerName" . }}-metrics.{{ include "gpuControlPlane.namespace" . }}.svc.{{ $clusterDomain }}.:8080'
+        - '{{ $metricsServiceHost }}.{{ $clusterDomain }}.:8080'
 {{- end }}

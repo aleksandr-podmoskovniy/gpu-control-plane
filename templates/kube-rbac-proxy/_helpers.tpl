@@ -22,6 +22,13 @@
   {{- else }}
     - "--ignore-paths=/healthz,/readyz"
   {{- end }}
+  {{- if and ($settings.tlsCertFile) ($settings.tlsKeyFile) }}
+    - "--tls-cert-file={{ $settings.tlsCertFile }}"
+    - "--tls-private-key-file={{ $settings.tlsKeyFile }}"
+  {{- end }}
+  {{- if $settings.clientCAFile }}
+    - "--client-ca-file={{ $settings.clientCAFile }}"
+  {{- end }}
   env:
     - name: KUBE_RBAC_PROXY_LISTEN_ADDRESS
       valueFrom:
@@ -51,6 +58,17 @@
       {{- if not ( $ctx.Values.global.enabledModules | has "vertical-pod-autoscaler") }}
       {{- include "helm_lib_container_kube_rbac_proxy_resources" $ctx | nindent 6 }}
       {{- end }}
+  {{- if $settings.volumeMounts }}
+  volumeMounts:
+    {{- range $settings.volumeMounts }}
+    - name: {{ .name }}
+      mountPath: {{ .mountPath }}
+      readOnly: {{ .readOnly | default true }}
+      {{- if .subPath }}
+      subPath: {{ .subPath }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
   ports:
     - containerPort: {{ $settings.listenPort | default "8082" }}
       name: {{ $settings.portName | default "https-metrics" }}
