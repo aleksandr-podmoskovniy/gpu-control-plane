@@ -76,6 +76,8 @@ jobs:
         run: cd src/controller && go test ./... -cover
       - name: Hooks coverage
         run: cd images/hooks && go test ./... -cover
+      - name: Kube API rewriter coverage
+        run: cd images/kube-api-rewriter && go test ./... -cover
 
   build:
     needs:
