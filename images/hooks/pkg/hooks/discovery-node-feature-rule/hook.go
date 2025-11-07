@@ -131,23 +131,25 @@ spec:
             VERSION_ID:
               op: Exists
       labelsTemplate: |
-        {{- range .kernel.version }}
-          {{- if eq .Name "full" }}
-        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" .Value }}
+        {{- $kernel := index . "kernel.version" -}}
+        {{- if $kernel }}
+          {{- with index $kernel "full" }}
+        gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
           {{- end }}
-          {{- if eq .Name "major" }}
-        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" .Value }}
+          {{- with index $kernel "major" }}
+        gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
           {{- end }}
-          {{- if eq .Name "minor" }}
-        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" .Value }}
+          {{- with index $kernel "minor" }}
+        gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
           {{- end }}
         {{- end }}
-        {{- range .system.osrelease }}
-          {{- if eq .Name "ID" }}
-        gpu.deckhouse.io/os.id={{ printf "%%v" .Value }}
+        {{- $os := index . "system.osrelease" -}}
+        {{- if $os }}
+          {{- with index $os "ID" }}
+        gpu.deckhouse.io/os.id={{ printf "%%v" . }}
           {{- end }}
-          {{- if eq .Name "VERSION_ID" }}
-        gpu.deckhouse.io/os.version_id={{ printf "%%v" .Value }}
+          {{- with index $os "VERSION_ID" }}
+        gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
           {{- end }}
         {{- end }}
 `

@@ -535,23 +535,19 @@ func TestCleanupResources(t *testing.T) {
 	}
 }
 
-func TestKernelLabelsTemplateHandlesStructuredPayload(t *testing.T) {
+func TestKernelLabelsTemplateHandlesMapPayload(t *testing.T) {
 	rule := buildNodeFeatureRuleFromTemplate(t)
 	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
 
 	data := map[string]any{
-		"kernel": map[string]any{
-			"version": []map[string]any{
-				{"Name": "full", "Value": "5.15.0-1075-azure"},
-				{"Name": "major", "Value": 5},
-				{"Name": "minor", "Value": 15},
-			},
+		"kernel.version": map[string]any{
+			"full":  "5.15.0-1075-azure",
+			"major": 5,
+			"minor": 15,
 		},
-		"system": map[string]any{
-			"osrelease": []map[string]any{
-				{"Name": "ID", "Value": "ubuntu"},
-				{"Name": "VERSION_ID", "Value": "22.04"},
-			},
+		"system.osrelease": map[string]any{
+			"ID":         "ubuntu",
+			"VERSION_ID": "22.04",
 		},
 	}
 
@@ -561,49 +557,6 @@ func TestKernelLabelsTemplateHandlesStructuredPayload(t *testing.T) {
 	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.minor=15")
 	assertContains(t, rendered, "gpu.deckhouse.io/os.id=ubuntu")
 	assertContains(t, rendered, "gpu.deckhouse.io/os.version_id=22.04")
-}
-
-func TestKernelLabelsTemplateHandlesAdditionalValues(t *testing.T) {
-	rule := buildNodeFeatureRuleFromTemplate(t)
-	kernelRule := findRuleByName(t, rule, "deckhouse.system.kernel-os")
-
-	data := map[string]any{
-		"kernel": map[string]any{
-			"version": []map[string]any{
-				{
-					"Name":  "full",
-					"Value": "6.6.1-custom",
-				},
-				{
-					"Name":  "major",
-					"Value": "6",
-				},
-				{
-					"Name":  "minor",
-					"Value": "6",
-				},
-			},
-		},
-		"system": map[string]any{
-			"osrelease": []map[string]any{
-				{
-					"Name":  "ID",
-					"Value": "talos",
-				},
-				{
-					"Name":  "VERSION_ID",
-					"Value": "1.6.7",
-				},
-			},
-		},
-	}
-
-	rendered := executeTemplate(t, kernelRule.LabelsTemplate, data)
-	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.full=6.6.1-custom")
-	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.major=6")
-	assertContains(t, rendered, "gpu.deckhouse.io/kernel.version.minor=6")
-	assertContains(t, rendered, "gpu.deckhouse.io/os.id=talos")
-	assertContains(t, rendered, "gpu.deckhouse.io/os.version_id=1.6.7")
 }
 
 func executeTemplate(t *testing.T, tpl string, data map[string]any) string {
