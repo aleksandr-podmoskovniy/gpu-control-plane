@@ -17,6 +17,8 @@
     - "--v={{ $settings.logLevel | default "2" }}"
     - "--logtostderr=true"
     - "--stale-cache-interval={{ $settings.staleCacheInterval | default "1h30m" }}"
+    - "--tls-cert-file=/var/lib/kube-rbac-proxy/tls/tls.crt"
+    - "--tls-private-key-file=/var/lib/kube-rbac-proxy/tls/tls.key"
   {{- if hasKey $settings "ignorePaths" }}
     - "--ignore-paths={{ $settings.ignorePaths }}"
   {{- else }}
@@ -63,4 +65,8 @@
     tcpSocket:
       port: {{ $settings.portName | default "https-metrics" }}
     initialDelaySeconds: 10
+  volumeMounts:
+    - name: kube-rbac-proxy-tls
+      mountPath: /var/lib/kube-rbac-proxy/tls
+      readOnly: true
 {{- end -}}

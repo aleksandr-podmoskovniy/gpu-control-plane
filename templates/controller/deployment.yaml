@@ -159,5 +159,8 @@ spec:
         - name: controller-config
           configMap:
             name: {{ include "gpuControlPlane.controllerConfigName" . }}
+        - name: kube-rbac-proxy-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.metricsTLSSecretName" . }}
         {{- include "kube_api_rewriter.kubeconfig_volume" . | nindent 8 }}
 {{- end }}

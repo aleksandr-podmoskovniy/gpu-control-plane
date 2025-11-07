@@ -124,7 +124,7 @@ spec:
               op: Exists
             full:
               op: Exists
-        - feature: system.os_release
+        - feature: system.osrelease
           matchExpressions:
             ID:
               op: Exists
@@ -133,22 +133,24 @@ spec:
       labelsTemplate: |
         {{- $kernel := index . "kernel.version" -}}
         {{- if $kernel }}
-          {{- with index $kernel "full" }}
+          {{- $kernelElements := index $kernel "elements" -}}
+          {{- with index $kernelElements "full" }}
         gpu.deckhouse.io/kernel.version.full={{ printf "%%v" . }}
           {{- end }}
-          {{- with index $kernel "major" }}
+          {{- with index $kernelElements "major" }}
         gpu.deckhouse.io/kernel.version.major={{ printf "%%v" . }}
           {{- end }}
-          {{- with index $kernel "minor" }}
+          {{- with index $kernelElements "minor" }}
         gpu.deckhouse.io/kernel.version.minor={{ printf "%%v" . }}
           {{- end }}
         {{- end }}
-        {{- $os := index . "system.os_release" -}}
+        {{- $os := index . "system.osrelease" -}}
         {{- if $os }}
-          {{- with index $os "ID" }}
+          {{- $osElements := index $os "elements" -}}
+          {{- with index $osElements "ID" }}
         gpu.deckhouse.io/os.id={{ printf "%%v" . }}
           {{- end }}
-          {{- with index $os "VERSION_ID" }}
+          {{- with index $osElements "VERSION_ID" }}
         gpu.deckhouse.io/os.version_id={{ printf "%%v" . }}
           {{- end }}
         {{- end }}

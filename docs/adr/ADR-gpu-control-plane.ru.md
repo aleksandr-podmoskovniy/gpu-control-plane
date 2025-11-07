@@ -259,7 +259,7 @@ flowchart LR
 - Модуль требует активный Node Feature Discovery. При включении модуля webhook
   подключает `NodeFeatureRule`, который помечает GPU и базовые характеристики на
   уровне узла. Используемые источники: `pci`, `kernel.loadedmodule`,
-  `kernel.version`, `system.os_release` и лейблы GFD (`nvidia.com/*`).
+  `kernel.version`, `system.osrelease` и лейблы GFD (`nvidia.com/*`).
 - MIG-стратегии GFD интерпретируются так: `none` — описываем целые GPU,
   `single` — все карты в одном профиле, `mixed` — публикуем отдельные лейблы
   `nvidia.com/mig-<gi>g.<mem>gb.*`; мы сохраняем агрегаты в `profilesSupported`
@@ -340,7 +340,7 @@ spec:
               op: Exists
             full:
               op: Exists
-        - feature: system.os_release
+        - feature: system.osrelease
           matchExpressions:
             ID:
               op: Exists
@@ -348,9 +348,9 @@ spec:
               op: Exists
       labelsTemplate: |
         {{- $kernel := index . "kernel.version" -}}
-        {{- $os := index . "system.os_release" -}}
-        {{- $kattrs := (index $kernel 0).Attributes -}}
-        {{- $oattrs := (index $os 0).Attributes -}}
+        {{- $os := index . "system.osrelease" -}}
+        {{- $kattrs := index $kernel "elements" -}}
+        {{- $oattrs := index $os "elements" -}}
         gpu.deckhouse.io/kernel.version.full={{ index $kattrs "full" }}
         gpu.deckhouse.io/kernel.version.major={{ index $kattrs "major" }}
         gpu.deckhouse.io/kernel.version.minor={{ index $kattrs "minor" }}
