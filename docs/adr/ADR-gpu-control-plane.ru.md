@@ -368,6 +368,9 @@ spec:
 **Назначение.** `gpu-inventory-controller` наблюдает `Node`, `NodeFeature`
 и выгрузки GFD/DCGM, создаёт по карте `GPUDevice`, агрегирует данные по узлу в
 `GPUNodeInventory` и сигнализирует остальным контроллерам о готовности.
+Он не принимает решений о назначении (`UnassignedDevice`, `Assigned`) — только
+фиксирует фактическое состояние железа и health-коды, которыми затем пользуются
+bootstrap и gpupool.
 
 - Для каждого PCI-устройства с vendor=0x10de создаётся `GPUDevice`. У ресурса
   нет `spec`; ключевые поля находятся в `status`:
@@ -378,7 +381,7 @@ spec:
   | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                             |
   | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                    |
   | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG |
-  | `status.state`       | `Unassigned` / `Reserved` / `Assigned` / `Faulted`                                                                                   | Отражает текущее состояние устройства                                         |
+| `status.state`       | `Unassigned` / `Reserved` / `Assigned` / `InUse` / `Faulted`                                                                          | Отражает текущее состояние устройства (в пуле свободно, зарезервировано, под нагрузкой, авария) |
   | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                              |
   | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                    |
   | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`           |
@@ -452,26 +455,48 @@ flowchart TD
    Если значение возвращают в `true`, контроллер автоматически переводит устройства
    в очередь и инициирует дальнейшие проверки.
 2. **Драйвер и toolkit.** Контроллер считывает `GPUNodeInventory.status.driver`,
-   `NodeFeature` и состояние `GPUDevice`. При несоответствии поддерживаемым версиям
-   создаёт события (`DriverMissing`, `DriverOutdated`, `ToolkitMissing`), переводит
-   устройства в `state=Unassigned` и оставляет узел в `ReadyForPooling=false`, пока
-   оператор не выполнит обновление (через существующие инструменты управления узлами).
+   `NodeFeature` и состояние `GPUDevice`, а также запускает короткоживущий
+   диагностический Pod на узле (probe), который проверяет наличие загруженных
+   модулей `nvidia*`, исполняемого `nvidia-smi`, версию CUDA/toolkit. При
+   несоответствии поддерживаемым версиям создаёт события (`DriverMissing`,
+   `DriverOutdated`, `ToolkitMissing`), оставляет узел в
+   `ReadyForPooling=false` и переводит устройства в `state=Faulted`
+   (`poolRef` будет снят `gpupool-controller`), пока оператор не выполнит
+   обновление.
 3. **Развёртывание базового стека.** После успешной проверки запускает (или
-   повторно синхронизирует) DaemonSet'ы GFD и DCGM,
-   ограничивая их `nodeAffinity` конкретным узлом. Пер-пуловые DaemonSet'ы
-   (`nvidia-device-plugin-<pool>`, `nvidia-mig-manager-<pool>`) разворачивает уже
-   `gpupool-controller` при очередном reconcile пула. Готовность DCGM
-   отражается в condition `MonitoringMissing=false`.
-4. **Синхронизация статусов.** Контроллер обновляет `GPUDevice.status` и
+   повторно синхронизирует) DaemonSet'ы GFD и DCGM, ограничивая их `nodeAffinity`
+   конкретным узлом.
+   - GFD — обязательный компонент: он дополняет `NodeFeature` картами,
+     NUMA/PCI-метаданными и используется inventory/admission.
+   - DCGM запускается даже если глобальный мониторинг отключён: его данные нужны
+     для health-проверок, автоскейлера и расчёта capacity. Если мониторинг DKP
+     включён, bootstrap добавляет Service/ServiceMonitor и exporter публикует
+     метрики в Prometheus; иначе DaemonSet работает только как источник
+     телеметрии для контроллеров.
+   Пер-пуловые DaemonSet'ы (`nvidia-device-plugin-<pool>`,
+   `nvidia-mig-manager-<pool>`) разворачивает уже `gpupool-controller` при
+   очередном reconcile пула. Готовность DCGM отражается в condition
+   `MonitoringMissing=false`.
+4. **Device plugin не активируется на этом этапе.** Пока карта не назначена в
+   `GPUPool`, ни один `nvidia-device-plugin` на узел не ставится: GPU остаётся в
+   состоянии `ReadyForPooling`, но недоступна для Pod'ов. Это гарантирует, что
+   workload не сможет занять карту до подтверждения пулом.
+5. **Синхронизация статусов.** Контроллер обновляет `GPUDevice.status` и
    `GPUNodeInventory.status.hw.devices` (UUID, температура, поддержка MIG/TimeSlice,
-   `state`, `autoAttach`), выставляет conditions `ReadyForPooling`, `UnassignedDevice`,
-   `MonitoringMissing` и др.
-5. **Снятие блокировок.** Когда все устройства на узле удовлетворяют требованиям,
+   `state`, `autoAttach`), выставляет conditions `ReadyForPooling`,
+   `MonitoringMissing` и др., но не управляет
+   `UnassignedDevice` — этим занимается `gpupool-controller`.
+6. **Снятие блокировок и деградации.** Когда все устройства на узле удовлетворяют требованиям,
    `GPUNodeInventory` получает `ReadyForPooling=true`, а карты переходят в
    `state=Unassigned`. `gpu-inventory-controller` добавляет подходящие пулы в
    `status.pools.pending[]`, после чего `gpupool-controller` ждёт подтверждения.
    Как только пул утвердит кандидата, карты переводятся в `Assigned` и
    перемещаются в `status.pools.assigned[]`.
+   Если bootstrap вновь фиксирует ошибку (драйвер пропал,
+   `MonitoringMissing=True`, DCGM сообщил `Faulted`), он снимает
+   `ReadyForPooling`, возвращает устройство в `state=Faulted` и публикует событие,
+   после чего `gpupool-controller` исключает карту из `assigned[]`, пересобирает
+   ConfigMap/DaemonSet и уменьшает capacity пула.
 
 #### Валидация и консистентность
 
@@ -484,9 +509,50 @@ flowchart TD
   выдачу пулу, пока оператор не устранит проблему — это обеспечивает согласованность
   между реальным состоянием узла и описанием в `GPUPool`.
 
+#### Жизненный цикл `GPUDevice`
+
+```mermaid
+stateDiagram-v2
+    [*] --> Discovered
+    Discovered --> ManagedDisabled: gpu.deckhouse.io/enabled=false (Inventory)
+    ManagedDisabled --> Discovered: enabled=true (Inventory)
+    Discovered --> ReadyForPooling: bootstrap проверил драйвер/toolkit/DCGM
+    Discovered --> Faulted: Driver/Toolkit/Monitoring issue (Bootstrap)
+    Faulted --> ReadyForPooling: bootstrap починил драйвер/GFD/DCGM
+    ReadyForPooling --> PendingAssignment: gpupool добавил в pending[] (AwaitingApproval)
+    PendingAssignment --> Assigned: аннотация или autoApprove (GPUPool)
+    PendingAssignment --> NoPoolMatched: нет пула по selector (GPUPool)
+    NoPoolMatched --> PendingAssignment: пул появился (GPUPool)
+    Assigned --> Reserved: временная бронь для Pod'а (Admission)
+    Reserved --> InUse: Pod стартовал (Admission)
+    Reserved --> Assigned: TTL истёк / Pod не стартовал (GPUPool)
+    InUse --> Assigned: Pod завершился (GPUPool)
+    Assigned --> Faulted: драйвер/DCGM/MIG сбой (Bootstrap → GPUPool)
+    InUse --> Faulted: сбой во время работы (Bootstrap → GPUPool)
+```
+
+- **Inventory** создаёт `GPUDevice`, отслеживает `gpu.deckhouse.io/enabled` и
+  выставляет `ManagedDisabled`, но не переводит карту в `ReadyForPooling`.
+- **Bootstrap** управляет переходами `Discovered ⇄ Faulted ⇄ ReadyForPooling`,
+  выставляя conditions `DriverMissing/ToolkitMissing/MonitoringMissing`.
+- Если проверка проходит сразу, карта идёт по «зелёной» ветке:
+  `Discovered → ReadyForPooling → PendingAssignment → Assigned`.
+- **GPUPool** берёт карты с `ReadyForPooling=true` и отвечает за condition
+  `UnassignedDevice`: `AwaitingApproval`, `NoPoolMatched`, `Faulted`. После
+  утверждения карта становится `Assigned` (свободна, но принадлежит пулу). Если
+  admission временно бронирует ресурс, `state=Reserved` — короткий цикл для
+  предотвращения гонок; карта остаётся привязанной к пулу. После запуска Pod'а
+  начинается `InUse`, а по завершении workload возвращаемся в `Assigned`.
+- **Admission/kube-scheduler** используют стандартные PriorityClass и preemption:
+  мы не внедряем свой приоритет, а опираемся на базовый механизм Kubernetes.
+
 #### 4. GPUPool
 
 `GPUPool` описывает логический пул GPU-ресурсов и правила работы с отдельными картами.
+Пока карта находится в состоянии `ReadyForPooling` и не подтверждена пулом, на
+узле работают только базовые DaemonSet'ы bootstrap (GFD/DCGM). Пер-пуловые
+`nvidia-device-plugin-*` и `nvidia-mig-manager-*` запускаются **только после**
+назначения карты, чтобы workloads не могли запросить ресурс до решения оператора.
 Ключевые элементы `spec`:
 
 > **Минимальный сценарий.** Чтобы начать работать, достаточно создать хотя бы один
@@ -543,10 +609,16 @@ flowchart TD
 ##### Операции с пулом и картами
 
 - **Подключение карт.** После bootstrap карты попадают в `pending[]`. Оператор подтверждает их через UI (ставится аннотация `gpu.deckhouse.io/assignment=<pool>`), либо контроллер делает это автоматически при `requireAnnotation=false`/`autoApproveSelector`. Отклонённые устройства получают аннотацию `gpu.deckhouse.io/ignore=true`.
+- **Управление состояниями.** Контроллер отвечает за condition `UnassignedDevice`:
+  - `AwaitingApproval` — карта готова (`ReadyForPooling=true`), ждёт подтверждения;
+  - `NoPoolMatched` — ни один пул не подходит под `nodeSelector/deviceSelector`;
+  - `Faulted`/`Maintenance` — bootstrap снял `ReadyForPooling`, карта исключена из `assigned[]`.
+  Inventory сообщает фактические данные, bootstrap — health, а gpupool фиксирует, кому карта доступна.
 - **Управление узлом.** Метка `gpu.deckhouse.io/enabled=true|false` включает или выключает подготовку узла. При отключении bootstrap снимает сервисные DaemonSet'ы, карты получают condition `ManagedDisabled`. Отдельные устройства можно временно исключить через `gpu.deckhouse.io/ignore=true`.
 - **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=Unassigned` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
 - **Переразметка (`spec.allocation`).** Контроллер переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin и (при необходимости) `nvidia-mig-manager` с новой конфигурацией. После успешной переподготовки публикуется событие `GPUPoolReconfigured`, maintenance снимается.
 - **Контроль аннотаций.** `gpupool-controller` регулярно сверяет состояние. Если обнаружена "висячая" аннотация (например, `assignment` без пула), создаётся событие `GPUAnnotationMismatch`, после чего лишние метки удаляются автоматически.
+- **Приоритеты workloads.** Распределение GPU не переопределяет стандартный механизм Kubernetes: Pod может задавать `priorityClassName`, kube-scheduler решает, кого вытеснить, а admission лишь проверяет наличие свободного ресурса пула. Дополнительные правила (например, резерв слотов под high-priority) описываются в `spec.access`/OperationPolicy.
 
 #### 5. GPUPool Controller
 
@@ -701,9 +773,9 @@ sequenceDiagram
   нужный объём. Scheduler не знает о понятии "пул"; проверку выполняет admission и
   device-plugin. Для предотвращения гонок admission использует оптимистичную
   блокировку (`resourceVersion`) при смене `state=Reserved`. Контроллер следит за
-  жизненным циклом Pod'ов: после успешного `Bind` переводит устройства в
-  `Assigned`, а при ошибке (Pod удалён, не удалось привязать, истёк таймаут)
-  автоматически снимает бронирование. Таймаут брони по умолчанию составляет
+  жизненным циклом Pod'ов: после успешного `Bind` и старта контейнера переводит устройства в
+  `InUse`, а при ошибке (Pod удалён, не удалось привязать, истёк таймаут)
+  автоматически снимает бронирование и возвращает их в `Assigned`. Таймаут брони по умолчанию составляет
   2 минуты; при его превышении устройство возвращается в `Unassigned`, а событие
   `GPUReservationExpired` помогает расследовать причину. Если kube-scheduler
   возвращает отказ, admission ждёт фиксированный backoff и повторяет попытку,
@@ -1141,6 +1213,38 @@ status:
 - **Дополнительные фоновые сервисы.** GFD, DCGM и device plugin запускаются точечно, но всё равно увеличивают footprint на GPU-узлах.
 - **Операционные действия остаются критичными.** Управление метками/аннотациями (`gpu.deckhouse.io/enabled`, `gpu.deckhouse.io/assignment`) требует регламентов; без них карты остаются в `ManagedDisabled` или `UnassignedDevice`.
 
+## Рассмотренные альтернативы
+
+### Полностью использовать NVIDIA GPU Operator
+
+**Почему отклонено.**
+
+- Оператор генерирует все манифесты (driver, toolkit, device-plugin, GFD/DCGM) сам, ожидая ClusterPolicy и полный контроль над узлом. Это противоречит архитектуре ADR, где bootstrap и gpupool управляют жизненным циклом по этапам и поддерживают несколько вендоров.
+- Требует повышенных прав и навязывает свой CRD/модель конфигурации, тогда как нам нужна единая DKP-политика (`ModuleConfig`, `GPUPool`, admission). Встраивание привело бы к дублированию CR и сложным синхронизациям.
+- Включает только NVIDIA-специфику. Добавление vGPU manager, GPUDirect, future AMD/Intel карт означало бы форк с большим количеством патчей, теряется ценность “коробочного” оператора.
+
+**Компромисс.**
+
+Мы заимствуем отдельные компоненты GPU Operator (например, `nvidia-validator`, DaemonSet'ы, scripts) и собираем их как самостоятельные контейнеры в модуле. При этом контроль пайплайна (inventory → bootstrap → пул) остаётся за нашими контроллерами, что позволяет масштабировать решение на разные вендоры и сценарии.
+
+### Назначать GPU через NodeSelector/taint вручную
+
+**Почему отклонено.**
+
+- Минимальные изменения (метки/taint вручную), но отсутствует единый статус устройств, квоты и автоматическая подготовка. Любая ошибка оператора приводит к простоям или выдаче не той карты.
+- Невозможно централизованно учесть MIG/time-slicing, health и политики доступа — всё остаётся в виде инструкций для дежурных.
+
+**Вывод.** Такой подход не масштабируется и не даёт автоматизации lifecycle.
+
+### Интегрироваться с HAMi/Volcano
+
+**Почему не базовое решение.**
+
+- HAMi/Volcano решают ускоренное планирование, но не покрывают требования по Dex/namespace-доступу, OpenAI proxy и observability.
+- Встраивание scheduler’а усложняет стек, а вопросы bootstrap/inventory/device-plugin остаются открытыми.
+
+**Вывод.** Рассматриваем как опциональное расширение позже, но не как основу control plane.
+
 ## Риски
 
 - **Неверная классификация устройств.** Если `NodeFeatureRule` не покрывает
@@ -1159,6 +1263,12 @@ status:
   применяет проверенные шаблоны, сравнивает итоговый `DaemonSet` с контрольной
   суммой, гарантирует уникальность сокета `/var/lib/kubelet/device-plugins/<pool>.sock`
   и при ошибках переводит узел в `Maintenance`, требуя ручного подтверждения.
+- **Выход карты из строя под нагрузкой.** Если драйвер/DCGM фиксирует fault уже
+  на рабочем пуле, device-plugin может потерять сокет. _Снижение:_ bootstrap
+  возвращает устройство в `state=Faulted`, gpupool автоматически удаляет его из
+  `assigned[]`, пересобирает ConfigMap и уменьшает capacity; ReplicaSet/Job
+  механизмы Kubernetes перезапускают Pod на оставшихся картах, а алерт
+  `GPUPoolCapacityLow` сигнализирует о дефиците.
 - **Перераздача ресурсов при тайм-шеринге.** Неверные параметры `timeSlice`
   могут привести к деградации latency. _Снижение:_ контроллер подставляет
   безопасное значение по умолчанию (`maxSlicesPerDevice=8`) и собирает метрики
@@ -1184,18 +1294,6 @@ status:
   увидим деградацию GPU. _Снижение:_ Bootstrap отслеживает `MonitoringMissing`,
   а правила `GPUDriverMissing`/`GPUPoolCapacityLow`/`GPUDeviceDegraded`
   сигнализируют об исчезновении данных.
-
-## Рассмотренные альтернативы
-
-- **Использовать только NVIDIA GPU Operator.** Дает базовый device-plugin и MIG
-  менеджер, но не решает вопросы доступа, квот и OpenAI-семантики — пришлось бы
-  писать крупный слой поверх. Отказались.
-- **Назначать GPU через NodeSelector/taint вручную.** Минимальные изменения,
-  но отсутствие единого статуса, квот и автоматической подготовки приводит к
-  росту операционных ошибок. Отказались.
-- **Интегрироваться с HAMi/Volcano.** Обеспечивают ускоренный scheduler, но не
-  покрывают наши требования по Dex/namespace-доступу и OpenAI proxy, а также
-  усложняют стек. Планируем рассматривать позже как расширение, не как базу.
 
 ## Статус
 
