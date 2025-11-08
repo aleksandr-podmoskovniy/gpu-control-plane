@@ -131,6 +131,7 @@ func TestHandleModuleStatusAddsConditionWhenNFDMissing(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"metrics":      map[string]any{},
 			},
 		},
 	}
@@ -178,6 +179,7 @@ func TestHandleModuleStatusAddsConditionWhenRuleError(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"metrics":      map[string]any{},
 				"nodeFeatureRule": map[string]any{
 					"error": "failed to apply NodeFeatureRule",
 				},
@@ -240,6 +242,7 @@ func TestHandleModuleStatusClearsStateWhenPrereqSatisfied(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"metrics":      map[string]any{},
 				"conditions": []any{map[string]any{
 					"type":    conditionTypePrereq,
 					"reason":  reasonNodeFeatureRuleFail,
@@ -283,6 +286,7 @@ func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
+				"metrics":      map[string]any{},
 				"nodeFeatureRule": map[string]any{
 					"error": "   ",
 				},
@@ -301,6 +305,33 @@ func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
 
 	if len(patchable.GetPatches()) != 0 {
 		t.Fatalf("expected no patches, got %d", len(patchable.GetPatches()))
+	}
+}
+
+func TestHandleModuleStatusEnsuresMetricsPath(t *testing.T) {
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"moduleConfig": map[string]any{"enabled": true},
+			},
+		},
+	}
+
+	input, patchable := newHookInput(t, values)
+
+	if err := handleModuleStatus(context.Background(), input); err != nil {
+		t.Fatalf("handleModuleStatus returned error: %v", err)
+	}
+
+	patches := patchable.GetPatches()
+	if len(patches) != 1 {
+		t.Fatalf("expected single patch for metrics path, got %d: %#v", len(patches), patches)
+	}
+	if patches[0].Op != "add" || patches[0].Path != slashPath(settings.InternalMetricsPath) {
+		t.Fatalf("unexpected patch: %+v", patches[0])
+	}
+	if payload := decodePatchValue(t, patches[0].Value); payload == nil {
+		t.Fatalf("expected payload map, got nil")
 	}
 }
 

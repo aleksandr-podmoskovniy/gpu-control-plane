@@ -49,6 +49,8 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 		return nil
 	}
 
+	ensureInternalMap(input, settings.InternalMetricsPath)
+
 	var conditions []map[string]any
 
 	if requireNFDModule && !isModuleEnabled(input.Values.Get("global.enabledModules"), "node-feature-discovery") {
@@ -121,4 +123,12 @@ func isModuleEnabled(modules gjson.Result, name string) bool {
 		}
 	}
 	return false
+}
+
+func ensureInternalMap(input *pkg.HookInput, path string) {
+	current := input.Values.Get(path)
+	if current.Exists() && current.Type != gjson.Null && current.IsObject() {
+		return
+	}
+	input.Values.Set(path, map[string]any{})
 }
