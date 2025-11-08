@@ -36,7 +36,7 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		tlscertificate.ClusterDomainSAN(fmt.Sprintf("%s-metrics.%s.svc", settings.ControllerAppName, settings.ModuleNamespace)),
 	}),
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
-	CommonCAValuesPath:   settings.InternalRootCAPath,
+	CommonCAValuesPath:   settings.GlobalKubeRBACProxyCAPath,
 	BeforeHookCheck: func(input *pkg.HookInput) bool {
 		cfg := input.Values.Get(settings.InternalModuleConfigPath)
 		if !cfg.Exists() || !cfg.Get("enabled").Bool() {

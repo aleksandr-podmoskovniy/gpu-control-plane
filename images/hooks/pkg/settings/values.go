@@ -27,6 +27,7 @@ const (
 	InternalNodeFeatureRulePath   = internalRoot + ".nodeFeatureRule"
 	InternalRootCAPath            = internalRoot + ".rootCA"
 	InternalCustomCertificatePath = internalRoot + ".customCertificateData"
+	GlobalKubeRBACProxyCAPath     = "global.internal.modules.kubeRBACProxyCA"
 
 	HTTPSConfigPath = ConfigRoot + ".https"
 )
