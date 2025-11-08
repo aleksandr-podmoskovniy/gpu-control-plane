@@ -40,10 +40,6 @@ gpu-control-plane
 {{ include "gpuControlPlane.controllerName" . }}-metrics-tls
 {{- end -}}
 
-{{- define "gpuControlPlane.metricsCASecretName" -}}
-{{ include "gpuControlPlane.controllerName" . }}-metrics-ca
-{{- end -}}
-
 {{- define "gpuControlPlane.nodeFeatureRuleName" -}}
 deckhouse-gpu-kernel-os
 {{- end -}}

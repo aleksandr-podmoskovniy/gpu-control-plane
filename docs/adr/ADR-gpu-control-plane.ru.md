@@ -375,17 +375,17 @@ bootstrap и gpupool.
 - Для каждого PCI-устройства с vendor=0x10de создаётся `GPUDevice`. У ресурса
   нет `spec`; ключевые поля находятся в `status`:
 
-  | Поле                 | Содержимое                                                                                                                           | Комментарий                                                                   |
-  | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-  | `status.nodeName`    | Узел, на котором найдена карта                                                                                                       | Используется при подборе пула                                                 |
-  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                             |
-  | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                    |
-  | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG |
-| `status.state`       | `Unassigned` / `Reserved` / `Assigned` / `InUse` / `Faulted`                                                                          | Отражает текущее состояние устройства (в пуле свободно, зарезервировано, под нагрузкой, авария) |
-  | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                              |
-  | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                    |
-  | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`           |
-  | `status.health.*`    | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени                                                              | Используется мониторингом и контроллерами для диагностики                     |
+  | Поле                 | Содержимое                                                                                                                           | Комментарий                                                                                     |
+  | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+  | `status.nodeName`    | Узел, на котором найдена карта                                                                                                       | Используется при подборе пула                                                                   |
+  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                                               |
+  | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                                      |
+  | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG                   |
+  | `status.state`       | `Unassigned` / `Reserved` / `Assigned` / `InUse` / `Faulted`                                                                         | Отражает текущее состояние устройства (в пуле свободно, зарезервировано, под нагрузкой, авария) |
+  | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                                                |
+  | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                                      |
+  | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`                             |
+  | `status.health.*`    | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени                                                              | Используется мониторингом и контроллерами для диагностики                                       |
 
   При исчезновении карты ресурс удаляется вместе с финалайзером; ручное
   редактирование не поддерживается.
@@ -473,10 +473,10 @@ flowchart TD
      включён, bootstrap добавляет Service/ServiceMonitor и exporter публикует
      метрики в Prometheus; иначе DaemonSet работает только как источник
      телеметрии для контроллеров.
-   Пер-пуловые DaemonSet'ы (`nvidia-device-plugin-<pool>`,
-   `nvidia-mig-manager-<pool>`) разворачивает уже `gpupool-controller` при
-   очередном reconcile пула. Готовность DCGM отражается в condition
-   `MonitoringMissing=false`.
+     Пер-пуловые DaemonSet'ы (`nvidia-device-plugin-<pool>`,
+     `nvidia-mig-manager-<pool>`) разворачивает уже `gpupool-controller` при
+     очередном reconcile пула. Готовность DCGM отражается в condition
+     `MonitoringMissing=false`.
 4. **Device plugin не активируется на этом этапе.** Пока карта не назначена в
    `GPUPool`, ни один `nvidia-device-plugin` на узел не ставится: GPU остаётся в
    состоянии `ReadyForPooling`, но недоступна для Pod'ов. Это гарантирует, что
@@ -613,7 +613,7 @@ stateDiagram-v2
   - `AwaitingApproval` — карта готова (`ReadyForPooling=true`), ждёт подтверждения;
   - `NoPoolMatched` — ни один пул не подходит под `nodeSelector/deviceSelector`;
   - `Faulted`/`Maintenance` — bootstrap снял `ReadyForPooling`, карта исключена из `assigned[]`.
-  Inventory сообщает фактические данные, bootstrap — health, а gpupool фиксирует, кому карта доступна.
+    Inventory сообщает фактические данные, bootstrap — health, а gpupool фиксирует, кому карта доступна.
 - **Управление узлом.** Метка `gpu.deckhouse.io/enabled=true|false` включает или выключает подготовку узла. При отключении bootstrap снимает сервисные DaemonSet'ы, карты получают condition `ManagedDisabled`. Отдельные устройства можно временно исключить через `gpu.deckhouse.io/ignore=true`.
 - **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=Unassigned` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
 - **Переразметка (`spec.allocation`).** Контроллер переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin и (при необходимости) `nvidia-mig-manager` с новой конфигурацией. После успешной переподготовки публикуется событие `GPUPoolReconfigured`, maintenance снимается.

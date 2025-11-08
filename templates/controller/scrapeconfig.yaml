@@ -20,11 +20,7 @@ spec:
       key: token
   scheme: HTTPS
   tlsConfig:
-    serverName: '{{ include "gpuControlPlane.controllerName" . }}-metrics.{{ include "gpuControlPlane.namespace" . }}.svc.{{ $clusterDomain }}'
-    ca:
-      secret:
-        name: {{ include "gpuControlPlane.metricsCASecretName" . }}
-        key: ca.crt
+    insecureSkipVerify: true
   metricsPath: /metrics
   staticConfigs:
     - targets:
