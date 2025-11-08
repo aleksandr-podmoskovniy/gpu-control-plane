@@ -73,6 +73,7 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 	if state == nil {
 		clearModuleValues(input)
 		input.Values.Remove(settings.InternalModuleValidationPath)
+		input.Values.Remove(settings.InternalMetricsPath)
 		return nil
 	}
 
@@ -88,6 +89,13 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 		payload["settings"] = sanitized
 	}
 	input.Values.Set(settings.InternalModuleConfigPath, payload)
+
+	if state.Enabled {
+		ensureValuesMap(input.Values, settings.InternalMetricsPath)
+		ensureValuesMap(input.Values, settings.InternalMetricsCertPath)
+	} else {
+		input.Values.Remove(settings.InternalMetricsPath)
+	}
 
 	setValueOrRemove(input, settings.ConfigRoot+".managedNodes", sanitized["managedNodes"])
 	setValueOrRemove(input, settings.ConfigRoot+".deviceApproval", sanitized["deviceApproval"])
@@ -155,6 +163,7 @@ func clearModuleValues(input *pkg.HookInput) {
 	input.Values.Remove(settings.InternalModuleConfigPath)
 	input.Values.Remove(settings.InternalControllerPath + ".config")
 	input.Values.Remove(settings.HTTPSConfigPath)
+	input.Values.Remove(settings.InternalMetricsPath)
 }
 
 func setValueOrRemove(input *pkg.HookInput, path string, value any) {
