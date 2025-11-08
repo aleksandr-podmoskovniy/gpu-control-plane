@@ -16,6 +16,7 @@ package tls_certificates_metrics_proxy
 
 import (
 	"fmt"
+	"strings"
 
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
 	"github.com/deckhouse/module-sdk/pkg"
@@ -36,7 +37,7 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		tlscertificate.ClusterDomainSAN(fmt.Sprintf("%s-metrics.%s.svc", settings.ControllerAppName, settings.ModuleNamespace)),
 	}),
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
-	CommonCAValuesPath:   settings.GlobalKubeRBACProxyCAPath,
+	CommonCAValuesPath:   settings.InternalRootCAPath,
 	BeforeHookCheck: func(input *pkg.HookInput) bool {
 		cfg := input.Values.Get(settings.InternalModuleConfigPath)
 		if !cfg.Exists() || !cfg.Get("enabled").Bool() {
@@ -46,6 +47,19 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		metrics := input.Values.Get(settings.InternalMetricsPath)
 		if !metrics.Exists() || !metrics.IsObject() {
 			return false
+		}
+
+		if globalCA := input.Values.Get(settings.GlobalKubeRBACProxyCAPath); globalCA.Exists() && globalCA.IsObject() {
+			caData := map[string]any{}
+			if crt := strings.TrimSpace(globalCA.Get("cert").Str); crt != "" {
+				caData["crt"] = crt
+			}
+			if key := strings.TrimSpace(globalCA.Get("key").Str); key != "" {
+				caData["key"] = key
+			}
+			if len(caData) > 0 {
+				input.Values.Set(settings.InternalRootCAPath, caData)
+			}
 		}
 
 		cert := metrics.Get("cert")
