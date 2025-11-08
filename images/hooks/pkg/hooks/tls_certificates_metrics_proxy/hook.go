@@ -15,12 +15,20 @@
 package tls_certificates_metrics_proxy
 
 import (
+	"context"
 	"fmt"
 
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
+	"github.com/deckhouse/module-sdk/pkg"
+	"github.com/deckhouse/module-sdk/pkg/registry"
 
 	"hooks/pkg/settings"
 )
+
+var _ = registry.RegisterFunc(&pkg.HookConfig{
+	OnBeforeHelm: &pkg.OrderedConfig{Order: 4},
+	Queue:        settings.ModuleQueue,
+}, ensureMetricsValues)
 
 var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLSHookConf{
 	CN:            settings.MetricsProxyCertCN,
@@ -36,3 +44,22 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
 	CommonCAValuesPath:   settings.InternalRootCAPath,
 })
+
+func ensureMetricsValues(_ context.Context, input *pkg.HookInput) error {
+	cfg := input.Values.Get(settings.InternalModuleConfigPath)
+	if !cfg.Exists() || !cfg.Get("enabled").Bool() {
+		return nil
+	}
+
+	ensureMap(input, settings.InternalMetricsPath)
+	ensureMap(input, settings.InternalMetricsCertPath)
+	return nil
+}
+
+func ensureMap(input *pkg.HookInput, path string) {
+	current := input.Values.Get(path)
+	if current.Exists() && current.IsObject() {
+		return
+	}
+	input.Values.Set(path, map[string]any{})
+}
