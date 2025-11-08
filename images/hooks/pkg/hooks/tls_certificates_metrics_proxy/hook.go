@@ -46,11 +46,6 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 })
 
 func ensureMetricsValues(_ context.Context, input *pkg.HookInput) error {
-	cfg := input.Values.Get(settings.InternalModuleConfigPath)
-	if !cfg.Exists() || !cfg.Get("enabled").Bool() {
-		return nil
-	}
-
 	ensureMap(input, settings.InternalMetricsPath)
 	ensureMap(input, settings.InternalMetricsCertPath)
 	return nil
