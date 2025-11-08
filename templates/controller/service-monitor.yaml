@@ -23,7 +23,7 @@ spec:
         key: token
       path: /metrics
       port: metrics
-      scheme: HTTPS
+      scheme: https
       tlsConfig:
         insecureSkipVerify: true
 {{- end }}
