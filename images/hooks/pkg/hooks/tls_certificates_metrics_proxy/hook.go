@@ -33,6 +33,7 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		fmt.Sprintf("%s-metrics", settings.ControllerAppName),
 		fmt.Sprintf("%s-metrics.%s", settings.ControllerAppName, settings.ModuleNamespace),
 		fmt.Sprintf("%s-metrics.%s.svc", settings.ControllerAppName, settings.ModuleNamespace),
+		tlscertificate.ClusterDomainSAN(fmt.Sprintf("%s-metrics.%s.svc", settings.ControllerAppName, settings.ModuleNamespace)),
 	}),
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
 	CommonCAValuesPath:   settings.InternalRootCAPath,
