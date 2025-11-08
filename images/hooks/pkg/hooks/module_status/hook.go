@@ -50,6 +50,7 @@ func handleModuleStatus(_ context.Context, input *pkg.HookInput) error {
 	}
 
 	ensureInternalMap(input, settings.InternalMetricsPath)
+	ensureInternalMap(input, settings.InternalMetricsCertPath)
 
 	var conditions []map[string]any
 

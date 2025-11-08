@@ -131,7 +131,7 @@ func TestHandleModuleStatusAddsConditionWhenNFDMissing(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
-				"metrics":      map[string]any{},
+				"metrics":      map[string]any{"cert": map[string]any{}},
 			},
 		},
 	}
@@ -179,7 +179,7 @@ func TestHandleModuleStatusAddsConditionWhenRuleError(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
-				"metrics":      map[string]any{},
+				"metrics":      map[string]any{"cert": map[string]any{}},
 				"nodeFeatureRule": map[string]any{
 					"error": "failed to apply NodeFeatureRule",
 				},
@@ -242,7 +242,7 @@ func TestHandleModuleStatusClearsStateWhenPrereqSatisfied(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
-				"metrics":      map[string]any{},
+				"metrics":      map[string]any{"cert": map[string]any{}},
 				"conditions": []any{map[string]any{
 					"type":    conditionTypePrereq,
 					"reason":  reasonNodeFeatureRuleFail,
@@ -286,7 +286,7 @@ func TestHandleModuleStatusConditionWithoutMessage(t *testing.T) {
 		settings.ConfigRoot: map[string]any{
 			"internal": map[string]any{
 				"moduleConfig": map[string]any{"enabled": true},
-				"metrics":      map[string]any{},
+				"metrics":      map[string]any{"cert": map[string]any{}},
 				"nodeFeatureRule": map[string]any{
 					"error": "   ",
 				},
@@ -324,14 +324,20 @@ func TestHandleModuleStatusEnsuresMetricsPath(t *testing.T) {
 	}
 
 	patches := patchable.GetPatches()
-	if len(patches) != 1 {
-		t.Fatalf("expected single patch for metrics path, got %d: %#v", len(patches), patches)
+	if len(patches) != 2 {
+		t.Fatalf("expected two patches (metrics and cert), got %d: %#v", len(patches), patches)
 	}
 	if patches[0].Op != "add" || patches[0].Path != slashPath(settings.InternalMetricsPath) {
-		t.Fatalf("unexpected patch: %+v", patches[0])
+		t.Fatalf("unexpected first patch: %+v", patches[0])
 	}
 	if payload := decodePatchValue(t, patches[0].Value); payload == nil {
-		t.Fatalf("expected payload map, got nil")
+		t.Fatalf("expected payload map for metrics, got nil")
+	}
+	if patches[1].Op != "add" || patches[1].Path != slashPath(settings.InternalMetricsCertPath) {
+		t.Fatalf("unexpected second patch: %+v", patches[1])
+	}
+	if payload := decodePatchValue(t, patches[1].Value); payload == nil {
+		t.Fatalf("expected payload map for cert, got nil")
 	}
 }
 
