@@ -1,0 +1,14 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
+{{- $component := "dcgm" }}
+{{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace }}
+  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm") | nindent 2 }}
+automountServiceAccountToken: false
+{{- end }}

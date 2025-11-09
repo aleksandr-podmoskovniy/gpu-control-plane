@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestNodeReadinessRequeuesUntilReady(t *testing.T) {
@@ -33,7 +33,7 @@ func TestNodeReadinessRequeuesUntilReady(t *testing.T) {
 		t.Fatal("expected non-empty handler name")
 	}
 
-	node := &gpuv1alpha1.GPUNodeInventory{Status: gpuv1alpha1.GPUNodeInventoryStatus{}}
+	node := &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{}}
 
 	res, err := h.HandleNode(context.Background(), node)
 	if err != nil {

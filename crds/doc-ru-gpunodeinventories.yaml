@@ -41,7 +41,7 @@ spec:
                           precision:
                             description: Поддерживаемые типы точности вычислений.
                           state:
-                            description: Текущее состояние карты на узле.
+                            description: Текущее состояние карты (`Discovered`, `ReadyForPooling`, `PendingAssignment`, `NoPoolMatched`, `Assigned`, `Reserved`, `InUse`, `Faulted`; значение `Unassigned` оставлено для обратной совместимости).
                           autoAttach:
                             description: Включена ли автоматическая привязка карты к пулам.
                           reason:

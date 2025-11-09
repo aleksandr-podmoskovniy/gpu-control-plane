@@ -20,18 +20,31 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestDeviceStateHandlerSetsDefault(t *testing.T) {
 	h := NewDeviceStateHandler(testr.New(t))
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 
 	if _, err := h.HandleDevice(context.Background(), device); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if device.Status.State != gpuv1alpha1.GPUDeviceStateUnassigned {
+	if device.Status.State != v1alpha1.GPUDeviceStateDiscovered {
 		t.Fatalf("state not defaulted: %s", device.Status.State)
+	}
+}
+
+func TestDeviceStateHandlerNormalizesLegacyUnassigned(t *testing.T) {
+	h := NewDeviceStateHandler(testr.New(t))
+	device := &v1alpha1.GPUDevice{}
+	device.Status.State = v1alpha1.GPUDeviceStateUnassigned
+
+	if _, err := h.HandleDevice(context.Background(), device); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device.Status.State != v1alpha1.GPUDeviceStateDiscovered {
+		t.Fatalf("legacy state not normalised: %s", device.Status.State)
 	}
 }
 

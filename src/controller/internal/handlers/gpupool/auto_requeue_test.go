@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestMaintenanceHandler(t *testing.T) {
@@ -31,7 +31,7 @@ func TestMaintenanceHandler(t *testing.T) {
 	if h.Name() == "" {
 		t.Fatal("expected non-empty handler name")
 	}
-	pool := &gpuv1alpha1.GPUPool{}
+	pool := &v1alpha1.GPUPool{}
 
 	res, err := h.HandlePool(context.Background(), pool)
 	if err != nil || res.Requeue {

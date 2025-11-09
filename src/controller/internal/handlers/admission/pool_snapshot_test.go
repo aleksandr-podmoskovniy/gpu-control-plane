@@ -22,12 +22,12 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestPoolSnapshotHandler(t *testing.T) {
 	h := NewPoolSnapshotHandler(testr.New(t))
-	pool := &gpuv1alpha1.GPUPool{}
+	pool := &v1alpha1.GPUPool{}
 	pool.Status.Capacity.Total = 5
 
 	if _, err := h.SyncPool(context.Background(), pool); err != nil {
@@ -39,7 +39,7 @@ func TestPoolSnapshotHandler(t *testing.T) {
 		t.Fatal("snapshot annotation missing")
 	}
 
-	var status gpuv1alpha1.GPUPoolStatus
+	var status v1alpha1.GPUPoolStatus
 	if err := json.Unmarshal([]byte(value), &status); err != nil {
 		t.Fatalf("annotation not valid json: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestPoolSnapshotHandlerName(t *testing.T) {
 
 func TestPoolSnapshotHandlerPreservesExistingAnnotations(t *testing.T) {
 	h := NewPoolSnapshotHandler(testr.New(t))
-	pool := &gpuv1alpha1.GPUPool{}
+	pool := &v1alpha1.GPUPool{}
 	pool.Annotations = map[string]string{"existing": "value"}
 
 	if _, err := h.SyncPool(context.Background(), pool); err != nil {
@@ -76,7 +76,7 @@ func TestPoolSnapshotHandlerMarshalError(t *testing.T) {
 	poolStatusMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal fail") }
 
 	h := NewPoolSnapshotHandler(testr.New(t))
-	if _, err := h.SyncPool(context.Background(), &gpuv1alpha1.GPUPool{}); err == nil {
+	if _, err := h.SyncPool(context.Background(), &v1alpha1.GPUPool{}); err == nil {
 		t.Fatal("expected marshal error")
 	}
 }

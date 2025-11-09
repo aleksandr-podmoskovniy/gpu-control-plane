@@ -17,13 +17,13 @@ package contracts
 import (
 	"context"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 // InventoryHandler reconciles a single GPUDevice object and may produce status updates or events.
 type InventoryHandler interface {
 	Named
-	HandleDevice(ctx context.Context, device *gpuv1alpha1.GPUDevice) (Result, error)
+	HandleDevice(ctx context.Context, device *v1alpha1.GPUDevice) (Result, error)
 }
 
 // InventoryRegistry stores inventory handlers.

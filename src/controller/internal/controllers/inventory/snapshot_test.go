@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
@@ -372,7 +372,7 @@ func TestParseMIGConfigCollectsMetrics(t *testing.T) {
 	}
 
 	cfg := parseMIGConfig(labels)
-	if !cfg.Capable || cfg.Strategy != gpuv1alpha1.GPUMIGStrategyMixed {
+	if !cfg.Capable || cfg.Strategy != v1alpha1.GPUMIGStrategyMixed {
 		t.Fatalf("unexpected MIG config: %+v", cfg)
 	}
 	if len(cfg.ProfilesSupported) != 1 || cfg.ProfilesSupported[0] != "mig-1g.10gb" {
@@ -591,7 +591,7 @@ func TestParseMIGConfigVariants(t *testing.T) {
 	if !cfg.Capable {
 		t.Fatal("expected MIG capable true")
 	}
-	if cfg.Strategy != gpuv1alpha1.GPUMIGStrategyMixed {
+	if cfg.Strategy != v1alpha1.GPUMIGStrategyMixed {
 		t.Fatalf("unexpected strategy: %s", cfg.Strategy)
 	}
 	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-1g.10gb" || cfg.Types[0].Count != 2 {
@@ -627,7 +627,7 @@ func TestParseMIGConfigUnknownStrategy(t *testing.T) {
 	cfg := parseMIGConfig(map[string]string{
 		"nvidia.com/mig.strategy": "unsupported",
 	})
-	if cfg.Strategy != gpuv1alpha1.GPUMIGStrategyNone {
+	if cfg.Strategy != v1alpha1.GPUMIGStrategyNone {
 		t.Fatalf("expected strategy fallback to none, got %s", cfg.Strategy)
 	}
 }
@@ -655,7 +655,7 @@ func TestParseMIGConfigAlternativeLabels(t *testing.T) {
 		"nvidia.com/mig-2g.20gb.ready":     "1",
 		"nvidia.com/mig-2g.20gb.available": "1",
 	})
-	if !cfg.Capable || cfg.Strategy != gpuv1alpha1.GPUMIGStrategySingle {
+	if !cfg.Capable || cfg.Strategy != v1alpha1.GPUMIGStrategySingle {
 		t.Fatalf("expected capability and strategy from alternative labels, got %+v", cfg)
 	}
 	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-2g.20gb" {

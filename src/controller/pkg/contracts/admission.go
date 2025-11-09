@@ -17,13 +17,13 @@ package contracts
 import (
 	"context"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 // AdmissionHandler validates GPUPool state before it is handed to the webhook implementation.
 type AdmissionHandler interface {
 	Named
-	SyncPool(ctx context.Context, pool *gpuv1alpha1.GPUPool) (Result, error)
+	SyncPool(ctx context.Context, pool *v1alpha1.GPUPool) (Result, error)
 }
 
 // AdmissionRegistry stores admission handlers.

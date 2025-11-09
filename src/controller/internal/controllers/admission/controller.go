@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -166,7 +166,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 
 	builder := r.builders(mgr).
 		Named(controllerName).
-		For(&gpuv1alpha1.GPUPool{}).
+		For(&v1alpha1.GPUPool{}).
 		WithOptions(options)
 
 	if cache := mgr.GetCache(); r.moduleWatcherFactory != nil && cache != nil {
@@ -191,7 +191,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	log := crlog.FromContext(ctx).WithValues("pool", req.Name)
 	ctx = logr.NewContext(ctx, log)
 
-	pool := &gpuv1alpha1.GPUPool{}
+	pool := &v1alpha1.GPUPool{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, pool); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("GPUPool removed")
@@ -219,7 +219,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) requeueAllPools(ctx context.Context) []reconcile.Request {
-	list := &gpuv1alpha1.GPUPoolList{}
+	list := &v1alpha1.GPUPoolList{}
 	if err := r.client.List(ctx, list); err != nil {
 		if r.log.GetSink() != nil {
 			r.log.Error(err, "list GPUPool to resync after module config change")

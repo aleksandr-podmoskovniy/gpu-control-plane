@@ -17,13 +17,13 @@ package contracts
 import (
 	"context"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 // PoolHandler reconciles GPUPool resources and produces device assignments.
 type PoolHandler interface {
 	Named
-	HandlePool(ctx context.Context, pool *gpuv1alpha1.GPUPool) (Result, error)
+	HandlePool(ctx context.Context, pool *v1alpha1.GPUPool) (Result, error)
 }
 
 // PoolRegistry stores pool handlers.

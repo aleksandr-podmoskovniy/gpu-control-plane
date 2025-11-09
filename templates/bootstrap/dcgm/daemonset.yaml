@@ -1,0 +1,74 @@
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $dcgm := (dig "bootstrap" "dcgm" .Values.gpuControlPlane) | default dict }}
+{{- if ne (default true ($dcgm.enabled)) false }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
+{{- $component := "dcgm" }}
+{{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
+{{- $image := include "helm_lib_module_image" (list . "nvidiaDcgm") }}
+{{- $port := (default 5555 $dcgm.port) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace }}
+  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm") | nindent 2 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: {{ $name }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace }}
+  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm") | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm") | nindent 6 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
+      {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
+      {{- include "gpuControlPlane.bootstrap.affinity" . | nindent 6 }}
+      containers:
+        - name: dcgm
+          image: {{ $image }}
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/nv-hostengine"]
+          args: ["-n", "-b", "0.0.0.0", "--log-level", "NONE", "-f", "-"]
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DISABLE_REQUIRE
+              value: "true"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility,compat32"
+          securityContext:
+            privileged: true
+          resources:
+            requests:
+              {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
+              cpu: 200m
+              memory: 512Mi
+          ports:
+            - name: dcgm
+              containerPort: {{ $port }}
+          volumeMounts:
+            - name: run-nvidia
+              mountPath: /run/nvidia
+              mountPropagation: HostToContainer
+      volumes:
+        - name: run-nvidia
+          hostPath:
+            path: /run/nvidia
+            type: Directory
+{{- end }}
+{{- end }}

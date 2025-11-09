@@ -71,6 +71,39 @@ deckhouse-gpu-kernel-os
 {{- end }}
 {{- end -}}
 
+{{- define "gpuControlPlane.managedNodeLabelKey" -}}
+{{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
+{{- $labelKey := $managed.labelKey | default "gpu.deckhouse.io/enabled" -}}
+{{- $labelKey -}}
+{{- end -}}
+
+{{- define "gpuControlPlane.managedNodeMatchExpression" -}}
+- key: {{ include "gpuControlPlane.managedNodeLabelKey" . }}
+  operator: NotIn
+  values:
+    - "false"
+{{- end -}}
+
+{{- define "gpuControlPlane.managedNodePresentExpression" -}}
+{{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
+{{- $presentLabel := $managed.presentLabelKey | default "gpu.deckhouse.io/present" -}}
+{{- if $presentLabel }}
+- key: {{ $presentLabel }}
+  operator: In
+  values:
+    - "true"
+{{- end -}}
+{{- end -}}
+
+{{- define "gpuControlPlane.managedNodeTolerations" -}}
+{{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
+{{- if $managed.tolerations }}
+{{ include "helm_lib_tolerations" (tuple . "custom" $managed.tolerations) }}
+{{- else }}
+{{ include "helm_lib_tolerations" (tuple . "any-node") }}
+{{- end }}
+{{- end -}}
+
 {{- define "gpuControlPlane.isEnabled" -}}
 {{- if and (hasKey .Values "gpuControlPlane") (hasKey .Values.gpuControlPlane "internal") }}
   {{- if (dig "internal" "moduleConfig" "enabled" false .Values.gpuControlPlane) -}}

@@ -28,7 +28,6 @@ const (
 	RootCASecretName        = "gpu-control-plane-ca"
 	MetricsProxyCertCN      = "gpu-control-plane-metrics"
 	MetricsTLSSecretName    = "gpu-control-plane-controller-metrics-tls"
-	MetricsCASecretName     = "gpu-control-plane-metrics-ca"
 	MonitoringNamespace     = "d8-monitoring"
 
 	NodeFeatureRuleName       = "deckhouse-gpu-kernel-os"

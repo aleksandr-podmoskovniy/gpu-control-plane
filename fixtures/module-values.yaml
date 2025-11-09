@@ -31,6 +31,10 @@ global:
         goHooks: sha256:0000000000000000000000000000000000000000000000000000000000000000
         preDeleteHook: sha256:0000000000000000000000000000000000000000000000000000000000000000
         kubeApiRewriter: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gpuValidator: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        nvidiaDevicePlugin: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        nvidiaDcgm: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        nvidiaDcgmExporter: sha256:0000000000000000000000000000000000000000000000000000000000000000
   modules:
     placement:
       customTolerationKeys: []
@@ -60,6 +64,20 @@ moduleConfig:
       topologyKey: topology.kubernetes.io/zone
     inventory:
       resyncPeriod: 30s
+    bootstrap:
+      migStrategy: single
+      gfd:
+        enabled: true
+        sleepInterval: 60s
+        featuresDir: /etc/kubernetes/node-feature-discovery/features.d
+        hostSysPath: /sys
+        failOnInitError: true
+      dcgm:
+        enabled: true
+        port: 5555
+      dcgmExporter:
+        enabled: true
+        port: 9400
     monitoring:
       serviceMonitor: true
 gpuControlPlane:
@@ -76,6 +94,20 @@ gpuControlPlane:
     resyncPeriod: 30s
   monitoring:
     serviceMonitor: true
+  bootstrap:
+    migStrategy: single
+    gfd:
+      enabled: true
+      sleepInterval: 60s
+      featuresDir: /etc/kubernetes/node-feature-discovery/features.d
+      hostSysPath: /sys
+      failOnInitError: true
+    dcgm:
+      enabled: true
+      port: 5555
+    dcgmExporter:
+      enabled: true
+      port: 9400
   runtime:
     controller:
       replicas: 1

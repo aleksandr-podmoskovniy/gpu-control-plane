@@ -192,6 +192,21 @@ func TestMetricsOptionsFromEnvReadCAError(t *testing.T) {
 	}
 }
 
+func TestMetricsOptionsFromEnvCustomBindAddress(t *testing.T) {
+	t.Setenv("METRICS_BIND_ADDRESS", "  :9444  ")
+	t.Setenv("TLS_CERT_FILE", "")
+	t.Setenv("TLS_PRIVATE_KEY_FILE", "")
+	t.Setenv("TLS_CA_FILE", "")
+
+	opts, err := metricsOptionsFromEnv()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opts.BindAddress != ":9444" {
+		t.Fatalf("expected bind address :9444, got %s", opts.BindAddress)
+	}
+}
+
 func TestRunSuccess(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers

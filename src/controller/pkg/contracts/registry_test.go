@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 type stubNamed struct{ id string }
@@ -48,25 +48,25 @@ func TestRegistryRegisterAndList(t *testing.T) {
 
 type stubInventory struct{ stubNamed }
 
-func (stubInventory) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (Result, error) {
+func (stubInventory) HandleDevice(context.Context, *v1alpha1.GPUDevice) (Result, error) {
 	return Result{}, nil
 }
 
 type stubBootstrap struct{ stubNamed }
 
-func (stubBootstrap) HandleNode(context.Context, *gpuv1alpha1.GPUNodeInventory) (Result, error) {
+func (stubBootstrap) HandleNode(context.Context, *v1alpha1.GPUNodeInventory) (Result, error) {
 	return Result{}, nil
 }
 
 type stubPool struct{ stubNamed }
 
-func (stubPool) HandlePool(context.Context, *gpuv1alpha1.GPUPool) (Result, error) {
+func (stubPool) HandlePool(context.Context, *v1alpha1.GPUPool) (Result, error) {
 	return Result{}, nil
 }
 
 type stubAdmission struct{ stubNamed }
 
-func (stubAdmission) SyncPool(context.Context, *gpuv1alpha1.GPUPool) (Result, error) {
+func (stubAdmission) SyncPool(context.Context, *v1alpha1.GPUPool) (Result, error) {
 	return Result{}, nil
 }
 

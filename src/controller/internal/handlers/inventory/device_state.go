@@ -37,9 +37,10 @@ func (h *DeviceStateHandler) Name() string {
 }
 
 func (h *DeviceStateHandler) HandleDevice(_ context.Context, device *v1alpha1.GPUDevice) (contracts.Result, error) {
-	if device.Status.State == "" {
-		h.log.V(2).Info("setting default device state", "device", device.Name)
-		device.Status.State = v1alpha1.GPUDeviceStateUnassigned
+	switch device.Status.State {
+	case "", v1alpha1.GPUDeviceStateUnassigned:
+		h.log.V(2).Info("normalising device state to Discovered", "device", device.Name)
+		device.Status.State = v1alpha1.GPUDeviceStateDiscovered
 	}
 	return contracts.Result{}, nil
 }

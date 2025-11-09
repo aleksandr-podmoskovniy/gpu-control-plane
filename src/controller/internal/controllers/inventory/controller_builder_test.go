@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 type stubRuntimeAdapter struct {
@@ -72,10 +72,10 @@ func TestRuntimeControllerBuilderDelegates(t *testing.T) {
 	if builder.Named("gpu") != builder {
 		t.Fatalf("Named should return the same builder")
 	}
-	if builder.For(&gpuv1alpha1.GPUDevice{}) != builder {
+	if builder.For(&v1alpha1.GPUDevice{}) != builder {
 		t.Fatalf("For should return the same builder")
 	}
-	if builder.Owns(&gpuv1alpha1.GPUNodeInventory{}) != builder {
+	if builder.Owns(&v1alpha1.GPUNodeInventory{}) != builder {
 		t.Fatalf("Owns should return the same builder")
 	}
 	if builder.WatchesRawSource(nil) != builder {
@@ -135,8 +135,8 @@ func TestControllerRuntimeWrapperWrapsBuilder(t *testing.T) {
 	if next := adapter.Named("wrapper"); next != adapter {
 		t.Fatalf("Named must return the same adapter instance")
 	}
-	adapter = adapter.For(&gpuv1alpha1.GPUDevice{})
-	adapter = adapter.Owns(&gpuv1alpha1.GPUNodeInventory{})
+	adapter = adapter.For(&v1alpha1.GPUDevice{})
+	adapter = adapter.Owns(&v1alpha1.GPUNodeInventory{})
 	adapter = adapter.WatchesRawSource(nil)
 	adapter = adapter.WithOptions(controller.Options{MaxConcurrentReconciles: 3})
 

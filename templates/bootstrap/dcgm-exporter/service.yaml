@@ -1,0 +1,27 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $cfg := (dig "bootstrap" "dcgmExporter" .Values.gpuControlPlane) | default dict }}
+{{- if ne (default true ($cfg.enabled)) false }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
+{{- $component := "dcgm-exporter" }}
+{{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
+{{- $port := (default 9400 $cfg.port) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace }}
+  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm-exporter") | nindent 2 }}
+spec:
+  internalTrafficPolicy: Local
+  ports:
+    - name: metrics
+      port: {{ $port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: {{ $name }}
+  type: ClusterIP
+{{- end }}
+{{- end }}

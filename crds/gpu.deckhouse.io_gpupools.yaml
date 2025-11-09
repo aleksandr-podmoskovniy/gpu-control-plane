@@ -457,12 +457,19 @@ spec:
                       type: string
                     state:
                       description: State is the current state of the device inside
-                        the pool.
+                        the pool (Discovered, ReadyForPooling, PendingAssignment,
+                        NoPoolMatched, Assigned, Reserved, InUse, Faulted). The legacy
+                        value `Unassigned` is preserved for backwards compatibility.
                       enum:
-                      - Unassigned
-                      - Reserved
+                      - Discovered
+                      - ReadyForPooling
+                      - PendingAssignment
+                      - NoPoolMatched
                       - Assigned
+                      - Reserved
+                      - InUse
                       - Faulted
+                      - Unassigned
                       type: string
                   type: object
                 type: array

@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -34,7 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -119,6 +122,14 @@ const (
 	cacheSyncTimeoutDuration = 10 * time.Minute
 )
 
+var managedComponentSet = func() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, name := range meta.ComponentAppNames() {
+		set[name] = struct{}{}
+	}
+	return set
+}()
+
 var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
 	return &runtimeControllerBuilder{
 		adapter: &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)},
@@ -126,14 +137,15 @@ var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
 }
 
 type Reconciler struct {
-	client               client.Client
-	scheme               *runtime.Scheme
-	log                  logr.Logger
-	cfg                  config.ControllerConfig
-	store                *config.ModuleConfigStore
-	handlers             []contracts.BootstrapHandler
-	builders             func(ctrl.Manager) controllerBuilder
-	moduleWatcherFactory func(cache.Cache, controllerBuilder) controllerBuilder
+	client                 client.Client
+	scheme                 *runtime.Scheme
+	log                    logr.Logger
+	cfg                    config.ControllerConfig
+	store                  *config.ModuleConfigStore
+	handlers               []contracts.BootstrapHandler
+	builders               func(ctrl.Manager) controllerBuilder
+	moduleWatcherFactory   func(cache.Cache, controllerBuilder) controllerBuilder
+	workloadWatcherFactory func(cache.Cache, controllerBuilder) controllerBuilder
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.BootstrapHandler) *Reconciler {
@@ -150,11 +162,15 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
 		return rec.attachModuleWatcher(builder, c)
 	}
+	rec.workloadWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
+		return rec.attachWorkloadWatcher(builder, c)
+	}
 	return rec
 }
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	r.client = mgr.GetClient()
+	r.injectClient()
 	r.scheme = mgr.GetScheme()
 
 	options := controller.Options{
@@ -166,14 +182,30 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 
 	builder := r.builders(mgr).
 		Named(controllerName).
-		For(&gpuv1alpha1.GPUNodeInventory{}).
+		For(&v1alpha1.GPUNodeInventory{}).
 		WithOptions(options)
 
-	if cache := mgr.GetCache(); r.moduleWatcherFactory != nil && cache != nil {
-		builder = r.moduleWatcherFactory(cache, builder)
+	if cache := mgr.GetCache(); cache != nil {
+		if r.moduleWatcherFactory != nil {
+			builder = r.moduleWatcherFactory(cache, builder)
+		}
+		if r.workloadWatcherFactory != nil {
+			builder = r.workloadWatcherFactory(cache, builder)
+		}
 	}
 
 	return builder.Complete(r)
+}
+
+func (r *Reconciler) injectClient() {
+	if r.client == nil {
+		return
+	}
+	for _, handler := range r.handlers {
+		if setter, ok := handler.(interface{ SetClient(client.Client) }); ok {
+			setter.SetClient(r.client)
+		}
+	}
 }
 
 func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
@@ -183,15 +215,40 @@ func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cach
 	return builder.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
 }
 
+func (r *Reconciler) attachWorkloadWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
+	pod := &corev1.Pod{}
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*corev1.Pod](mapWorkloadPodToInventory)
+	return builder.WatchesRawSource(source.Kind(c, pod, handlerFunc))
+}
+
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
 	return r.requeueAllInventories(ctx)
+}
+
+func mapWorkloadPodToInventory(_ context.Context, pod *corev1.Pod) []reconcile.Request {
+	if pod == nil {
+		return nil
+	}
+	if pod.Namespace != meta.WorkloadsNamespace {
+		return nil
+	}
+	if pod.Spec.NodeName == "" {
+		return nil
+	}
+	if pod.Labels == nil {
+		return nil
+	}
+	if _, ok := managedComponentSet[pod.Labels["app"]]; !ok {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: pod.Spec.NodeName}}}
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := crlog.FromContext(ctx).WithValues("inventory", req.Name)
 	ctx = logr.NewContext(ctx, log)
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, inventory); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("GPUNodeInventory removed")
@@ -204,7 +261,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.BootstrapHandler) (contracts.Result, error) {
 		return handler.HandleNode(ctx, inventory)
 	})
-	rec.SetResourceUpdater(func(context.Context) error { return nil })
+	original := inventory.DeepCopy()
+	rec.SetResourceUpdater(func(ctx context.Context) error {
+		if equality.Semantic.DeepEqual(original.Status, inventory.Status) {
+			return nil
+		}
+		return r.client.Status().Patch(ctx, inventory, client.MergeFrom(original))
+	})
 
 	res, err := rec.Reconcile(ctx)
 	if err != nil {
@@ -219,7 +282,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Request {
-	list := &gpuv1alpha1.GPUNodeInventoryList{}
+	list := &v1alpha1.GPUNodeInventoryList{}
 	if err := r.client.List(ctx, list); err != nil {
 		if r.log.GetSink() != nil {
 			r.log.Error(err, "list GPUNodeInventory to resync after module config change")

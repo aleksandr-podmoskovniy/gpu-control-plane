@@ -22,7 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	nvidiacatalog "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/hardware/nvidia"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
@@ -79,7 +79,7 @@ type deviceSnapshot struct {
 	ComputeMinor int32
 	UUID         string
 	Precision    []string
-	MIG          gpuv1alpha1.GPUMIGConfig
+	MIG          v1alpha1.GPUMIGConfig
 }
 
 func buildNodeSnapshot(node *corev1.Node, feature *nfdv1alpha1.NodeFeature, policy ManagedNodesPolicy) nodeSnapshot {
@@ -438,8 +438,8 @@ func extractLeadingDigits(value string) string {
 	return builder.String()
 }
 
-func parseMIGConfig(labels map[string]string) gpuv1alpha1.GPUMIGConfig {
-	cfg := gpuv1alpha1.GPUMIGConfig{}
+func parseMIGConfig(labels map[string]string) v1alpha1.GPUMIGConfig {
+	cfg := v1alpha1.GPUMIGConfig{}
 
 	if capableValue, ok := firstExisting(labels, gfdMigCapableLabel, gfdMigAltCapableLabel); ok {
 		cfg.Capable = parseBool(capableValue)
@@ -448,15 +448,15 @@ func parseMIGConfig(labels map[string]string) gpuv1alpha1.GPUMIGConfig {
 	if strategyValue, ok := firstExisting(labels, gfdMigStrategyLabel, gfdMigAltStrategy); ok {
 		switch strings.ToLower(strategyValue) {
 		case "single":
-			cfg.Strategy = gpuv1alpha1.GPUMIGStrategySingle
+			cfg.Strategy = v1alpha1.GPUMIGStrategySingle
 		case "mixed":
-			cfg.Strategy = gpuv1alpha1.GPUMIGStrategyMixed
+			cfg.Strategy = v1alpha1.GPUMIGStrategyMixed
 		default:
-			cfg.Strategy = gpuv1alpha1.GPUMIGStrategyNone
+			cfg.Strategy = v1alpha1.GPUMIGStrategyNone
 		}
 	}
 
-	typeAccumulator := map[string]*gpuv1alpha1.GPUMIGTypeCapacity{}
+	typeAccumulator := map[string]*v1alpha1.GPUMIGTypeCapacity{}
 	profiles := map[string]struct{}{}
 
 	for key, value := range labels {
@@ -490,7 +490,7 @@ func parseMIGConfig(labels map[string]string) gpuv1alpha1.GPUMIGConfig {
 
 		entry := typeAccumulator[profileName]
 		if entry == nil {
-			entry = &gpuv1alpha1.GPUMIGTypeCapacity{Name: profileName}
+			entry = &v1alpha1.GPUMIGTypeCapacity{Name: profileName}
 			typeAccumulator[profileName] = entry
 		}
 
@@ -523,7 +523,7 @@ func parseMIGConfig(labels map[string]string) gpuv1alpha1.GPUMIGConfig {
 	}
 
 	if len(typeAccumulator) > 0 {
-		cfg.Types = make([]gpuv1alpha1.GPUMIGTypeCapacity, 0, len(typeAccumulator))
+		cfg.Types = make([]v1alpha1.GPUMIGTypeCapacity, 0, len(typeAccumulator))
 		for _, entry := range typeAccumulator {
 			cfg.Types = append(cfg.Types, *entry)
 		}
@@ -535,7 +535,7 @@ func parseMIGConfig(labels map[string]string) gpuv1alpha1.GPUMIGConfig {
 	return cfg
 }
 
-func migConfigEmpty(cfg gpuv1alpha1.GPUMIGConfig) bool {
+func migConfigEmpty(cfg v1alpha1.GPUMIGConfig) bool {
 	return !cfg.Capable && cfg.Strategy == "" && len(cfg.ProfilesSupported) == 0 && len(cfg.Types) == 0
 }
 

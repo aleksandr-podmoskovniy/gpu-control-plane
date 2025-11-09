@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
@@ -53,7 +53,7 @@ import (
 
 type trackingHandler struct {
 	name    string
-	state   gpuv1alpha1.GPUDeviceState
+	state   v1alpha1.GPUDeviceState
 	result  contracts.Result
 	handled []string
 }
@@ -66,7 +66,7 @@ func (errorHandler) Name() string {
 	return "error"
 }
 
-func (h errorHandler) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+func (h errorHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (contracts.Result, error) {
 	return contracts.Result{}, h.err
 }
 
@@ -90,7 +90,7 @@ type capturingFieldIndexer struct {
 
 func (c *capturingFieldIndexer) IndexField(_ context.Context, obj client.Object, field string, extract client.IndexerFunc) error {
 	_ = field
-	if device, ok := obj.(*gpuv1alpha1.GPUDevice); ok {
+	if device, ok := obj.(*v1alpha1.GPUDevice); ok {
 		device.Status.NodeName = "worker-indexed"
 	}
 	if extract != nil {
@@ -241,7 +241,7 @@ func (m *multiFieldIndexer) IndexField(_ context.Context, obj client.Object, fie
 		// first invoke with non-GPU object to hit type mismatch branch
 		extract(&corev1.Node{})
 		// then with GPU device lacking node name to hit empty check
-		extract(&gpuv1alpha1.GPUDevice{})
+		extract(&v1alpha1.GPUDevice{})
 		m.invocations++
 	}
 	return nil
@@ -375,7 +375,7 @@ func (h *trackingHandler) Name() string {
 	return "tracking"
 }
 
-func (h *trackingHandler) HandleDevice(_ context.Context, device *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+func (h *trackingHandler) HandleDevice(_ context.Context, device *v1alpha1.GPUDevice) (contracts.Result, error) {
 	h.handled = append(h.handled, device.Name)
 	if h.state != "" {
 		device.Status.State = h.state
@@ -395,7 +395,7 @@ func (h resultHandler) Name() string {
 	return "result-handler"
 }
 
-func (h resultHandler) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+func (h resultHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (contracts.Result, error) {
 	return h.result, nil
 }
 
@@ -472,7 +472,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 
 	handler := &trackingHandler{
 		name:   "state-default",
-		state:  gpuv1alpha1.GPUDeviceStateReserved,
+		state:  v1alpha1.GPUDeviceStateReserved,
 		result: contracts.Result{RequeueAfter: 10 * time.Second},
 	}
 
@@ -505,7 +505,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	snapshot := nodeSnapshot.Devices[0]
 
 	deviceName := buildDeviceName(node.Name, snapshot)
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 	if err := client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
 		t.Fatalf("device not found: %v", err)
 	}
@@ -521,7 +521,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if device.Status.AutoAttach {
 		t.Fatalf("expected autoAttach=false for manual approval, got true")
 	}
-	if device.Status.State != gpuv1alpha1.GPUDeviceStateReserved {
+	if device.Status.State != v1alpha1.GPUDeviceStateReserved {
 		t.Fatalf("expected state Reserved, got %s", device.Status.State)
 	}
 	if device.Status.Hardware.PCI.Vendor != "10de" {
@@ -543,7 +543,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if !mig.Capable {
 		t.Fatal("expected MIG capable true")
 	}
-	if mig.Strategy != gpuv1alpha1.GPUMIGStrategySingle {
+	if mig.Strategy != v1alpha1.GPUMIGStrategySingle {
 		t.Fatalf("unexpected MIG strategy: %s", mig.Strategy)
 	}
 	if len(mig.ProfilesSupported) != 1 || mig.ProfilesSupported[0] != "mig-1g.10gb" {
@@ -556,7 +556,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 		t.Fatalf("unexpected precision list: %+v", device.Status.Hardware.Precision.Supported)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory not found: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if inventoryDevice.Product != "NVIDIA A100-PCIE-40GB" {
 		t.Fatalf("unexpected inventory product: %s", inventoryDevice.Product)
 	}
-	if inventoryDevice.MIG.Strategy != gpuv1alpha1.GPUMIGStrategySingle {
+	if inventoryDevice.MIG.Strategy != v1alpha1.GPUMIGStrategySingle {
 		t.Fatalf("unexpected inventory MIG strategy: %s", inventoryDevice.MIG.Strategy)
 	}
 	if len(inventoryDevice.MIG.Types) != 1 || inventoryDevice.MIG.Types[0].Name != "mig-1g.10gb" || inventoryDevice.MIG.Types[0].Count != 2 {
@@ -663,7 +663,7 @@ func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
 	}
 
 	client := newTestClient(scheme, node, feature)
-	handler := &trackingHandler{state: gpuv1alpha1.GPUDeviceStateReserved}
+	handler := &trackingHandler{state: v1alpha1.GPUDeviceStateReserved}
 	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), []contracts.InventoryHandler{handler})
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
@@ -683,7 +683,7 @@ func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
 	}
 
 	deviceName := buildDeviceName(node.Name, nodeSnapshot.Devices[0])
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 	if err := client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
 		t.Fatalf("device not found: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
 		t.Fatalf("expected NodeName %q, got %q", node.Name, device.Status.NodeName)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory not found: %v", err)
 	}
@@ -864,22 +864,22 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 		},
 	}
 
-	primary := &gpuv1alpha1.GPUDevice{
+	primary := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-b-0-10de-2230",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-b", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName: "worker-b",
 			Managed:  true,
 		},
 	}
-	orphan := &gpuv1alpha1.GPUDevice{
+	orphan := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "obsolete-device",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-b", deviceIndexLabelKey: "99"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName: "worker-b",
 		},
 	}
@@ -901,11 +901,11 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
-	if err := client.Get(ctx, types.NamespacedName{Name: orphan.Name}, &gpuv1alpha1.GPUDevice{}); err == nil || !apierrors.IsNotFound(err) {
+	if err := client.Get(ctx, types.NamespacedName{Name: orphan.Name}, &v1alpha1.GPUDevice{}); err == nil || !apierrors.IsNotFound(err) {
 		t.Fatalf("orphan device should be deleted, got err=%v", err)
 	}
 
-	updated := &gpuv1alpha1.GPUDevice{}
+	updated := &v1alpha1.GPUDevice{}
 	if err := client.Get(ctx, types.NamespacedName{Name: primary.Name}, updated); err != nil {
 		t.Fatalf("failed to get primary device: %v", err)
 	}
@@ -916,7 +916,7 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 		t.Fatalf("expected index label to remain 0, got %s", updated.Labels[deviceIndexLabelKey])
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory missing: %v", err)
 	}
@@ -944,12 +944,12 @@ func TestReconcileDeviceUpdatesMetadata(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-meta-0-10de-1db5",
 			Labels: map[string]string{},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{},
+		Status: v1alpha1.GPUDeviceStatus{},
 	}
 
 	baseClient := newTestClient(scheme, node, device)
@@ -957,7 +957,7 @@ func TestReconcileDeviceUpdatesMetadata(t *testing.T) {
 	client := &delegatingClient{
 		Client: baseClient,
 		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUDevice); ok {
+			if _, ok := obj.(*v1alpha1.GPUDevice); ok {
 				deviceGets++
 			}
 			return baseClient.Get(ctx, key, obj, opts...)
@@ -1028,7 +1028,7 @@ func TestReconcileDeviceGetError(t *testing.T) {
 	client := &delegatingClient{
 		Client: baseClient,
 		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUDevice); ok {
+			if _, ok := obj.(*v1alpha1.GPUDevice); ok {
 				return getErr
 			}
 			return baseClient.Get(ctx, key, obj, opts...)
@@ -1063,12 +1063,12 @@ func TestReconcileDeviceMetadataPatchError(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-metadata-error-0-10de-1db5",
 			Labels: map[string]string{},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{},
+		Status: v1alpha1.GPUDeviceStatus{},
 	}
 
 	baseClient := newTestClient(scheme, node, device)
@@ -1176,22 +1176,22 @@ func TestReconcileDeviceNoStatusPatchWhenUnchanged(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-nochange-0-10de-1db5",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-nochange", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:    "worker-nochange",
 			InventoryID: buildInventoryID("worker-nochange", deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5"}),
 			Managed:     true,
-			Hardware: gpuv1alpha1.GPUDeviceHardware{
-				PCI:               gpuv1alpha1.PCIAddress{Vendor: "10de", Device: "1db5", Class: "0302"},
+			Hardware: v1alpha1.GPUDeviceHardware{
+				PCI:               v1alpha1.PCIAddress{Vendor: "10de", Device: "1db5", Class: "0302"},
 				Product:           "Existing",
 				MemoryMiB:         1024,
-				MIG:               gpuv1alpha1.GPUMIGConfig{},
-				Precision:         gpuv1alpha1.GPUPrecision{Supported: []string{"fp32"}},
-				ComputeCapability: &gpuv1alpha1.GPUComputeCapability{Major: 8, Minor: 0},
+				MIG:               v1alpha1.GPUMIGConfig{},
+				Precision:         v1alpha1.GPUPrecision{Supported: []string{"fp32"}},
+				ComputeCapability: &v1alpha1.GPUComputeCapability{Major: 8, Minor: 0},
 			},
 		},
 	}
@@ -1241,19 +1241,19 @@ func TestReconcileReturnsDeleteError(t *testing.T) {
 			},
 		},
 	}
-	primary := &gpuv1alpha1.GPUDevice{
+	primary := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-delete-error-0-10de-2230",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-delete-error", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "worker-delete-error"},
+		Status: v1alpha1.GPUDeviceStatus{NodeName: "worker-delete-error"},
 	}
-	orphan := &gpuv1alpha1.GPUDevice{
+	orphan := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-delete-error-orphan",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-delete-error", deviceIndexLabelKey: "99"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "worker-delete-error"},
+		Status: v1alpha1.GPUDeviceStatus{NodeName: "worker-delete-error"},
 	}
 
 	baseClient := newTestClient(scheme, node, primary, orphan)
@@ -1261,7 +1261,7 @@ func TestReconcileReturnsDeleteError(t *testing.T) {
 	client := &delegatingClient{
 		Client: baseClient,
 		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-			if dev, ok := obj.(*gpuv1alpha1.GPUDevice); ok && dev.Name == orphan.Name {
+			if dev, ok := obj.(*v1alpha1.GPUDevice); ok && dev.Name == orphan.Name {
 				return delErr
 			}
 			return baseClient.Delete(ctx, obj, opts...)
@@ -1304,7 +1304,7 @@ func TestReconcileReturnsDeviceListError(t *testing.T) {
 	client := &delegatingClient{
 		Client: baseClient,
 		list: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-			if _, ok := list.(*gpuv1alpha1.GPUDeviceList); ok {
+			if _, ok := list.(*v1alpha1.GPUDeviceList); ok {
 				return listErr
 			}
 			return baseClient.List(ctx, list, opts...)
@@ -1327,18 +1327,18 @@ func TestReconcileReturnsDeviceListError(t *testing.T) {
 
 func TestReconcileCleanupOnMissingNode(t *testing.T) {
 	scheme := newTestScheme(t)
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-c-0-10de-1db5",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-c", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName: "worker-c",
 		},
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker-c"},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: "worker-c"},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: "worker-c"},
 	}
 
 	client := newTestClient(scheme, device, inventory)
@@ -1357,10 +1357,10 @@ func TestReconcileCleanupOnMissingNode(t *testing.T) {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
-	if err := client.Get(ctx, types.NamespacedName{Name: device.Name}, &gpuv1alpha1.GPUDevice{}); err == nil || !apierrors.IsNotFound(err) {
+	if err := client.Get(ctx, types.NamespacedName{Name: device.Name}, &v1alpha1.GPUDevice{}); err == nil || !apierrors.IsNotFound(err) {
 		t.Fatalf("expected device to be removed, err=%v", err)
 	}
-	if err := client.Get(ctx, types.NamespacedName{Name: inventory.Name}, &gpuv1alpha1.GPUNodeInventory{}); err == nil || !apierrors.IsNotFound(err) {
+	if err := client.Get(ctx, types.NamespacedName{Name: inventory.Name}, &v1alpha1.GPUNodeInventory{}); err == nil || !apierrors.IsNotFound(err) {
 		t.Fatalf("expected inventory to be removed, err=%v", err)
 	}
 }
@@ -1629,7 +1629,7 @@ func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
 		t.Fatalf("expected default resync period (%s), got %+v", defaultResyncPeriod, res)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("expected inventory to be created, got error: %v", err)
 	}
@@ -1679,7 +1679,7 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 		t.Fatalf("expected default resync period (%s), got %+v", defaultResyncPeriod, res)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); !apierrors.IsNotFound(err) {
 		if err != nil {
 			t.Fatalf("expected inventory to be absent, got error: %v", err)
@@ -1701,7 +1701,7 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 			UID:  types.UID("worker-stale"),
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "stale-device",
 		},
@@ -1709,11 +1709,11 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 	device.Status.NodeName = node.Name
 	device.Status.InventoryID = "stale-inventory"
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: node.Name,
 		},
-		Spec: gpuv1alpha1.GPUNodeInventorySpec{
+		Spec: v1alpha1.GPUNodeInventorySpec{
 			NodeName: node.Name,
 		},
 	}
@@ -1741,14 +1741,14 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 		t.Fatalf("expected resync period=%s, got %+v", defaultResyncPeriod, res)
 	}
 
-	if err := client.Get(ctx, types.NamespacedName{Name: device.Name}, &gpuv1alpha1.GPUDevice{}); !apierrors.IsNotFound(err) {
+	if err := client.Get(ctx, types.NamespacedName{Name: device.Name}, &v1alpha1.GPUDevice{}); !apierrors.IsNotFound(err) {
 		if err != nil {
 			t.Fatalf("expected GPUDevice to be deleted, got error: %v", err)
 		} else {
 			t.Fatalf("expected GPUDevice to be deleted, but resource still exists")
 		}
 	}
-	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, &gpuv1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, &v1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
 		if err != nil {
 			t.Fatalf("expected GPUNodeInventory to be deleted, got error: %v", err)
 		} else {
@@ -1772,11 +1772,11 @@ func TestReconcileReturnsInventoryDeleteError(t *testing.T) {
 			UID:  types.UID("worker-delete-inventory"),
 		},
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: node.Name,
 		},
-		Spec: gpuv1alpha1.GPUNodeInventorySpec{
+		Spec: v1alpha1.GPUNodeInventorySpec{
 			NodeName: node.Name,
 		},
 	}
@@ -1786,7 +1786,7 @@ func TestReconcileReturnsInventoryDeleteError(t *testing.T) {
 	client := &delegatingClient{
 		Client: baseClient,
 		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-			if inv, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok && inv.Name == node.Name {
+			if inv, ok := obj.(*v1alpha1.GPUNodeInventory); ok && inv.Name == node.Name {
 				return deleteErr
 			}
 			return baseClient.Delete(ctx, obj, opts...)
@@ -1824,7 +1824,7 @@ func TestReconcileReturnsInventoryGetError(t *testing.T) {
 			switch obj.(type) {
 			case *corev1.Node:
 				return baseClient.Get(ctx, key, obj, opts...)
-			case *gpuv1alpha1.GPUNodeInventory:
+			case *v1alpha1.GPUNodeInventory:
 				return getErr
 			default:
 				return baseClient.Get(ctx, key, obj, opts...)
@@ -2139,12 +2139,12 @@ func TestReconcileStatusConflictTriggersRetry(t *testing.T) {
 	}
 
 	deviceName := buildDeviceName("worker-conflict", deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"})
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   deviceName,
 			Labels: map[string]string{deviceNodeLabelKey: "worker-conflict", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName: "worker-conflict",
 		},
 	}
@@ -2187,9 +2187,9 @@ func TestReconcileNodeInventoryUpdatesSpec(t *testing.T) {
 			},
 		},
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node.Name},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: "stale"},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: "stale"},
 	}
 
 	baseClient := newTestClient(scheme, node, inventory)
@@ -2205,7 +2205,7 @@ func TestReconcileNodeInventoryUpdatesSpec(t *testing.T) {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
-	updated := &gpuv1alpha1.GPUNodeInventory{}
+	updated := &v1alpha1.GPUNodeInventory{}
 	if err := baseClient.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
 		t.Fatalf("failed to get updated inventory: %v", err)
 	}
@@ -2282,7 +2282,7 @@ func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("expected inventory to be created, got error: %v", err)
 	}
@@ -2333,15 +2333,15 @@ func TestReconcileNodeInventorySkipsUnknownDevices(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-unknown-device-orphan",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-unknown-device", deviceIndexLabelKey: "99"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:    "worker-unknown-device",
 			InventoryID: "worker-unknown-device-99",
-			Hardware:    gpuv1alpha1.GPUDeviceHardware{Product: "Existing", MemoryMiB: 256},
+			Hardware:    v1alpha1.GPUDeviceHardware{Product: "Existing", MemoryMiB: 256},
 		},
 	}
 
@@ -2349,10 +2349,10 @@ func TestReconcileNodeInventorySkipsUnknownDevices(t *testing.T) {
 	reconciler := &Reconciler{client: client, scheme: scheme, recorder: record.NewFakeRecorder(32), fallbackManaged: managedPolicyFrom(defaultModuleSettings())}
 
 	snapshot := nodeSnapshot{Managed: true, Devices: []deviceSnapshot{}}
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
-	updated := &gpuv1alpha1.GPUNodeInventory{}
+	updated := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
@@ -2369,7 +2369,7 @@ func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
 			UID:  types.UID("metadata-node"),
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "metadata-device",
 		},
@@ -2403,7 +2403,7 @@ func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
 func TestEnsureDeviceMetadataNoChanges(t *testing.T) {
 	scheme := newTestScheme(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "unchanged-node", UID: types.UID("unchanged")}}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "unchanged-device",
 			Labels: map[string]string{
@@ -2429,7 +2429,7 @@ func TestEnsureDeviceMetadataNoChanges(t *testing.T) {
 func TestEnsureDeviceMetadataPatchError(t *testing.T) {
 	scheme := newTestScheme(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "metadata-error", UID: types.UID("metadata-error")}}
-	device := &gpuv1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "metadata-device"}}
+	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "metadata-device"}}
 	reconciler := &Reconciler{
 		scheme: scheme,
 		client: &delegatingClient{patch: func(context.Context, client.Object, client.Patch, ...client.PatchOption) error {
@@ -2889,7 +2889,7 @@ func TestDeviceApprovalAutoAttachPolicies(t *testing.T) {
 			}
 
 			deviceName := buildDeviceName(node.Name, deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"})
-			device := &gpuv1alpha1.GPUDevice{}
+			device := &v1alpha1.GPUDevice{}
 			if err := client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
 				t.Fatalf("expected device, got error: %v", err)
 			}
@@ -2920,12 +2920,12 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-auto-0-10de-1db5",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-auto", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{},
+		Status: v1alpha1.GPUDeviceStatus{},
 	}
 
 	module := defaultModuleSettings()
@@ -2951,7 +2951,7 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 	if tracker.patches == 0 {
 		t.Fatalf("expected status patch to be emitted")
 	}
-	updated := &gpuv1alpha1.GPUDevice{}
+	updated := &v1alpha1.GPUDevice{}
 	if err := baseClient.Get(context.Background(), types.NamespacedName{Name: device.Name}, updated); err != nil {
 		t.Fatalf("failed to fetch updated device: %v", err)
 	}
@@ -2975,24 +2975,24 @@ func TestReconcileDeviceSkipsStatusPatchWhenUnchanged(t *testing.T) {
 	}
 
 	deviceName := buildDeviceName(node.Name, deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"})
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   deviceName,
 			Labels: map[string]string{deviceNodeLabelKey: node.Name, deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:    node.Name,
 			InventoryID: buildInventoryID(node.Name, deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}),
 			Managed:     true,
-			Hardware: gpuv1alpha1.GPUDeviceHardware{
+			Hardware: v1alpha1.GPUDeviceHardware{
 				Product:   "NVIDIA TEST",
-				PCI:       gpuv1alpha1.PCIAddress{Vendor: "10de", Device: "1db5", Class: "0302"},
+				PCI:       v1alpha1.PCIAddress{Vendor: "10de", Device: "1db5", Class: "0302"},
 				MemoryMiB: 16384,
-				ComputeCapability: &gpuv1alpha1.GPUComputeCapability{
+				ComputeCapability: &v1alpha1.GPUComputeCapability{
 					Major: 8,
 					Minor: 6,
 				},
-				Precision: gpuv1alpha1.GPUPrecision{
+				Precision: v1alpha1.GPUPrecision{
 					Supported: []string{"fp32"},
 				},
 			},
@@ -3053,7 +3053,7 @@ func TestReconcileCleanupPropagatesError(t *testing.T) {
 			return base.Get(ctx, key, obj, opts...)
 		},
 		list: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-			if _, ok := list.(*gpuv1alpha1.GPUDeviceList); ok {
+			if _, ok := list.(*v1alpha1.GPUDeviceList); ok {
 				return cleanupErr
 			}
 			return base.List(ctx, list, opts...)
@@ -3109,7 +3109,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "worker-refetch-0-10de-1db5",
 		},
@@ -3120,7 +3120,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 	client := &delegatingClient{
 		Client: base,
 		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUDevice); ok {
+			if _, ok := obj.(*v1alpha1.GPUDevice); ok {
 				getCalls++
 				if getCalls > 1 {
 					return errors.New("device refetch failure")
@@ -3165,12 +3165,12 @@ func TestReconcileDeviceStatusPatchError(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-patch-error-0-10de-1db5",
 			Labels: map[string]string{deviceNodeLabelKey: "old-node"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "old-node"},
+		Status: v1alpha1.GPUDeviceStatus{NodeName: "old-node"},
 	}
 
 	base := newTestClient(scheme, node, device)
@@ -3255,17 +3255,17 @@ func TestReconcileDeviceUpdatesProductPrecisionAndAutoAttach(t *testing.T) {
 			},
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "worker-update-fields-0-10de-2230",
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:   "worker-update-fields",
 			Managed:    true,
 			AutoAttach: false,
-			Hardware: gpuv1alpha1.GPUDeviceHardware{
+			Hardware: v1alpha1.GPUDeviceHardware{
 				Product: "Old Product",
-				Precision: gpuv1alpha1.GPUPrecision{
+				Precision: v1alpha1.GPUPrecision{
 					Supported: []string{"fp16"},
 				},
 			},
@@ -3297,7 +3297,7 @@ func TestReconcileDeviceUpdatesProductPrecisionAndAutoAttach(t *testing.T) {
 		Product:      "New Product",
 		MemoryMiB:    16384,
 		Precision:    []string{"fp16", "fp32"},
-		MIG:          gpuv1alpha1.GPUMIGConfig{Capable: true, Strategy: gpuv1alpha1.GPUMIGStrategyMixed},
+		MIG:          v1alpha1.GPUMIGConfig{Capable: true, Strategy: v1alpha1.GPUMIGStrategyMixed},
 		UUID:         "GPU-NEW-UUID",
 		ComputeMajor: 8,
 		ComputeMinor: 0,
@@ -3332,9 +3332,9 @@ func TestReconcileDeviceHandlerError(t *testing.T) {
 		},
 	}
 
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker-handler-error-0-10de-1db5"},
-		Status:     gpuv1alpha1.GPUDeviceStatus{NodeName: "worker-handler-error"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: "worker-handler-error"},
 	}
 	if err := controllerutil.SetOwnerReference(node, device, scheme); err != nil {
 		t.Fatalf("set owner reference: %v", err)
@@ -3369,7 +3369,7 @@ func TestEnsureDeviceMetadataOwnerReferenceError(t *testing.T) {
 		scheme: runtime.NewScheme(),
 	}
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-meta-error"}}
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 
 	changed, err := reconciler.ensureDeviceMetadata(context.Background(), node, device, deviceSnapshot{Index: "0"})
 	if err == nil {
@@ -3408,7 +3408,7 @@ func TestReconcileNodeInventoryReturnsGetError(t *testing.T) {
 	client := &delegatingClient{
 		Client: base,
 		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok {
+			if _, ok := obj.(*v1alpha1.GPUNodeInventory); ok {
 				return getErr
 			}
 			return base.Get(ctx, key, obj, opts...)
@@ -3442,7 +3442,7 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 	client := &delegatingClient{
 		Client: base,
 		create: func(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok {
+			if _, ok := obj.(*v1alpha1.GPUNodeInventory); ok {
 				return createErr
 			}
 			return base.Create(ctx, obj, opts...)
@@ -3466,9 +3466,9 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 func TestReconcileNodeInventoryOwnerReferenceUpdateError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-inv-update"}}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node.Name},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: node.Name},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: node.Name},
 	}
 	client := newTestClient(newTestScheme(t), node, inventory)
 
@@ -3494,9 +3494,9 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 			UID:  types.UID("node-inv-patch"),
 		},
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node.Name},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: "old-node"},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: "old-node"},
 	}
 
 	base := newTestClient(scheme, node, inventory)
@@ -3504,7 +3504,7 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 	client := &delegatingClient{
 		Client: base,
 		patch: func(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok {
+			if _, ok := obj.(*v1alpha1.GPUNodeInventory); ok {
 				return patchErr
 			}
 			return base.Patch(ctx, obj, patch, opts...)
@@ -3533,9 +3533,9 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 			UID:  types.UID("node-inv-refetch"),
 		},
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node.Name},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: "old"},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: "old"},
 	}
 
 	base := newTestClient(scheme, node, inventory)
@@ -3546,7 +3546,7 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 			return base.Patch(ctx, obj, patch, opts...)
 		},
 		get: func(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*gpuv1alpha1.GPUNodeInventory); ok {
+			if _, ok := obj.(*v1alpha1.GPUNodeInventory); ok {
 				getCalls++
 				if getCalls > 1 {
 					return errors.New("inventory refetch failure")
@@ -3573,17 +3573,17 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 			Product:   "GPU",
 			MemoryMiB: 2048,
 		}},
-	}, []*gpuv1alpha1.GPUDevice{{
+	}, []*v1alpha1.GPUDevice{{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-inv-refetch-device",
 			Labels: map[string]string{deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "worker-inv-refetch-0-10de-1db5",
-			Hardware: gpuv1alpha1.GPUDeviceHardware{
+			Hardware: v1alpha1.GPUDeviceHardware{
 				Product:   "GPU",
 				MemoryMiB: 2048,
-				MIG:       gpuv1alpha1.GPUMIGConfig{},
+				MIG:       v1alpha1.GPUMIGConfig{},
 			},
 		},
 	}}, reconciler.fallbackManaged)
@@ -3600,12 +3600,12 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 			UID:  types.UID("node-inv-precision"),
 		},
 	}
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-inv-precision-device",
 			Labels: map[string]string{deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{
+		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "worker-inv-precision-0-10de-1db5",
 		},
 	}
@@ -3631,11 +3631,11 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 		}},
 	}
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*gpuv1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
@@ -3655,15 +3655,15 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 			UID:  types.UID("node-inv-sort"),
 		},
 	}
-	devices := []*gpuv1alpha1.GPUDevice{
+	devices := []*v1alpha1.GPUDevice{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:   "worker-inv-sort-dev1",
 				Labels: map[string]string{deviceIndexLabelKey: "1"},
 			},
-			Status: gpuv1alpha1.GPUDeviceStatus{
+			Status: v1alpha1.GPUDeviceStatus{
 				InventoryID: "worker-inv-sort-1",
-				Hardware:    gpuv1alpha1.GPUDeviceHardware{},
+				Hardware:    v1alpha1.GPUDeviceHardware{},
 			},
 		},
 		{
@@ -3671,9 +3671,9 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 				Name:   "worker-inv-sort-dev0",
 				Labels: map[string]string{deviceIndexLabelKey: "0"},
 			},
-			Status: gpuv1alpha1.GPUDeviceStatus{
+			Status: v1alpha1.GPUDeviceStatus{
 				InventoryID: "worker-inv-sort-0",
-				Hardware:    gpuv1alpha1.GPUDeviceHardware{},
+				Hardware:    v1alpha1.GPUDeviceHardware{},
 			},
 		},
 	}
@@ -3697,7 +3697,7 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
@@ -3733,7 +3733,7 @@ func TestReconcileNodeInventoryDefaultManagedLabel(t *testing.T) {
 	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{Managed: false}, nil, ManagedNodesPolicy{}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
@@ -3775,12 +3775,12 @@ func TestCleanupNodeReturnsListError(t *testing.T) {
 
 func TestCleanupNodeReturnsDeviceDeleteError(t *testing.T) {
 	scheme := newTestScheme(t)
-	device := &gpuv1alpha1.GPUDevice{
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-delete-0",
 			Labels: map[string]string{deviceNodeLabelKey: "worker-delete", deviceIndexLabelKey: "0"},
 		},
-		Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "worker-delete"},
+		Status: v1alpha1.GPUDeviceStatus{NodeName: "worker-delete"},
 	}
 	base := newTestClient(scheme, device)
 	deleteErr := errors.New("device delete failure")
@@ -3789,7 +3789,7 @@ func TestCleanupNodeReturnsDeviceDeleteError(t *testing.T) {
 		Client: base,
 		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
 			switch obj.(type) {
-			case *gpuv1alpha1.GPUDevice:
+			case *v1alpha1.GPUDevice:
 				return deleteErr
 			default:
 				return base.Delete(ctx, obj, opts...)
@@ -3805,9 +3805,9 @@ func TestCleanupNodeReturnsDeviceDeleteError(t *testing.T) {
 
 func TestCleanupNodeReturnsInventoryDeleteError(t *testing.T) {
 	scheme := newTestScheme(t)
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker-inventory"},
-		Spec:       gpuv1alpha1.GPUNodeInventorySpec{NodeName: "worker-inventory"},
+		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: "worker-inventory"},
 	}
 	base := newTestClient(scheme, inventory)
 	deleteErr := errors.New("inventory delete failure")
@@ -3816,7 +3816,7 @@ func TestCleanupNodeReturnsInventoryDeleteError(t *testing.T) {
 		Client: base,
 		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
 			switch obj.(type) {
-			case *gpuv1alpha1.GPUNodeInventory:
+			case *v1alpha1.GPUNodeInventory:
 				return deleteErr
 			default:
 				return base.Delete(ctx, obj, opts...)
@@ -3874,7 +3874,7 @@ func TestSetStatusConditionEmptyType(t *testing.T) {
 func newTestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	if err := gpuv1alpha1.AddToScheme(scheme); err != nil {
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add gpu scheme: %v", err)
 	}
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -3895,11 +3895,11 @@ func newTestScheme(t *testing.T) *runtime.Scheme {
 func newTestClient(scheme *runtime.Scheme, objs ...client.Object) client.Client {
 	builder := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUDevice{}, &gpuv1alpha1.GPUNodeInventory{}).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}, &v1alpha1.GPUNodeInventory{}).
 		WithObjects(objs...)
 
-	builder = builder.WithIndex(&gpuv1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
-		device, ok := obj.(*gpuv1alpha1.GPUDevice)
+	builder = builder.WithIndex(&v1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
+		device, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || device.Status.NodeName == "" {
 			return nil
 		}

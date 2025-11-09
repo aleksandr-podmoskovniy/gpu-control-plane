@@ -19,18 +19,18 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestComputeCapabilityEqual(t *testing.T) {
 	if !computeCapabilityEqual(nil, nil) {
 		t.Fatal("expected nil capabilities to be equal")
 	}
-	left := &gpuv1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
+	left := &v1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
 	if computeCapabilityEqual(left, nil) {
 		t.Fatal("expected mismatch when one capability is nil")
 	}
-	right := &gpuv1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
+	right := &v1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
 	if !computeCapabilityEqual(left, right) {
 		t.Fatal("expected capabilities with same values to be equal")
 	}

@@ -40,6 +40,8 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	}
 
 	deps.Inventory.Register(inventory.NewDeviceStateHandler(log.WithName("inventory.device-state")))
+	deps.Bootstrap.Register(bootstrap.NewWorkloadStatusHandler(log.WithName("bootstrap.workload-status"), ""))
+	deps.Bootstrap.Register(bootstrap.NewDeviceStateSyncHandler(log.WithName("bootstrap.device-state-sync")))
 	deps.Bootstrap.Register(bootstrap.NewNodeReadinessHandler(log.WithName("bootstrap.node-readiness")))
 	deps.Pool.Register(gpupool.NewCapacitySyncHandler(log.WithName("gpupool.capacity-sync")))
 	deps.Admission.Register(admission.NewPoolSnapshotHandler(log.WithName("admission.pool-snapshot")))

@@ -19,7 +19,7 @@ spec:
                 managed:
                   description: Признак того, что карта управляется контроллерами Deckhouse.
                 state:
-                  description: Текущее состояние жизненного цикла (Unassigned, Reserved, Assigned, Faulted).
+                  description: Текущее состояние жизненного цикла (Discovered, ReadyForPooling, PendingAssignment, NoPoolMatched, Assigned, Reserved, InUse, Faulted; значение `Unassigned` сохраняется для обратной совместимости).
                 autoAttach:
                   description: Автоматически ли можно привязывать карту к пулам без ручного подтверждения.
                 poolRef:
@@ -93,3 +93,5 @@ spec:
                       description: Время последнего обновления телеметрии.
                     metrics:
                       description: Произвольные ключи/значения с дополнительными показателями от драйвера.
+                conditions:
+                  description: Список условий, выставляемых контроллерами (ReadyForPooling, Faulted, ManagedDisabled и т.д.).

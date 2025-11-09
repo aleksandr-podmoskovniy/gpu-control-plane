@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -108,11 +108,17 @@ var (
 		Help:      "Number of errors returned by inventory handlers.",
 	}, []string{"handler"})
 
-	knownDeviceStates = []gpuv1alpha1.GPUDeviceState{
-		gpuv1alpha1.GPUDeviceStateUnassigned,
-		gpuv1alpha1.GPUDeviceStateReserved,
-		gpuv1alpha1.GPUDeviceStateAssigned,
-		gpuv1alpha1.GPUDeviceStateFaulted,
+	knownDeviceStates = []v1alpha1.GPUDeviceState{
+		v1alpha1.GPUDeviceStateDiscovered,
+		v1alpha1.GPUDeviceStateReadyForPooling,
+		v1alpha1.GPUDeviceStatePendingAssignment,
+		v1alpha1.GPUDeviceStateNoPoolMatched,
+		v1alpha1.GPUDeviceStateAssigned,
+		v1alpha1.GPUDeviceStateReserved,
+		v1alpha1.GPUDeviceStateInUse,
+		v1alpha1.GPUDeviceStateFaulted,
+		// legacy value kept for metrics cleanup while migrating away from the old enum.
+		v1alpha1.GPUDeviceStateUnassigned,
 	}
 )
 
@@ -319,8 +325,8 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 	r.scheme = deps.scheme
 	r.recorder = deps.recorder
 
-	if err := deps.indexer.IndexField(ctx, &gpuv1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
-		device, ok := obj.(*gpuv1alpha1.GPUDevice)
+	if err := deps.indexer.IndexField(ctx, &v1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
+		device, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok {
 			return nil
 		}
@@ -342,8 +348,8 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 	builder := deps.builder.
 		Named(controllerName).
 		For(&corev1.Node{}).
-		Owns(&gpuv1alpha1.GPUDevice{}).
-		Owns(&gpuv1alpha1.GPUNodeInventory{}).
+		Owns(&v1alpha1.GPUDevice{}).
+		Owns(&v1alpha1.GPUNodeInventory{}).
 		WatchesRawSource(deps.nodeFeatureSource).
 		WithOptions(options)
 
@@ -440,7 +446,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	snapshotList := nodeSnapshot.Devices
 	managed := nodeSnapshot.Managed
 
-	existingDevices := &gpuv1alpha1.GPUDeviceList{}
+	existingDevices := &v1alpha1.GPUDeviceList{}
 	if err := r.client.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: node.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -449,7 +455,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		orphanDevices[existingDevices.Items[i].Name] = struct{}{}
 	}
 
-	reconciledDevices := make([]*gpuv1alpha1.GPUDevice, 0, len(snapshotList))
+	reconciledDevices := make([]*v1alpha1.GPUDevice, 0, len(snapshotList))
 	aggregate := contracts.Result{}
 
 	for _, snapshot := range snapshotList {
@@ -463,7 +469,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	for name := range orphanDevices {
-		if err := r.client.Delete(ctx, &gpuv1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.client.Delete(ctx, &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 		log.V(1).Info("removed orphan GPUDevice", "device", name)
@@ -544,9 +550,9 @@ func chooseNodeFeature(items []nfdv1alpha1.NodeFeature, nodeName string) *nfdv1a
 	return selected
 }
 
-func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
+func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*v1alpha1.GPUDevice, contracts.Result, error) {
 	deviceName := buildDeviceName(node.Name, snapshot)
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
 	if apierrors.IsNotFound(err) {
 		return r.createDevice(ctx, node, snapshot, nodeLabels, managed, approval)
@@ -622,8 +628,8 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	return device, result, nil
 }
 
-func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*gpuv1alpha1.GPUDevice, contracts.Result, error) {
-	device := &gpuv1alpha1.GPUDevice{
+func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*v1alpha1.GPUDevice, contracts.Result, error) {
+	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: buildDeviceName(node.Name, snapshot),
 			Labels: map[string]string{
@@ -652,7 +658,7 @@ func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapsh
 	device.Status.Hardware.ComputeCapability = capabilityFromSnapshot(snapshot)
 	device.Status.Hardware.MIG = snapshot.MIG
 	device.Status.Hardware.Precision.Supported = append([]string(nil), snapshot.Precision...)
-	device.Status.State = gpuv1alpha1.GPUDeviceStateUnassigned
+	device.Status.State = v1alpha1.GPUDeviceStateDiscovered
 	device.Status.AutoAttach = approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
 
 	result, err := r.invokeHandlers(ctx, device)
@@ -670,7 +676,7 @@ func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapsh
 	return device, result, nil
 }
 
-func (r *Reconciler) ensureDeviceMetadata(ctx context.Context, node *corev1.Node, device *gpuv1alpha1.GPUDevice, snapshot deviceSnapshot) (bool, error) {
+func (r *Reconciler) ensureDeviceMetadata(ctx context.Context, node *corev1.Node, device *v1alpha1.GPUDevice, snapshot deviceSnapshot) (bool, error) {
 	desired := device.DeepCopy()
 	changed := false
 
@@ -704,7 +710,7 @@ func (r *Reconciler) ensureDeviceMetadata(ctx context.Context, node *corev1.Node
 	return true, nil
 }
 
-func (r *Reconciler) invokeHandlers(ctx context.Context, device *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+func (r *Reconciler) invokeHandlers(ctx context.Context, device *v1alpha1.GPUDevice) (contracts.Result, error) {
 	log := crlog.FromContext(ctx).WithValues("device", device.Name)
 	ctx = logr.NewContext(ctx, log)
 
@@ -721,15 +727,15 @@ func (r *Reconciler) invokeHandlers(ctx context.Context, device *gpuv1alpha1.GPU
 	return rec.Reconcile(ctx)
 }
 
-func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*gpuv1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error {
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error {
+	inventory := &v1alpha1.GPUNodeInventory{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
 	if apierrors.IsNotFound(err) {
-		inventory = &gpuv1alpha1.GPUNodeInventory{
+		inventory = &v1alpha1.GPUNodeInventory{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: node.Name,
 			},
-			Spec: gpuv1alpha1.GPUNodeInventorySpec{
+			Spec: v1alpha1.GPUNodeInventorySpec{
 				NodeName: node.Name,
 			},
 		}
@@ -766,9 +772,9 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 		}
 	}
 
-	hardware := gpuv1alpha1.GPUNodeHardware{
+	hardware := v1alpha1.GPUNodeHardware{
 		Present: len(devices) > 0,
-		Devices: make([]gpuv1alpha1.GPUNodeDevice, 0, len(devices)),
+		Devices: make([]v1alpha1.GPUNodeDevice, 0, len(devices)),
 	}
 	snapshotByIndex := make(map[string]deviceSnapshot, len(snapshot.Devices))
 	for _, snap := range snapshot.Devices {
@@ -778,7 +784,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 		index := device.Labels[deviceIndexLabelKey]
 		snap, ok := snapshotByIndex[index]
 
-		nodeDevice := gpuv1alpha1.GPUNodeDevice{
+		nodeDevice := v1alpha1.GPUNodeDevice{
 			InventoryID: device.Status.InventoryID,
 			Product:     device.Status.Hardware.Product,
 			PCI:         device.Status.Hardware.PCI,
@@ -884,7 +890,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 }
 
 func (r *Reconciler) deleteInventory(ctx context.Context, nodeName string) error {
-	inventory := &gpuv1alpha1.GPUNodeInventory{}
+	inventory := &v1alpha1.GPUNodeInventory{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, inventory); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -907,12 +913,12 @@ func (r *Reconciler) clearInventoryMetrics(nodeName string) {
 }
 
 func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
-	deviceList := &gpuv1alpha1.GPUDeviceList{}
+	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := r.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
 		return err
 	}
 	for i := range deviceList.Items {
-		device := &gpuv1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: deviceList.Items[i].Name}}
+		device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: deviceList.Items[i].Name}}
 		if err := r.client.Delete(ctx, device); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -972,14 +978,11 @@ func boolToFloat(value bool) float64 {
 	return 0
 }
 
-func updateDeviceStateMetrics(nodeName string, devices []*gpuv1alpha1.GPUDevice) {
+func updateDeviceStateMetrics(nodeName string, devices []*v1alpha1.GPUDevice) {
 	counts := make(map[string]float64, len(devices))
 	for _, device := range devices {
-		state := string(device.Status.State)
-		if state == "" {
-			state = string(gpuv1alpha1.GPUDeviceStateUnassigned)
-		}
-		counts[state]++
+		stateKey := string(normalizeDeviceState(device.Status.State))
+		counts[stateKey]++
 	}
 	seen := make(map[string]struct{}, len(counts))
 	for state, count := range counts {
@@ -987,20 +990,30 @@ func updateDeviceStateMetrics(nodeName string, devices []*gpuv1alpha1.GPUDevice)
 		seen[state] = struct{}{}
 	}
 	for _, state := range knownDeviceStates {
-		if _, ok := seen[string(state)]; !ok {
-			inventoryDeviceStateGauge.DeleteLabelValues(nodeName, string(state))
+		key := string(state)
+		if _, ok := seen[key]; !ok {
+			inventoryDeviceStateGauge.DeleteLabelValues(nodeName, key)
 		}
 	}
 }
 
-func capabilityFromSnapshot(snapshot deviceSnapshot) *gpuv1alpha1.GPUComputeCapability {
+func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState {
+	switch state {
+	case "", v1alpha1.GPUDeviceStateUnassigned:
+		return v1alpha1.GPUDeviceStateDiscovered
+	default:
+		return state
+	}
+}
+
+func capabilityFromSnapshot(snapshot deviceSnapshot) *v1alpha1.GPUComputeCapability {
 	if snapshot.ComputeMajor == 0 && snapshot.ComputeMinor == 0 {
 		return nil
 	}
-	return &gpuv1alpha1.GPUComputeCapability{Major: snapshot.ComputeMajor, Minor: snapshot.ComputeMinor}
+	return &v1alpha1.GPUComputeCapability{Major: snapshot.ComputeMajor, Minor: snapshot.ComputeMinor}
 }
 
-func computeCapabilityEqual(left, right *gpuv1alpha1.GPUComputeCapability) bool {
+func computeCapabilityEqual(left, right *v1alpha1.GPUComputeCapability) bool {
 	if left == nil && right == nil {
 		return true
 	}

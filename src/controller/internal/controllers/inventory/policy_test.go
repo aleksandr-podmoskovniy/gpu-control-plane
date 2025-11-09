@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
@@ -109,9 +109,9 @@ func TestLabelsForDeviceAggregatesAttributes(t *testing.T) {
 		Product:   "NVIDIA RTX 6000 Ada",
 		UUID:      "DEVICE-UUID",
 		MemoryMiB: 49152,
-		MIG: gpuv1alpha1.GPUMIGConfig{
+		MIG: v1alpha1.GPUMIGConfig{
 			Capable:  true,
-			Strategy: gpuv1alpha1.GPUMIGStrategyMixed,
+			Strategy: v1alpha1.GPUMIGStrategyMixed,
 		},
 	}
 

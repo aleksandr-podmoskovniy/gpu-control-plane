@@ -1,0 +1,52 @@
+{{ $validatorVersion := "v25.3.4" }}
+---
+image: {{ .ModuleNamePrefix }}gpu-validator-artifact
+final: false
+fromImage: builder/golang-bookworm-1.24
+secrets:
+  - id: GOPROXY
+    value: "{{ .GOPROXY }}"
+mount:
+  - fromPath: "~/go-pkg-cache"
+    to: /go/pkg
+shell:
+  install:
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - go env -w GOPROXY=$GOPROXY
+    - go env -w GOTOOLCHAIN={{ .Package.golang }}
+  setup:
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - export GOTOOLCHAIN={{ .Package.golang }}
+    - export GOOS=linux
+    - export GOARCH=amd64
+    - export CGO_ENABLED=0
+    - mkdir -p /out
+    - go build -trimpath -ldflags="-s -w" -o /out/nvidia-validator github.com/NVIDIA/gpu-operator/cmd/nvidia-validator@{{ $validatorVersion }}
+---
+image: {{ .ModuleNamePrefix }}gpu-validator
+final: true
+fromImage: common/distroless
+import:
+  - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
+    add: /out/nvidia-validator
+    to: /usr/local/bin/nvidia-validator
+    before: setup
+  - image: builder/alpine
+    add: /bin/busybox
+    to: /busybox/busybox
+    before: setup
+shell:
+  setup:
+    - install -D -m0755 /usr/local/bin/nvidia-validator /usr/bin/nvidia-validator
+    - rm -f /usr/local/bin/nvidia-validator
+    - mkdir -p /bin
+    - install -m0755 /busybox/busybox /bin/busybox
+    - ln -s /bin/busybox /bin/sh
+    - rm -rf /busybox
+imageSpec:
+  config:
+    user: 0
+    workingDir: /
+    entrypoint: ["/usr/bin/nvidia-validator"]
+    env:
+      PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

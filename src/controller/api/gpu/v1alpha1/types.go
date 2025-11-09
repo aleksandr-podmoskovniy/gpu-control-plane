@@ -42,14 +42,20 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	return nil
 }
 
-// +kubebuilder:validation:Enum=Unassigned;Reserved;Assigned;Faulted
+// +kubebuilder:validation:Enum=Discovered;ReadyForPooling;PendingAssignment;NoPoolMatched;Assigned;Reserved;InUse;Faulted;Unassigned
 type GPUDeviceState string
 
 const (
+	GPUDeviceStateDiscovered        GPUDeviceState = "Discovered"
+	GPUDeviceStateReadyForPooling   GPUDeviceState = "ReadyForPooling"
+	GPUDeviceStatePendingAssignment GPUDeviceState = "PendingAssignment"
+	GPUDeviceStateNoPoolMatched     GPUDeviceState = "NoPoolMatched"
+	GPUDeviceStateAssigned          GPUDeviceState = "Assigned"
+	GPUDeviceStateReserved          GPUDeviceState = "Reserved"
+	GPUDeviceStateInUse             GPUDeviceState = "InUse"
+	GPUDeviceStateFaulted           GPUDeviceState = "Faulted"
+	// GPUDeviceStateUnassigned is kept for backwards compatibility with older CRs.
 	GPUDeviceStateUnassigned GPUDeviceState = "Unassigned"
-	GPUDeviceStateReserved   GPUDeviceState = "Reserved"
-	GPUDeviceStateAssigned   GPUDeviceState = "Assigned"
-	GPUDeviceStateFaulted    GPUDeviceState = "Faulted"
 )
 
 // +kubebuilder:object:root=true

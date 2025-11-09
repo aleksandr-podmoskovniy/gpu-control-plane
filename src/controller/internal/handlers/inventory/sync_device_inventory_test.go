@@ -29,13 +29,13 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func newInventoryScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	if err := gpuv1alpha1.AddToScheme(scheme); err != nil {
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("register scheme: %v", err)
 	}
 	return scheme
@@ -76,7 +76,7 @@ func TestDeviceInventorySyncSkipsWhenNodeNameMissing(t *testing.T) {
 	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{}
+	device := &v1alpha1.GPUDevice{}
 	if res, err := h.HandleDevice(context.Background(), device); err != nil || res.Requeue {
 		t.Fatalf("expected no-op for device without node name, got res=%+v err=%v", res, err)
 	}
@@ -95,12 +95,12 @@ func TestDeviceInventorySyncInventoryNotFound(t *testing.T) {
 	scheme := newInventoryScheme(t)
 	client := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
 		Build()
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{
-		Status: gpuv1alpha1.GPUDeviceStatus{
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName: "missing",
 		},
 	}
@@ -111,13 +111,13 @@ func TestDeviceInventorySyncInventoryNotFound(t *testing.T) {
 
 func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 	scheme := newInventoryScheme(t)
-	inventory := &gpuv1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status: gpuv1alpha1.GPUNodeInventoryStatus{
-			Hardware: gpuv1alpha1.GPUNodeHardware{
-				Devices: []gpuv1alpha1.GPUNodeDevice{{
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{
+				Devices: []v1alpha1.GPUNodeDevice{{
 					InventoryID: "node-a-0000",
-					State:       gpuv1alpha1.GPUDeviceStateUnassigned,
+					State:       v1alpha1.GPUDeviceStateDiscovered,
 					AutoAttach:  false,
 				}},
 			},
@@ -125,16 +125,16 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 	}
 	client := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
 		WithObjects(inventory).
 		Build()
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{
-		Status: gpuv1alpha1.GPUDeviceStatus{
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:    "node-a",
 			InventoryID: "node-a-0000",
-			State:       gpuv1alpha1.GPUDeviceStateAssigned,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 			AutoAttach:  true,
 		},
 	}
@@ -143,7 +143,7 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	updated := &gpuv1alpha1.GPUNodeInventory{}
+	updated := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 		t.Fatalf("expected single device, got %d", len(updated.Status.Hardware.Devices))
 	}
 	got := updated.Status.Hardware.Devices[0]
-	if got.State != gpuv1alpha1.GPUDeviceStateAssigned || !got.AutoAttach {
+	if got.State != v1alpha1.GPUDeviceStateAssigned || !got.AutoAttach {
 		t.Fatalf("device fields not updated: %+v", got)
 	}
 }
@@ -160,18 +160,18 @@ func TestDeviceInventorySyncAddsNewDevice(t *testing.T) {
 	scheme := newInventoryScheme(t)
 	client := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
-		WithObjects(&gpuv1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(&v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
 		Build()
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{
-		Status: gpuv1alpha1.GPUDeviceStatus{
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
 			NodeName:    "node-a",
 			InventoryID: "node-a-0001",
-			State:       gpuv1alpha1.GPUDeviceStateReserved,
+			State:       v1alpha1.GPUDeviceStateReserved,
 			AutoAttach:  true,
-			Hardware: gpuv1alpha1.GPUDeviceHardware{
+			Hardware: v1alpha1.GPUDeviceHardware{
 				Product: "A100",
 			},
 		},
@@ -181,7 +181,7 @@ func TestDeviceInventorySyncAddsNewDevice(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	updated := &gpuv1alpha1.GPUNodeInventory{}
+	updated := &v1alpha1.GPUNodeInventory{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
@@ -197,8 +197,8 @@ func TestDeviceInventorySyncRetriesOnConflict(t *testing.T) {
 	scheme := newInventoryScheme(t)
 	base := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
-		WithObjects(&gpuv1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(&v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
 		Build()
 
 	conflictErr := apierrors.NewConflict(schema.GroupResource{Group: "gpu.deckhouse.io", Resource: "gpunodeinventories"}, "node-a", errors.New("conflict"))
@@ -211,7 +211,7 @@ func TestDeviceInventorySyncRetriesOnConflict(t *testing.T) {
 	client := &statusClient{Client: base, status: writer}
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
+	device := &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
 	res, err := h.HandleDevice(context.Background(), device)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -225,8 +225,8 @@ func TestDeviceInventorySyncReturnsUpdateError(t *testing.T) {
 	scheme := newInventoryScheme(t)
 	base := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
-		WithObjects(&gpuv1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(&v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
 		Build()
 
 	writer := &updatingStatusWriter{
@@ -238,7 +238,7 @@ func TestDeviceInventorySyncReturnsUpdateError(t *testing.T) {
 	client := &statusClient{Client: base, status: writer}
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
+	device := &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
 	if _, err := h.HandleDevice(context.Background(), device); err == nil {
 		t.Fatal("expected update error to propagate")
 	}
@@ -248,12 +248,12 @@ func TestDeviceInventorySyncReturnsGetError(t *testing.T) {
 	scheme := newInventoryScheme(t)
 	base := clientfake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&gpuv1alpha1.GPUNodeInventory{}).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
 		Build()
 	client := &failingGetClient{Client: base, err: errors.New("get failed")}
 	h := NewDeviceInventorySync(testr.New(t), client)
 
-	device := &gpuv1alpha1.GPUDevice{Status: gpuv1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
+	device := &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{NodeName: "node-a"}}
 	if _, err := h.HandleDevice(context.Background(), device); err == nil {
 		t.Fatal("expected get error to propagate")
 	}

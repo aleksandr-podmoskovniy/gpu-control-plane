@@ -44,7 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
@@ -171,7 +171,7 @@ type stubAdmissionHandler struct {
 
 func (s *stubAdmissionHandler) Name() string { return s.name }
 
-func (s *stubAdmissionHandler) SyncPool(context.Context, *gpuv1alpha1.GPUPool) (contracts.Result, error) {
+func (s *stubAdmissionHandler) SyncPool(context.Context, *v1alpha1.GPUPool) (contracts.Result, error) {
 	s.calls++
 	return s.result, s.err
 }
@@ -197,7 +197,7 @@ func (f *failingListClient) List(context.Context, client.ObjectList, ...client.L
 func newScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	if err := gpuv1alpha1.AddToScheme(scheme); err != nil {
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add scheme: %v", err)
 	}
 	return scheme
@@ -231,7 +231,7 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 	if builderStub.named != "gpu-admission-controller" {
 		t.Fatalf("unexpected builder name: %s", builderStub.named)
 	}
-	if _, ok := builderStub.forObject.(*gpuv1alpha1.GPUPool); !ok {
+	if _, ok := builderStub.forObject.(*v1alpha1.GPUPool); !ok {
 		t.Fatalf("expected GPUPool For object, got %T", builderStub.forObject)
 	}
 	if builderStub.options.MaxConcurrentReconciles != 3 {
@@ -285,7 +285,7 @@ func TestSetupWithManagerPropagatesBuilderError(t *testing.T) {
 
 func TestReconcileSuccessAggregatesResults(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
 	cl := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	handlerA := &stubAdmissionHandler{name: "a", result: contracts.Result{Requeue: true}}
@@ -309,8 +309,8 @@ func TestReconcileSuccessAggregatesResults(t *testing.T) {
 
 func TestRequeueAllPools(t *testing.T) {
 	scheme := newScheme(t)
-	poolA := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
-	poolB := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b"}}
+	poolA := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	poolB := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(poolA, poolB).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
@@ -330,7 +330,7 @@ func TestRequeueAllPools(t *testing.T) {
 
 func TestMapModuleConfigRequeuesPools(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
@@ -353,7 +353,7 @@ func TestRequeueAllPoolsHandlesError(t *testing.T) {
 
 func TestReconcileHandlerErrorStopsProcessing(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
 	cl := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	handlerA := &stubAdmissionHandler{name: "a"}
@@ -396,7 +396,7 @@ func TestReconcileIgnoresNotFound(t *testing.T) {
 
 func TestReconcileWithoutHandlers(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &gpuv1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
 	cl := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
@@ -419,7 +419,7 @@ func TestRuntimeControllerBuilderDelegates(t *testing.T) {
 	if wrapper.Named("admission") != wrapper {
 		t.Fatal("Named should return wrapper")
 	}
-	if wrapper.For(&gpuv1alpha1.GPUPool{}) != wrapper {
+	if wrapper.For(&v1alpha1.GPUPool{}) != wrapper {
 		t.Fatal("For should return wrapper")
 	}
 	opts := controller.Options{MaxConcurrentReconciles: 2}
@@ -450,7 +450,7 @@ func TestBuilderControllerAdapterDelegates(t *testing.T) {
 
 	adapter := &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)}
 
-	obj := &gpuv1alpha1.GPUPool{}
+	obj := &v1alpha1.GPUPool{}
 	if adapter.Named("admission") != adapter {
 		t.Fatal("Named should return adapter")
 	}

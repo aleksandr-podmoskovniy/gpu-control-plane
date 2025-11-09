@@ -67,6 +67,6 @@ spec:
                 candidates:
                   description: Узлы или устройства, ожидающие принятия в пул.
                 devices:
-                  description: Перечень устройств пула и их состояние.
+                  description: Перечень устройств пула и их состояние (`Discovered`, `ReadyForPooling`, `PendingAssignment`, `NoPoolMatched`, `Assigned`, `Reserved`, `InUse`, `Faulted`; значение `Unassigned` сохранено для совместимости).
                 conditions:
                   description: Список агрегированных условий готовности пула.

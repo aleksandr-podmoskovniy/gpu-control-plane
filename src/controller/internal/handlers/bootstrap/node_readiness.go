@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -40,7 +41,7 @@ func (h *NodeReadinessHandler) Name() string {
 func (h *NodeReadinessHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
 	ready := false
 	for _, cond := range inventory.Status.Conditions {
-		if cond.Type == "ReadyForPooling" && cond.Status == "True" {
+		if cond.Type == conditionReadyForPooling && cond.Status == metav1.ConditionTrue {
 			ready = true
 			break
 		}

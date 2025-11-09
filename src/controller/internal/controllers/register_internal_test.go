@@ -23,7 +23,7 @@ import (
 	"github.com/go-logr/logr/testr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
@@ -76,7 +76,7 @@ type testInventoryHandler struct{}
 
 func (testInventoryHandler) Name() string { return "test" }
 
-func (testInventoryHandler) HandleDevice(context.Context, *gpuv1alpha1.GPUDevice) (contracts.Result, error) {
+func (testInventoryHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (contracts.Result, error) {
 	return contracts.Result{}, nil
 }
 

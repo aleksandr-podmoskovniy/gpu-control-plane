@@ -17,13 +17,13 @@ package contracts
 import (
 	"context"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 // BootstrapHandler reconciles GPUNodeInventory resources, preparing nodes for pooling.
 type BootstrapHandler interface {
 	Named
-	HandleNode(ctx context.Context, inventory *gpuv1alpha1.GPUNodeInventory) (Result, error)
+	HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeInventory) (Result, error)
 }
 
 // BootstrapRegistry keeps bootstrap handlers.

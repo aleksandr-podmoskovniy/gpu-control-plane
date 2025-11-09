@@ -20,7 +20,7 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestCapacitySyncHandler(t *testing.T) {
@@ -28,8 +28,8 @@ func TestCapacitySyncHandler(t *testing.T) {
 	if h.Name() == "" {
 		t.Fatal("expected non-empty handler name")
 	}
-	pool := &gpuv1alpha1.GPUPool{}
-	pool.Status.Nodes = []gpuv1alpha1.GPUPoolNodeStatus{{TotalDevices: 3, AssignedDevices: 1}, {TotalDevices: 2, AssignedDevices: 2}}
+	pool := &v1alpha1.GPUPool{}
+	pool.Status.Nodes = []v1alpha1.GPUPoolNodeStatus{{TotalDevices: 3, AssignedDevices: 1}, {TotalDevices: 2, AssignedDevices: 2}}
 
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("unexpected error: %v", err)
