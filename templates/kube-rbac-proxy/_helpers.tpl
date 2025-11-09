@@ -17,6 +17,7 @@
     - "--v={{ $settings.logLevel | default "2" }}"
     - "--logtostderr=true"
     - "--stale-cache-interval={{ $settings.staleCacheInterval | default "1h30m" }}"
+    - "--livez-path=/livez"
     - "--tls-cert-file=/var/lib/kube-rbac-proxy/tls/tls.crt"
     - "--tls-private-key-file=/var/lib/kube-rbac-proxy/tls/tls.key"
   {{- if hasKey $settings "ignorePaths" }}
@@ -58,12 +59,16 @@
       name: {{ $settings.portName | default "https-metrics" }}
       protocol: TCP
   livenessProbe:
-    tcpSocket:
+    httpGet:
+      path: /livez
       port: {{ $settings.portName | default "https-metrics" }}
+      scheme: HTTPS
     initialDelaySeconds: 10
   readinessProbe:
-    tcpSocket:
+    httpGet:
+      path: /livez
       port: {{ $settings.portName | default "https-metrics" }}
+      scheme: HTTPS
     initialDelaySeconds: 10
   volumeMounts:
     - name: kube-rbac-proxy-tls
