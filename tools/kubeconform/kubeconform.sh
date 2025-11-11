@@ -52,6 +52,11 @@ if [[ ! -d "${KUBECONFORM_REPO}" ]]; then
   echo "Clone kubeconform repository to convert schemas ..." >&2
   git clone https://github.com/yannh/kubeconform.git "${KUBECONFORM_REPO}" >/dev/null 2>&1
 fi
+OPENAPI2JSONSCHEMA="$(pwd)/${KUBECONFORM_REPO}/scripts/openapi2jsonschema.py"
+if [[ ! -f "${OPENAPI2JSONSCHEMA}" ]]; then
+  echo "Error: ${OPENAPI2JSONSCHEMA} not found" >&2
+  exit 1
+fi
 
 # Helm limits packaged files to 5MiB by default which is not enough for some Deckhouse charts.
 export HELM_MAX_FILE_SIZE="${HELM_MAX_FILE_SIZE:-52428800}"
@@ -76,19 +81,19 @@ if [[ ! -d schemas ]]; then
   echo "Transform Deckhouse CRDs to JSON schema ..." >&2
   export FILENAME_FORMAT='{kind}-{group}-{version}'
   for crd in *.yaml; do
-    "${KUBECONFORM_REPO}"/scripts/openapi2jsonschema.py "$crd"
+    "${OPENAPI2JSONSCHEMA}" "$crd"
   done
 
   echo "Transform gpu-control-plane CRDs ..." >&2
   shopt -s nullglob
   for crd in ../../crds/*.yaml; do
     [[ "$crd" == *doc-ru* ]] && continue
-    "${KUBECONFORM_REPO}"/scripts/openapi2jsonschema.py "$crd"
+    "${OPENAPI2JSONSCHEMA}" "$crd"
   done
   shopt -u nullglob
 
   # Relax metadata requirements for Deckhouse descheduler CRDs (matches virtualization tooling)
-  find -iname "descheduler-deckhouse-*.json" | while read -r schema; do
+  find . -iname "descheduler-deckhouse-*.json" | while read -r schema; do
     jq '(.properties.metadata) |= {type: "object"}' "$schema" > tmp.json && mv tmp.json "$schema"
   done
 
