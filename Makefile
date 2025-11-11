@@ -20,7 +20,6 @@ KUBE_API_REWRITER_DIR := $(ROOT)/images/kube-api-rewriter
 GOMODCACHE := $(ROOT)/.cache/gomod
 BIN_DIR := $(ROOT)/.bin
 COVERAGE_DIR := $(ROOT)/artifacts/coverage
-
 export PATH := $(BIN_DIR):$(PATH)
 
 GO ?= go
@@ -73,13 +72,13 @@ controller-build: cache
 	@mkdir -p $(BIN_DIR)
 	@cd $(CONTROLLER_DIR) && $(GO) build -o $(BIN_DIR)/gpu-control-plane-controller ./cmd/main.go
 
-controller-test: cache
+controller-test: cache coverage-dir
 	@echo "==> go test (controller)"
-	@cd $(CONTROLLER_DIR) && $(GO) test $(GOFLAGS) ./...
+	@cd $(CONTROLLER_DIR) && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/controller.out ./...
 
-hooks-test: cache
+hooks-test: cache coverage-dir
 	@echo "==> go test (hooks)"
-	@cd images/hooks && $(GO) test $(GOFLAGS) ./...
+	@cd images/hooks && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/hooks.out ./...
 
 rewriter-test: cache coverage-dir
 	@echo "==> go test (kube-api-rewriter)"
@@ -105,7 +104,7 @@ lint: lint-go lint-docs lint-dmt
 
 test: controller-test hooks-test rewriter-test
 
-verify: lint test kubeconform
+verify: lint test helm-template kubeconform
 
 clean:
 	@rm -rf $(GOMODCACHE)
@@ -120,6 +119,10 @@ werf-build: ensure-module-sdk
 kubeconform:
 	@echo "==> kubeconform"
 	@cd tools/kubeconform && ./kubeconform.sh
+
+helm-template:
+	@echo "==> helm template (bootstrap state fixtures)"
+	@cd tools/helm-tests && ./helm-template.sh
 
 e2e:
 	@echo "==> e2e (kind or target cluster)"

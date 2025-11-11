@@ -1,0 +1,4 @@
+# Legacy string value for validator component.
+gpuControlPlane:
+  bootstrap:
+    validator: "node/test"

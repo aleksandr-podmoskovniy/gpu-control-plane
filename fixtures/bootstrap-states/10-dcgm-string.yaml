@@ -1,0 +1,4 @@
+# Mimics legacy bootstrap state ConfigMap where per-component entry is just a string.
+gpuControlPlane:
+  bootstrap:
+    dcgm: "node/test"

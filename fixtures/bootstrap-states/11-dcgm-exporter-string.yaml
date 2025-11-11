@@ -1,0 +1,4 @@
+# Legacy string value for dcgmExporter component (no nodes array yet).
+gpuControlPlane:
+  bootstrap:
+    dcgmExporter: "node/test"

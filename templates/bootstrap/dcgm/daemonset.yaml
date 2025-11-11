@@ -2,7 +2,8 @@
 {{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
 {{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
 {{- if and $moduleEnabled $componentEnabled }}
-{{- $dcgm := (dig "bootstrap" "dcgm" .Values.gpuControlPlane) | default dict }}
+{{- $dcgmRaw := (dig "bootstrap" "dcgm" .Values.gpuControlPlane) }}
+{{- $dcgm := (ternary $dcgmRaw (dict) (kindIs "map" $dcgmRaw)) | default dict }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $image := include "helm_lib_module_image" (list . "nvidiaDcgm") }}

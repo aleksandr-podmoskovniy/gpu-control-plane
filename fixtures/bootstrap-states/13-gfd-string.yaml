@@ -1,0 +1,4 @@
+# Legacy string value for gpuFeatureDiscovery component.
+gpuControlPlane:
+  bootstrap:
+    gpuFeatureDiscovery: "node/test"

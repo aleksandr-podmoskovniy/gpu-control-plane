@@ -1,0 +1,9 @@
+# Structured state produced by bootstrap controller.
+gpuControlPlane:
+  bootstrap:
+    components:
+      dcgm:
+        phase: Ready
+        nodes:
+          - worker-a
+          - worker-b

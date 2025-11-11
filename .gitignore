@@ -38,6 +38,7 @@
 venv/
 bin/
 .bin/
+artifacts/
 
 # macOS Finder files
 *.DS_Store
