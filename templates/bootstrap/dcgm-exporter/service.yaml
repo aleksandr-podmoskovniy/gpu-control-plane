@@ -1,7 +1,11 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- $component := "dcgm-exporter" }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true") }}
-{{- $cfg := (dig "bootstrap" "dcgmExporter" .Values.gpuControlPlane) | default dict }}
+{{- $cfgRaw := (dig "bootstrap" "dcgmExporter" .Values.gpuControlPlane) }}
+{{- $cfg := dict }}
+{{- if kindIs "map" $cfgRaw }}
+  {{- $cfg = $cfgRaw }}
+{{- end }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $port := (default 9400 $cfg.port) }}
