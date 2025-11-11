@@ -235,11 +235,10 @@ flowchart LR
     InventoryCtrl["gpu-inventory-controller<br/>создаёт GPUDevice и GPUNodeInventory"]
     Device["GPUDevice CR<br/>на каждую обнаруженную карту"]
     Inventory["GPUNodeInventory<br/>агрегат по узлу"]
-    Bootstrap["gpu-bootstrap-controller<br/>проверка драйвера, запуск GFD/DCGM"]
-    BaseDaemons["nvidia-base DaemonSet<br/>(GFD, DCGM exporter)<br/>с nodeAffinity"]
-    PoolDaemons["nvidia per-pool DaemonSet<br/>(device plugin, MIG manager)<br/>с nodeAffinity"]
+    Bootstrap["gpu-bootstrap-controller<br/>валидатор + GFD/DCGM per node"]
+    BaseDaemons["bootstrap DaemonSet'ы<br/>валидатор, GFD, DCGM<br/>nodeAffinity=узел"]
     Pool["GPUPool CRD<br/>логические пулы с правилами"]
-    Controller["gpupool-controller<br/>capacity/health, ConfigMap для device plugin,<br/>события и метрики"]
+    Controller["gpupool-controller<br/>capacity/health, per-pool device-plugin/MIG"]
     Workloads["Pod/CR workloads<br/>resources.limits + admission hints"]
     NFD --> InventoryCtrl
     InventoryCtrl --> Device
@@ -506,6 +505,31 @@ flowchart LR
    проблему, bootstrap сохраняет в CR причину и даёт операторам (или будущему
    автоинсталлятору) сигнал для восстановления.
 
+##### Последовательность bootstrap
+
+```mermaid
+sequenceDiagram
+    participant Inv as GPUNodeInventory / GPUDevice
+    participant Boot as Bootstrap Controller
+    participant CM as ConfigMap bootstrap-state
+    participant Helm as Helm templates (валидатор/GFD/DCGM)
+    participant Node as Узел и DaemonSet'ы
+    participant Pool as GPUPool Controller
+    Inv->>Boot: Узел отмечен как управляемый
+    Boot->>CM: Phase=Validating, gfd/dcgm disabled
+    Helm->>Node: Запуск валидатора только на этом узле
+    Node-->>Boot: Результат проверки драйвера/toolkit
+    Boot->>CM: Phase=GFD, включить gfdEnabled
+    Helm->>Node: Развёртывание GFD с nodeAffinity
+    Node-->>Inv: Обновлены аппаратные факты (UUID/MIG/PCI)
+    Boot->>CM: Phase=Monitoring, включить dcgmEnabled
+    Helm->>Node: Запуск DCGM hostengine + exporter
+    Node-->>Boot: Телеметрия / Ready событие
+    Boot->>Inv: Phase=Ready, ReadyForPooling=true
+    Inv-->>Pool: Появились кандидаты (pending[])
+    Pool->>Node: Позже включает per-pool device-plugin/MIG при назначении
+```
+
 `gpu-inventory-controller` публикует `phase`, факты об оборудовании и условия,
 а `gpupool-controller` уже на их основе формирует `status.pools.pending[]` и
 переводит карты в `PendingAssignment`. Как только bootstrap снимает блокировки,
@@ -538,6 +562,22 @@ gpupool обновляет pending/assigned и запускает per-pool devic
 - Любые нарушения переводят устройства в `state=Discovered` и предотвращают их
   выдачу пулу, пока оператор не устранит проблему — это обеспечивает согласованность
   между реальным состоянием узла и описанием в `GPUPool`.
+
+##### Наблюдаемость
+
+- Bootstrap-контроллер экспортирует Prometheus-метрики:
+  - `gpu_bootstrap_node_phase{node,phase}` — гейдж со значением `1`, когда узел находится
+    в указанной фазе.
+  - `gpu_bootstrap_condition{node,condition}` — гейдж `1`, если condition истинна.
+  - `gpu_bootstrap_handler_errors_total{handler}` — счётчик ошибок обработчиков.
+- Инвентарь продолжает публиковать `gpu_inventory_devices_total{node}`,
+  `gpu_inventory_devices_state{node,state}` и счётчики ошибок обработчиков.
+- На базе этих метрик поставляются дашборды Grafana (`monitoring/grafana-dashboards/main`):
+  - `GPU Control Plane / Overview` — агрегированные fases/bootstrap/инвентарь + DCGM‑телеметрия.
+  - `GPU Control Plane / Node` — детализация по конкретному узлу (DCGM).
+  - `GPU Control Plane / Workloads` — использование GPU на уровне namespace/pod.
+    Они повторяют паттерны virtualization/SDS: один обзор и узконаправленные панели для
+    операционных задач.
 
 #### Жизненный цикл `GPUDevice`
 
@@ -876,12 +916,12 @@ containers:
 
 ## План внедрения
 
-| Этап | Цель             | Действия                                                                               | Выходные данные                                                                                   |
-| ---- | ---------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 0    | Обнаружить GPU   | Включить Node Feature Discovery и правила, собрать `GPUNodeInventory`                  | Список узлов, драйверов, условий                                                                  |
-| 1    | Подготовить узлы | Включить `gpu-bootstrap-controller`: запуск валидатора/GFD/DCGM точечно per-node         | Узлы готовы к работе, есть события о проблемах                                                    |
-| 2    | Управлять пулами | Создать CR `GPUPool`, контроллер capacity, admission, квоты                            | Workloads указывают `gpu.deckhouse.io/<pool>` напрямую, admission валидирует и применяет политики |
-| 3    | Расширить        | Авто-MIG, диагностика, резервирование, (позже) драйвера                                | Дополнительные возможности без ломки API                                                          |
+| Этап | Цель             | Действия                                                                         | Выходные данные                                                                                   |
+| ---- | ---------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 0    | Обнаружить GPU   | Включить Node Feature Discovery и правила, собрать `GPUNodeInventory`            | Список узлов, драйверов, условий                                                                  |
+| 1    | Подготовить узлы | Включить `gpu-bootstrap-controller`: запуск валидатора/GFD/DCGM точечно per-node | Узлы готовы к работе, есть события о проблемах                                                    |
+| 2    | Управлять пулами | Создать CR `GPUPool`, контроллер capacity, admission, квоты                      | Workloads указывают `gpu.deckhouse.io/<pool>` напрямую, admission валидирует и применяет политики |
+| 3    | Расширить        | Авто-MIG, диагностика, резервирование, (позже) драйвера                          | Дополнительные возможности без ломки API                                                          |
 
 Разработка и тестирование следуют той же последовательности: unit/integration
 для каждого контроллера, e2e в рамках этапа, chaos для проверки устойчивости.

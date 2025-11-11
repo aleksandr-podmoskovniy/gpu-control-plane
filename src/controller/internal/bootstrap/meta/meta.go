@@ -19,6 +19,14 @@ import "fmt"
 const (
 	// WorkloadsNamespace is the namespace where bootstrap DaemonSets live.
 	WorkloadsNamespace = "d8-gpu-control-plane"
+	// MonitoringNamespace is where shared monitoring resources live.
+	MonitoringNamespace = "d8-monitoring"
+	// StateConfigMapName stores per-node bootstrap flags.
+	StateConfigMapName = "gpu-control-plane-bootstrap-state"
+	// ControllerDeploymentName is the name of the controller Deployment used for ownership.
+	ControllerDeploymentName = "gpu-control-plane-controller"
+	// ControllerServiceMonitorName is the name of the ServiceMonitor published for controller metrics.
+	ControllerServiceMonitorName = "gpu-control-plane-controller"
 
 	componentPrefix = "gpu-control-plane"
 )

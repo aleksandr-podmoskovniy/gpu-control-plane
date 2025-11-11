@@ -1,10 +1,20 @@
 {{/* Copyright 2025 Flant JSC */}}
-{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $component := "validator" }}
+{{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
+{{- if and $moduleEnabled $componentEnabled }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $validatorName := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $image := include "helm_lib_module_image" (list . "gpuValidator") }}
-{{- $migStrategy := (dig "bootstrap" "migStrategy" .Values.gpuControlPlane) | default "single" }}
+{{- $bootstrapCfg := dig "bootstrap" .Values.gpuControlPlane (dict) }}
+{{- if not (kindIs "map" $bootstrapCfg) }}{{- $bootstrapCfg = dict }}{{- end }}
+{{- $migStrategy := (index $bootstrapCfg "migStrategy") | default "single" }}
+{{- $validatorCfg := (index $bootstrapCfg "validator") | default dict }}
+{{- if not (kindIs "map" $validatorCfg) }}{{- $validatorCfg = dict }}{{- end }}
+{{- $runtimeClass := (index $validatorCfg "runtimeClass") | default "nvidia" }}
+{{- $validatorPullPolicy := "IfNotPresent" }}
+{{- $enableNvidiaFS := (index $validatorCfg "enableNvidiaFSValidation") | default false }}
+{{- $enableGDRCopy := (index $validatorCfg "enableGDRCopyValidation") | default false }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -17,13 +27,18 @@ spec:
       app: {{ $validatorName }}
   template:
     metadata:
+      {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
+      {{- if $hash }}
+      annotations:
+        gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
+      {{- end }}
       {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "validator") | nindent 6 }}
     spec:
       serviceAccountName: {{ $validatorName }}
       {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-node-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
-      {{- include "gpuControlPlane.bootstrap.affinity" . | nindent 6 }}
+      {{- include "gpuControlPlane.bootstrap.affinity" (list . $component) | nindent 6 }}
       initContainers:
         - name: driver-validation
           image: {{ $image }}
@@ -56,6 +71,7 @@ spec:
               mountPropagation: Bidirectional
             - name: host-dev-char
               mountPath: /host-dev-char
+        {{- if $enableNvidiaFS }}
         - name: nvidia-fs-validation
           image: {{ $image }}
           imagePullPolicy: IfNotPresent
@@ -76,6 +92,8 @@ spec:
             - name: run-nvidia-validations
               mountPath: /run/nvidia/validations
               mountPropagation: Bidirectional
+        {{- end }}
+        {{- if $enableGDRCopy }}
         - name: gdrcopy-validation
           image: {{ $image }}
           imagePullPolicy: IfNotPresent
@@ -96,6 +114,7 @@ spec:
             - name: run-nvidia-validations
               mountPath: /run/nvidia/validations
               mountPropagation: Bidirectional
+        {{- end }}
         - name: toolkit-validation
           image: {{ $image }}
           imagePullPolicy: IfNotPresent
@@ -132,6 +151,12 @@ spec:
                   fieldPath: metadata.namespace
             - name: OUTPUT_DIR
               value: /run/nvidia/validations
+            - name: VALIDATOR_IMAGE
+              value: {{ $image | quote }}
+            - name: VALIDATOR_IMAGE_PULL_POLICY
+              value: {{ $validatorPullPolicy | quote }}
+            - name: VALIDATOR_RUNTIME_CLASS
+              value: {{ $runtimeClass | quote }}
           volumeMounts:
             - name: run-nvidia-validations
               mountPath: /run/nvidia/validations
@@ -160,6 +185,12 @@ spec:
                   fieldPath: metadata.namespace
             - name: OUTPUT_DIR
               value: /run/nvidia/validations
+            - name: VALIDATOR_IMAGE
+              value: {{ $image | quote }}
+            - name: VALIDATOR_IMAGE_PULL_POLICY
+              value: {{ $validatorPullPolicy | quote }}
+            - name: VALIDATOR_RUNTIME_CLASS
+              value: {{ $runtimeClass | quote }}
           volumeMounts:
             - name: run-nvidia-validations
               mountPath: /run/nvidia/validations

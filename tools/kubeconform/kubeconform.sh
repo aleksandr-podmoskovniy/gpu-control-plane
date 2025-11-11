@@ -47,10 +47,11 @@ else
   exit 1
 fi
 
-echo "Clone kubeconform repository to convert schemas ..." >&2
-KUBECONFORM_REPO=$(mktemp -d "${TMPDIR:-/tmp}/kubeconform.XXXXXX")
-trap 'rm -rf "${KUBECONFORM_REPO}"' EXIT
-git clone https://github.com/yannh/kubeconform.git "${KUBECONFORM_REPO}" >/dev/null 2>&1
+KUBECONFORM_REPO="kubeconform.git"
+if [[ ! -d "${KUBECONFORM_REPO}" ]]; then
+  echo "Clone kubeconform repository to convert schemas ..." >&2
+  git clone https://github.com/yannh/kubeconform.git "${KUBECONFORM_REPO}" >/dev/null 2>&1
+fi
 
 # Helm limits packaged files to 5MiB by default which is not enough for some Deckhouse charts.
 export HELM_MAX_FILE_SIZE="${HELM_MAX_FILE_SIZE:-52428800}"
@@ -61,7 +62,16 @@ if [[ ! -d schemas ]]; then
 
   echo "Download Deckhouse CRDs ..." >&2
   curl -sLo servicemonitors.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/servicemonitors.yaml
+  curl -sLo podmonitors.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/podmonitors.yaml
+  curl -sLo scrapeconfigs.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/scrapeconfigs.yaml
   curl -sLo prometheusrules.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/internal/prometheusrules.yaml
+  curl -sLo verticalpodautoscalers.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/302-vertical-pod-autoscaler/crds/verticalpodautoscaler.yaml
+  curl -sLo nodegroupconfiguration.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/040-node-manager/crds/nodegroupconfiguration.yaml
+  curl -sLo certificates.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/101-cert-manager/crds/crd-certificates.yaml
+  curl -sLo grafanadashboarddefinition.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/300-prometheus/crds/grafanadashboarddefinition.yaml
+  curl -sLo cluster-logging-config.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/460-log-shipper/crds/cluster-logging-config.yaml
+  curl -sLo cluster-log-destination.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/460-log-shipper/crds/cluster-log-destination.yaml
+  curl -sLo deschedulers.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/400-descheduler/crds/deschedulers.yaml
 
   echo "Transform Deckhouse CRDs to JSON schema ..." >&2
   export FILENAME_FORMAT='{kind}-{group}-{version}'
@@ -76,6 +86,11 @@ if [[ ! -d schemas ]]; then
     "${KUBECONFORM_REPO}"/scripts/openapi2jsonschema.py "$crd"
   done
   shopt -u nullglob
+
+  # Relax metadata requirements for Deckhouse descheduler CRDs (matches virtualization tooling)
+  find -iname "descheduler-deckhouse-*.json" | while read -r schema; do
+    jq '(.properties.metadata) |= {type: "object"}' "$schema" > tmp.json && mv tmp.json "$schema"
+  done
 
   popd >/dev/null
 fi

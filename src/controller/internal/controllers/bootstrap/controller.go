@@ -16,12 +16,16 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,11 +37,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/components"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -118,8 +125,14 @@ func (a *builderControllerAdapter) Complete(r reconcile.Reconciler) error {
 }
 
 const (
-	controllerName           = "gpu-bootstrap-controller"
-	cacheSyncTimeoutDuration = 10 * time.Minute
+	controllerName             = "gpu-bootstrap-controller"
+	cacheSyncTimeoutDuration   = 10 * time.Minute
+	conditionManagedDisabled   = "ManagedDisabled"
+	conditionReadyForPooling   = "ReadyForPooling"
+	conditionDriverMissing     = "DriverMissing"
+	conditionToolkitMissing    = "ToolkitMissing"
+	conditionMonitoringMissing = "MonitoringMissing"
+	conditionGFDReady          = "GFDReady"
 )
 
 var managedComponentSet = func() map[string]struct{} {
@@ -129,6 +142,59 @@ var managedComponentSet = func() map[string]struct{} {
 	}
 	return set
 }()
+
+var (
+	bootstrapPhaseGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "gpu",
+			Subsystem: "bootstrap",
+			Name:      "node_phase",
+			Help:      "Current bootstrap phase per node.",
+		},
+		[]string{"node", "phase"},
+	)
+	bootstrapConditionGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "gpu",
+			Subsystem: "bootstrap",
+			Name:      "condition",
+			Help:      "Bootstrap conditions that are true for a node.",
+		},
+		[]string{"node", "condition"},
+	)
+	bootstrapHandlerErrors = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "gpu",
+			Subsystem: "bootstrap",
+			Name:      "handler_errors_total",
+			Help:      "Number of bootstrap handler failures.",
+		},
+		[]string{"handler"},
+	)
+	bootstrapPhases = []v1alpha1.GPUNodeBootstrapPhase{
+		v1alpha1.GPUNodeBootstrapPhaseDisabled,
+		v1alpha1.GPUNodeBootstrapPhaseValidating,
+		v1alpha1.GPUNodeBootstrapPhaseValidatingFailed,
+		v1alpha1.GPUNodeBootstrapPhaseGFD,
+		v1alpha1.GPUNodeBootstrapPhaseMonitoring,
+		v1alpha1.GPUNodeBootstrapPhaseReady,
+	}
+	bootstrapConditionTypes = []string{
+		conditionReadyForPooling,
+		conditionDriverMissing,
+		conditionToolkitMissing,
+		conditionMonitoringMissing,
+		conditionGFDReady,
+	}
+)
+
+func init() {
+	metrics.Registry.MustRegister(
+		bootstrapPhaseGauge,
+		bootstrapConditionGauge,
+		bootstrapHandlerErrors,
+	)
+}
 
 var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
 	return &runtimeControllerBuilder{
@@ -142,6 +208,7 @@ type Reconciler struct {
 	log                    logr.Logger
 	cfg                    config.ControllerConfig
 	store                  *config.ModuleConfigStore
+	stateStore             *state.Store
 	handlers               []contracts.BootstrapHandler
 	builders               func(ctrl.Manager) controllerBuilder
 	moduleWatcherFactory   func(cache.Cache, controllerBuilder) controllerBuilder
@@ -172,6 +239,18 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.client = mgr.GetClient()
 	r.injectClient()
 	r.scheme = mgr.GetScheme()
+	r.stateStore = state.NewStore(
+		mgr.GetClient(),
+		meta.WorkloadsNamespace,
+		meta.StateConfigMapName,
+		types.NamespacedName{
+			Name:      meta.ControllerDeploymentName,
+			Namespace: meta.WorkloadsNamespace,
+		},
+	)
+	if err := r.stateStore.Ensure(ctx); err != nil {
+		return fmt.Errorf("ensure bootstrap state configmap: %w", err)
+	}
 
 	options := controller.Options{
 		MaxConcurrentReconciles: r.cfg.Workers,
@@ -252,16 +331,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, inventory); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("GPUNodeInventory removed")
+			r.deleteNodeState(ctx, req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
+	original := inventory.DeepCopy()
+	prevPhase := effectiveBootstrapPhase(original)
+
 	rec := reconciler.NewBase(r.handlers)
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.BootstrapHandler) (contracts.Result, error) {
-		return handler.HandleNode(ctx, inventory)
+		result, err := handler.HandleNode(ctx, inventory)
+		if err != nil {
+			bootstrapHandlerErrors.WithLabelValues(handler.Name()).Inc()
+		}
+		return result, err
 	})
-	original := inventory.DeepCopy()
 	rec.SetResourceUpdater(func(ctx context.Context) error {
 		if equality.Semantic.DeepEqual(original.Status, inventory.Status) {
 			return nil
@@ -274,6 +360,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "handler chain failed")
 		return ctrl.Result{}, err
 	}
+	r.persistNodeState(ctx, inventory)
+	r.updateBootstrapMetrics(req.Name, prevPhase, inventory)
 
 	return ctrl.Result{
 		Requeue:      res.Requeue,
@@ -282,6 +370,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 }
 
 func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Request {
+	if r.client == nil {
+		return nil
+	}
 	list := &v1alpha1.GPUNodeInventoryList{}
 	if err := r.client.List(ctx, list); err != nil {
 		if r.log.GetSink() != nil {
@@ -295,4 +386,79 @@ func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Requ
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: item.Name}})
 	}
 	return requests
+}
+
+func (r *Reconciler) persistNodeState(ctx context.Context, inventory *v1alpha1.GPUNodeInventory) {
+	if r.stateStore == nil {
+		return
+	}
+	phase := effectiveBootstrapPhase(inventory)
+	enabled := components.EnabledComponents(phase)
+	componentSet := make(map[string]bool, len(enabled))
+	for component := range enabled {
+		componentSet[string(component)] = true
+	}
+	nodeState := state.NodeState{
+		Phase:      string(phase),
+		Components: componentSet,
+	}
+	if err := r.stateStore.UpdateNode(ctx, inventory.Name, nodeState); err != nil {
+		r.log.Error(err, "failed to update bootstrap state", "node", inventory.Name)
+	}
+}
+
+func (r *Reconciler) deleteNodeState(ctx context.Context, node string) {
+	if r.stateStore == nil {
+		return
+	}
+	r.clearBootstrapMetrics(node)
+	if err := r.stateStore.DeleteNode(ctx, node); err != nil {
+		r.log.Error(err, "failed to drop bootstrap state", "node", node)
+	}
+}
+
+func (r *Reconciler) updateBootstrapMetrics(node string, prevPhase v1alpha1.GPUNodeBootstrapPhase, inventory *v1alpha1.GPUNodeInventory) {
+	newPhase := effectiveBootstrapPhase(inventory)
+	if prevPhase != "" && prevPhase != newPhase {
+		bootstrapPhaseGauge.DeleteLabelValues(node, string(prevPhase))
+	}
+	bootstrapPhaseGauge.WithLabelValues(node, string(newPhase)).Set(1)
+
+	for _, cond := range bootstrapConditionTypes {
+		if conditionTrue(inventory, cond) {
+			bootstrapConditionGauge.WithLabelValues(node, cond).Set(1)
+		} else {
+			bootstrapConditionGauge.DeleteLabelValues(node, cond)
+		}
+	}
+}
+
+func (r *Reconciler) clearBootstrapMetrics(node string) {
+	for _, phase := range bootstrapPhases {
+		bootstrapPhaseGauge.DeleteLabelValues(node, string(phase))
+	}
+	for _, cond := range bootstrapConditionTypes {
+		bootstrapConditionGauge.DeleteLabelValues(node, cond)
+	}
+}
+
+func effectiveBootstrapPhase(inventory *v1alpha1.GPUNodeInventory) v1alpha1.GPUNodeBootstrapPhase {
+	phase := inventory.Status.Bootstrap.Phase
+	if phase == "" {
+		phase = v1alpha1.GPUNodeBootstrapPhaseValidating
+	}
+	if isManagedDisabled(inventory) {
+		return v1alpha1.GPUNodeBootstrapPhaseDisabled
+	}
+	return phase
+}
+
+func isManagedDisabled(inventory *v1alpha1.GPUNodeInventory) bool {
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
+	return cond != nil && cond.Status == metav1.ConditionTrue
+}
+
+func conditionTrue(inventory *v1alpha1.GPUNodeInventory, condType string) bool {
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, condType)
+	return cond != nil && cond.Status == metav1.ConditionTrue
 }

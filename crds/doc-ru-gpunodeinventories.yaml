@@ -67,12 +67,33 @@ spec:
                 bootstrap:
                   description: Результаты проверки узла bootstrap-контроллером.
                   properties:
+                    phase:
+                      description: Текущая фаза bootstrap (`Disabled`, `Validating`, `GFD`, `Monitoring`, `Ready`).
                     gfdReady:
                       description: Установка GPU Feature Discovery завершена успешно.
                     toolkitReady:
                       description: Установка необходимых CUDA-компонентов завершена успешно.
                     lastRun:
                       description: Последнее время запуска bootstrap-процедуры.
+                    workloads:
+                      description: Список bootstrap-ворклоадов с их состоянием (validator, GFD, DCGM, dcgm-exporter).
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            description: Имя компонента (`validator`, `gpu-feature-discovery`, `dcgm`, `dcgm-exporter`).
+                            type: string
+                          healthy:
+                            description: Признак того, что ворклоад работает и готов.
+                            type: boolean
+                          message:
+                            description: Диагностическое сообщение, если `healthy=false`.
+                            type: string
+                          since:
+                            description: Время, когда ворклоад перешёл в текущее состояние.
+                            format: date-time
+                            type: string
+                      type: array
                 pools:
                   description: Участие узла и его устройств в пулах.
                   properties:

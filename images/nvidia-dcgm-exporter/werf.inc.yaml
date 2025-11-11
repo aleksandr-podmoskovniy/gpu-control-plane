@@ -4,7 +4,7 @@ image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
 fromImage: common/src-artifact
 final: false
 git:
-- add: images/{{ .ImageName }}/patches
+- add: /images/{{ .ImageName }}/patches
   to: /patches
   stageDependencies:
     install:
@@ -27,11 +27,12 @@ import:
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src
   before: install
-- image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
-  add: /out
-  to: /
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg/usr
+  to: /usr
   includePaths:
-  - usr/*
+  - lib
+  - lib64
   before: setup
 mount:
   - fromPath: "~/go-pkg-cache"
@@ -82,12 +83,12 @@ import:
   - dcgm-exporter
   - dcgm-exporter-entrypoint.sh
   before: setup
-- image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
-  add: /out/
-  to: /
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg/usr
+  to: /usr
   includePaths:
-  - usr/*
   - lib
+  - lib64
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src/etc/*

@@ -1,17 +1,9 @@
 {{/* Copyright 2025 Flant JSC */}}
-{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $component := "validator" }}
+{{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true") }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $serviceAccount := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $labels := dict "app" $serviceAccount "component" "validator" }}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ $serviceAccount }}
-  namespace: {{ $namespace }}
-  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "validator") | nindent 2 }}
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

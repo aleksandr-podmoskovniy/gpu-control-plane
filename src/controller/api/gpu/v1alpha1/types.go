@@ -302,13 +302,47 @@ type GPUNodeMonitoring struct {
 	LastHeartbeat *metav1.Time `json:"lastHeartbeat,omitempty"`
 }
 
+// GPUNodeBootstrapPhase enumerates bootstrap phases for a node.
+type GPUNodeBootstrapPhase string
+
+const (
+	// GPUNodeBootstrapPhaseDisabled indicates that the node is managed-disabled and bootstrap workloads are off.
+	GPUNodeBootstrapPhaseDisabled GPUNodeBootstrapPhase = "Disabled"
+	// GPUNodeBootstrapPhaseValidating signals that driver/toolkit validation is in progress.
+	GPUNodeBootstrapPhaseValidating GPUNodeBootstrapPhase = "Validating"
+	// GPUNodeBootstrapPhaseValidatingFailed signals that driver/toolkit validation failed.
+	GPUNodeBootstrapPhaseValidatingFailed GPUNodeBootstrapPhase = "ValidatingFailed"
+	// GPUNodeBootstrapPhaseGFD indicates that GFD is running and synchronising labels.
+	GPUNodeBootstrapPhaseGFD GPUNodeBootstrapPhase = "GFD"
+	// GPUNodeBootstrapPhaseMonitoring indicates that DCGM is running but node is not yet ready for pooling.
+	GPUNodeBootstrapPhaseMonitoring GPUNodeBootstrapPhase = "Monitoring"
+	// GPUNodeBootstrapPhaseReady indicates that the node passed all bootstrap checks.
+	GPUNodeBootstrapPhaseReady GPUNodeBootstrapPhase = "Ready"
+)
+
 type GPUNodeBootstrapStatus struct {
+	// Phase reflects the current bootstrap phase.
+	Phase GPUNodeBootstrapPhase `json:"phase,omitempty"`
 	// GFDReady indicates that GPU Feature Discovery DaemonSet is successfully running.
 	GFDReady bool `json:"gfdReady,omitempty"`
 	// ToolkitReady signals that toolkit preparation on the node completed.
 	ToolkitReady bool `json:"toolkitReady,omitempty"`
 	// LastRun stores time of the last bootstrap reconciliation.
 	LastRun *metav1.Time `json:"lastRun,omitempty"`
+	// Workloads lists health state of every bootstrap workload on the node.
+	Workloads []GPUNodeBootstrapWorkloadStatus `json:"workloads,omitempty"`
+}
+
+// GPUNodeBootstrapWorkloadStatus describes individual bootstrap workload health.
+type GPUNodeBootstrapWorkloadStatus struct {
+	// Name matches the bootstrap component identifier (validator, gpu-feature-discovery, etc.).
+	Name string `json:"name"`
+	// Healthy reports whether the workload is running and ready.
+	Healthy bool `json:"healthy"`
+	// Message contains human readable diagnostics when Healthy=false.
+	Message string `json:"message,omitempty"`
+	// Since marks when the workload entered its current state.
+	Since *metav1.Time `json:"since,omitempty"`
 }
 
 type GPUNodePoolsStatus struct {

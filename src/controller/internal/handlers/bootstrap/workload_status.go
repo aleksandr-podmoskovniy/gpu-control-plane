@@ -17,6 +17,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,39 +29,67 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	bootstrapcomponents "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/components"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
 const (
-	conditionReadyForPooling    = "ReadyForPooling"
-	conditionDriverMissing      = "DriverMissing"
-	conditionToolkitMissing     = "ToolkitMissing"
-	conditionMonitoringMissing  = "MonitoringMissing"
-	conditionGFDReady           = "GFDReady"
-	conditionManagedDisabled    = "ManagedDisabled"
-	reasonAllChecksPassed       = "AllChecksPassed"
-	reasonNoDevices             = "NoDevices"
-	reasonNodeDisabled          = "NodeDisabled"
-	reasonDriverNotDetected     = "DriverNotDetected"
-	reasonDriverDetected        = "DriverDetected"
-	reasonToolkitNotReady       = "ToolkitNotReady"
-	reasonToolkitReady          = "ToolkitReady"
-	reasonComponentPending      = "ComponentPending"
-	reasonMonitoringUnhealthy   = "MonitoringUnhealthy"
-	reasonMonitoringHealthy     = "MonitoringHealthy"
-	reasonComponentHealthy      = "ComponentHealthy"
-	defaultNotReadyRequeueDelay = 15 * time.Second
-	defaultReadyRequeueDelay    = time.Minute
+	conditionReadyForPooling     = "ReadyForPooling"
+	conditionDriverMissing       = "DriverMissing"
+	conditionToolkitMissing      = "ToolkitMissing"
+	conditionMonitoringMissing   = "MonitoringMissing"
+	conditionGFDReady            = "GFDReady"
+	conditionManagedDisabled     = "ManagedDisabled"
+	conditionInventoryIncomplete = "InventoryIncomplete"
+	reasonAllChecksPassed        = "AllChecksPassed"
+	reasonNoDevices              = "NoDevices"
+	reasonNodeDisabled           = "NodeDisabled"
+	reasonDriverNotDetected      = "DriverNotDetected"
+	reasonDriverDetected         = "DriverDetected"
+	reasonToolkitNotReady        = "ToolkitNotReady"
+	reasonToolkitReady           = "ToolkitReady"
+	reasonComponentPending       = "ComponentPending"
+	reasonMonitoringUnhealthy    = "MonitoringUnhealthy"
+	reasonMonitoringHealthy      = "MonitoringHealthy"
+	reasonComponentHealthy       = "ComponentHealthy"
+	reasonInventoryIncomplete    = "InventoryIncomplete"
+	defaultNotReadyRequeueDelay  = 15 * time.Second
+	defaultReadyRequeueDelay     = time.Minute
 )
 
 var (
-	componentAppNames      = meta.ComponentAppNames()
+	workloadComponents = func() []workloadComponent {
+		names := bootstrapcomponents.Names()
+		items := make([]workloadComponent, len(names))
+		for i, component := range names {
+			items[i] = workloadComponent{
+				component: component,
+				app:       meta.AppName(component),
+			}
+		}
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].app < items[j].app
+		})
+		return items
+	}()
+	componentAppNames = func() []string {
+		values := make([]string, len(workloadComponents))
+		for i, item := range workloadComponents {
+			values[i] = item.app
+		}
+		return values
+	}()
 	appGPUFeatureDiscovery = meta.AppName(meta.ComponentGPUFeatureDiscovery)
 	appValidator           = meta.AppName(meta.ComponentValidator)
 	appDCGM                = meta.AppName(meta.ComponentDCGM)
 	appDCGMExporter        = meta.AppName(meta.ComponentDCGMExporter)
 )
+
+type workloadComponent struct {
+	component meta.Component
+	app       string
+}
 
 // BootstrapComponentApps exposes managed component names for controllers.
 func BootstrapComponentApps() []string {
@@ -118,6 +147,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 		return contracts.Result{}, err
 	}
 
+	workloads := h.buildWorkloadStatuses(componentStatuses)
 	gfdReady := componentStatuses[appGPUFeatureDiscovery].Ready
 	validatorReady := componentStatuses[appValidator].Ready
 	dcgmReady := componentStatuses[appDCGM].Ready
@@ -126,7 +156,10 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	monitoringReady := dcgmReady && exporterReady
 	componentHealthy := gfdReady && validatorReady
 
-	h.updateBootstrapStatus(inventory, componentHealthy, toolkitReady, monitoringReady)
+	h.updateBootstrapStatus(inventory, componentHealthy, toolkitReady, monitoringReady, workloads)
+	inventoryComplete := isInventoryComplete(inventory)
+	phase := determineBootstrapPhase(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady)
+	h.setBootstrapPhase(inventory, phase)
 
 	requeue := defaultReadyRequeueDelay
 	conditionsChanged := false
@@ -136,7 +169,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady)) || conditionsChanged
 	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, !monitoringReady, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMessage(monitoringReady, componentStatuses[appDCGM], componentStatuses[appDCGMExporter])) || conditionsChanged
 
-	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, driverReady, toolkitReady, componentHealthy, monitoringReady)
+	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady)
 	conditionsChanged = setCondition(inventory, conditionReadyForPooling, nodeReady, readyReason, readyMessage) || conditionsChanged
 
 	if !nodeReady {
@@ -153,6 +186,22 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 type componentStatus struct {
 	Ready   bool
 	Message string
+}
+
+func (h *WorkloadStatusHandler) buildWorkloadStatuses(componentStatuses map[string]componentStatus) []v1alpha1.GPUNodeBootstrapWorkloadStatus {
+	workloads := make([]v1alpha1.GPUNodeBootstrapWorkloadStatus, 0, len(workloadComponents))
+	for _, item := range workloadComponents {
+		status := componentStatuses[item.app]
+		workload := v1alpha1.GPUNodeBootstrapWorkloadStatus{
+			Name:    string(item.component),
+			Healthy: status.Ready,
+		}
+		if status.Message != "" {
+			workload.Message = status.Message
+		}
+		workloads = append(workloads, workload)
+	}
+	return workloads
 }
 
 func (h *WorkloadStatusHandler) probeComponents(ctx context.Context, node string) (map[string]componentStatus, error) {
@@ -198,7 +247,7 @@ func (h *WorkloadStatusHandler) isPodReadyOnNode(ctx context.Context, app, node 
 	return false, pendingMsg, nil
 }
 
-func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, toolkitReady, monitoringReady bool) {
+func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, toolkitReady, monitoringReady bool, workloads []v1alpha1.GPUNodeBootstrapWorkloadStatus) {
 	if inventory.Status.Bootstrap.GFDReady != gfdReady {
 		inventory.Status.Bootstrap.GFDReady = gfdReady
 	}
@@ -217,9 +266,20 @@ func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNod
 			inventory.Status.Monitoring.LastHeartbeat = &now
 		}
 	}
+	if len(workloads) > 0 {
+		inventory.Status.Bootstrap.Workloads = workloads
+	} else {
+		inventory.Status.Bootstrap.Workloads = nil
+	}
 }
 
-func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, driverReady, toolkitReady, componentReady, monitoringReady bool) (bool, string, string) {
+func (h *WorkloadStatusHandler) setBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase) {
+	if inventory.Status.Bootstrap.Phase != phase {
+		inventory.Status.Bootstrap.Phase = phase
+	}
+}
+
+func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool) (bool, string, string) {
 	hardwarePresent := inventory.Status.Hardware.Present || len(inventory.Status.Hardware.Devices) > 0
 	if !hardwarePresent {
 		return false, reasonNoDevices, "GPU devices are not detected on the node"
@@ -230,6 +290,8 @@ func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUN
 	}
 
 	switch {
+	case !inventoryComplete:
+		return false, reasonInventoryIncomplete, "Inventory data is incomplete, waiting for inventory controller"
 	case !driverReady:
 		return false, reasonDriverNotDetected, "NVIDIA driver version has not been reported yet"
 	case !toolkitReady:
@@ -259,6 +321,11 @@ func setCondition(inventory *v1alpha1.GPUNodeInventory, condType string, status 
 	apimeta.SetStatusCondition(&inventory.Status.Conditions, condition)
 	current := apimeta.FindStatusCondition(inventory.Status.Conditions, condType)
 	return previous == nil || previous.Status != current.Status || previous.Reason != current.Reason || previous.Message != current.Message
+}
+
+func isInventoryComplete(inventory *v1alpha1.GPUNodeInventory) bool {
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	return cond == nil || cond.Status != metav1.ConditionTrue
 }
 
 func boolReason(ok bool, success, failure string) string {
@@ -306,6 +373,30 @@ func (h *WorkloadStatusHandler) componentMessage(ok bool, gfd, validator compone
 		return fmt.Sprintf("Validator pending: %s", validator.Message)
 	}
 	return "Bootstrap workloads are still running"
+}
+
+func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool) v1alpha1.GPUNodeBootstrapPhase {
+	if managedDisabled(inventory) {
+		return v1alpha1.GPUNodeBootstrapPhaseDisabled
+	}
+	if !inventoryComplete {
+		return v1alpha1.GPUNodeBootstrapPhaseValidating
+	}
+	if !driverReady || !toolkitReady {
+		return v1alpha1.GPUNodeBootstrapPhaseValidatingFailed
+	}
+	if !componentReady {
+		return v1alpha1.GPUNodeBootstrapPhaseGFD
+	}
+	if !monitoringReady {
+		return v1alpha1.GPUNodeBootstrapPhaseMonitoring
+	}
+	return v1alpha1.GPUNodeBootstrapPhaseReady
+}
+
+func managedDisabled(inventory *v1alpha1.GPUNodeInventory) bool {
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
+	return cond != nil && cond.Status == metav1.ConditionTrue
 }
 
 func podReady(pod *corev1.Pod) bool {

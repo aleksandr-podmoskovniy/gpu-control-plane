@@ -15,6 +15,9 @@
   и не добавляем openshift-специфику.
 - **Managed nodes**: все DaemonSet'ы должны брать `nodeSelector`/`tolerations` через
   `gpuControlPlane.managedNode*`-хелперы, без жёстко зашитых таинтов.
+- **Validator toggles**: init-контейнеры `nvidia-fs` и `gdrcopy` отключены по умолчанию и включаются
+  только если заданы значения `bootstrap.validator.enableNvidiaFSValidation` /
+  `bootstrap.validator.enableGDRCopyValidation`.
 
 ### Источники и версии
 
@@ -31,7 +34,7 @@
 
    - Создать образы `gpu-gfd-src-artifact`/`gpu-gfd-build-artifact`/`gpu-gfd`.
    - Template: DaemonSet + (опционально) VPA по примеру `nvidia-gpu/gfd.yml`.
-   - Значения: `gpuControlPlane.bootstrap.gfd.enabled` (default=true), интервалы, список конфигов.
+   - Значения: только тюнинг (`sleepInterval`, `featuresDir`, `failOnInitError`, `hostSysPath`); включение/отключение управляется bootstrap-контроллером через ConfigMap `gpu-control-plane-bootstrap-state` и значения `internal.bootstrap.components`.
 
 2. **DCGM daemon**
 
@@ -43,13 +46,15 @@
 
    - Отдельный образ c distroless.
    - Helm: Deployment/DaemonSet + Service + ServiceMonitor (используем `templates/controller/scrapeconfig.yaml` как reference).
-   - Значения: `monitoring.serviceMonitor`, порты, labels.
+   - Значения: порты, labels, аннотации ServiceMonitor; включение идёт от bootstrap state, а не из ModuleConfig.
 
 4. **Связка с bootstrap-контроллером**
 
    - Контроллер следит за DaemonSet Ready/Unavailable и пишет condition'ы (`DriverMissing`,
      `ToolkitMissing`, `MonitoringMissing`).
-   - Добавить CR/Config fields: `bootstrap.install.dcgm`, `bootstrap.install.gfd`, `bootstrap.install.validator`.
+   - Состояние хранится в ConfigMap `gpu-control-plane-bootstrap-state`; hook
+     `bootstrap_state_sync` переносит его в `.Values.gpuControlPlane.internal.bootstrap`, а Helm-шаблоны
+     фильтруют узлы/ресурсы через `componentEnabled`/`componentHostExpression`.
 
 5. **Интеграция с Inventory**
 
@@ -61,6 +66,18 @@
    - Для каждого компонента добавить helm-render тесты (через `werf render` + `kubeconform`).
    - Минимальные e2e-сценарии: локальный kind + fake GPU (исп. `nvidia-device-plugin` из
      node-manager).
+
+### Мониторинг и дашборды
+
+- **Prometheus**: Bootstrap-контроллер экспортирует собственные метрики
+  (`gpu_bootstrap_node_phase{node,phase}`, `gpu_bootstrap_condition{node,condition}`,
+  `gpu_bootstrap_handler_errors_total{handler}`), которые дополняют существующие
+  `gpu_inventory_*`. Эти метрики становятся основой для оповещений и Grafana.
+- **Grafana**: в `monitoring/grafana-dashboards/main` лежат три куратора
+  (`gpu-inventory`, `gpu-node`, `gpu-workloads`). Они повторяют паттерн
+  virtualization/SDS: основной обзор, детализация по узлу и по workload'ам.
+  Дашборды потребляют как контроллерские метрики, так и DCGM (узловой телеметрии)
+  и kube-state-metrics (GPU requests).
 
 Этот план покрывает требования пользователя: все образы собираются как в `040-node-manager`,
 манифесты не содержат OpenShift-специфики, а безопасность/тейнты управляются только через

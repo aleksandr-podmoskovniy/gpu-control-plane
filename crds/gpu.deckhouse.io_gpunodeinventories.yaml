@@ -71,6 +71,16 @@ spec:
                 description: Bootstrap describes results of bootstrap-controller checks
                   for the node.
                 properties:
+                  phase:
+                    description: Phase reflects the current bootstrap phase.
+                    enum:
+                    - Disabled
+                    - Validating
+                    - ValidatingFailed
+                    - GFD
+                    - Monitoring
+                    - Ready
+                    type: string
                   gfdReady:
                     description: GFDReady indicates that GPU Feature Discovery DaemonSet
                       is successfully running.
@@ -79,6 +89,28 @@ spec:
                     description: LastRun stores time of the last bootstrap reconciliation.
                     format: date-time
                     type: string
+                  workloads:
+                    description: Workloads lists health state of every bootstrap workload on the node.
+                    items:
+                      properties:
+                        healthy:
+                          description: Healthy reports whether the workload is running and ready.
+                          type: boolean
+                        message:
+                          description: Message contains human readable diagnostics when Healthy=false.
+                          type: string
+                        name:
+                          description: Name matches the bootstrap component identifier (validator, gpu-feature-discovery, etc.).
+                          type: string
+                        since:
+                          description: Since marks when the workload entered its current state.
+                          format: date-time
+                          type: string
+                      required:
+                      - name
+                      - healthy
+                      type: object
+                    type: array
                   toolkitReady:
                     description: ToolkitReady signals that toolkit preparation on
                       the node completed.

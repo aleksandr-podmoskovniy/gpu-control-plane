@@ -121,6 +121,17 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 	if !inventory.Status.Monitoring.DCGMReady || inventory.Status.Monitoring.LastHeartbeat == nil {
 		t.Fatalf("monitoring status not updated: %+v", inventory.Status.Monitoring)
 	}
+	if len(inventory.Status.Bootstrap.Workloads) != len(workloadComponents) {
+		t.Fatalf("expected %d workload entries, got %d", len(workloadComponents), len(inventory.Status.Bootstrap.Workloads))
+	}
+	for _, workload := range inventory.Status.Bootstrap.Workloads {
+		if !workload.Healthy {
+			t.Fatalf("expected workload %s to be healthy", workload.Name)
+		}
+	}
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseReady {
+		t.Fatalf("expected phase Ready, got %s", inventory.Status.Bootstrap.Phase)
+	}
 }
 
 func TestWorkloadStatusHandlerReportsComponentPending(t *testing.T) {
@@ -160,6 +171,21 @@ func TestWorkloadStatusHandlerReportsComponentPending(t *testing.T) {
 	}
 	if cond.Reason != reasonComponentPending {
 		t.Fatalf("expected reason %s, got %s", reasonComponentPending, cond.Reason)
+	}
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseGFD {
+		t.Fatalf("expected phase GFD, got %s", inventory.Status.Bootstrap.Phase)
+	}
+	foundPending := false
+	for _, workload := range inventory.Status.Bootstrap.Workloads {
+		if workload.Name == string(meta.ComponentValidator) && !workload.Healthy {
+			foundPending = true
+			if workload.Message == "" {
+				t.Fatalf("expected pending workload message")
+			}
+		}
+	}
+	if !foundPending {
+		t.Fatalf("expected validator workload to be pending, got %+v", inventory.Status.Bootstrap.Workloads)
 	}
 }
 
@@ -353,20 +379,26 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 
 	// No devices detected.
 	inventory := &v1alpha1.GPUNodeInventory{}
-	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, true, true, true, true); ready || reason != reasonNoDevices {
+	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, true, true, true, true, true); ready || reason != reasonNoDevices {
 		t.Fatalf("expected reason %s, got ready=%t reason=%s", reasonNoDevices, ready, reason)
 	}
 
 	// Node disabled by label.
 	inventory = makeInventory()
 	inventory.Status.Conditions = []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}
-	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, true, true, true, true); ready || reason != reasonNodeDisabled {
+	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, true, true, true, true, true); ready || reason != reasonNodeDisabled {
 		t.Fatalf("expected reason %s, got ready=%t reason=%s", reasonNodeDisabled, ready, reason)
+	}
+
+	// Inventory incomplete blocks readiness.
+	inventory = makeInventory()
+	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, false, true, true, true, true); ready || reason != reasonInventoryIncomplete {
+		t.Fatalf("expected reason %s for incomplete inventory, got ready=%t reason=%s", reasonInventoryIncomplete, ready, reason)
 	}
 
 	// Driver/toolkit/component/monitoring issues.
 	check := func(driver, toolkit, component, monitoring bool, expected string) {
-		if ready, reason, _ := handler.evaluateReadyForPooling(makeInventory(), driver, toolkit, component, monitoring); ready || reason != expected {
+		if ready, reason, _ := handler.evaluateReadyForPooling(makeInventory(), true, driver, toolkit, component, monitoring); ready || reason != expected {
 			t.Fatalf("expected %s, got ready=%t reason=%s", expected, ready, reason)
 		}
 	}
@@ -376,7 +408,7 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 	check(true, true, true, false, reasonMonitoringUnhealthy)
 
 	// Happy path.
-	if ready, reason, _ := handler.evaluateReadyForPooling(makeInventory(), true, true, true, true); !ready || reason != reasonAllChecksPassed {
+	if ready, reason, _ := handler.evaluateReadyForPooling(makeInventory(), true, true, true, true, true); !ready || reason != reasonAllChecksPassed {
 		t.Fatalf("expected ReadyForPooling, got ready=%t reason=%s", ready, reason)
 	}
 }
@@ -444,6 +476,24 @@ func TestPodReadyHelper(t *testing.T) {
 	}
 }
 
+func TestUpdateBootstrapStatusClearsWorkloads(t *testing.T) {
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	inventory := &v1alpha1.GPUNodeInventory{}
+	inventory.Status.Bootstrap.Workloads = []v1alpha1.GPUNodeBootstrapWorkloadStatus{{Name: "validator", Healthy: true}}
+	before := inventory.Status.Bootstrap.Workloads
+	handler.clock = func() time.Time { return time.Unix(0, 0) }
+	handler.updateBootstrapStatus(inventory, true, true, true, nil)
+	if inventory.Status.Bootstrap.Workloads != nil {
+		t.Fatalf("expected workloads cleared, got %#v", inventory.Status.Bootstrap.Workloads)
+	}
+	if inventory.Status.Bootstrap.LastRun == nil {
+		t.Fatalf("expected lastRun to be set")
+	}
+	if len(before) == 0 {
+		t.Fatal("expected initial workloads slice to be non-empty")
+	}
+}
+
 func findCondition(conditions []metav1.Condition, condType string) *metav1.Condition {
 	for i := range conditions {
 		if conditions[i].Type == condType {
@@ -451,4 +501,33 @@ func findCondition(conditions []metav1.Condition, condType string) *metav1.Condi
 		}
 	}
 	return nil
+}
+
+func TestDetermineBootstrapPhase(t *testing.T) {
+	inventory := &v1alpha1.GPUNodeInventory{}
+	tests := []struct {
+		name              string
+		inv               *v1alpha1.GPUNodeInventory
+		inventoryComplete bool
+		driver            bool
+		toolkit           bool
+		component         bool
+		monitor           bool
+		expected          v1alpha1.GPUNodeBootstrapPhase
+	}{
+		{name: "disabled", inv: &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{Conditions: []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}}}, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseDisabled},
+		{name: "inventory-incomplete", inv: inventory, inventoryComplete: false, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
+		{name: "validating", inv: inventory, inventoryComplete: true, driver: false, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidatingFailed},
+		{name: "component", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: false, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseGFD},
+		{name: "monitoring", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: false, expected: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
+		{name: "ready", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseReady},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			phase := determineBootstrapPhase(tt.inv, tt.inventoryComplete, tt.driver, tt.toolkit, tt.component, tt.monitor)
+			if phase != tt.expected {
+				t.Fatalf("expected %s, got %s", tt.expected, phase)
+			}
+		})
+	}
 }

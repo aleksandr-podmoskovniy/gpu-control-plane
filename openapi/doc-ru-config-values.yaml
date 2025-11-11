@@ -84,4 +84,4 @@ properties:
         properties:
           secretName:
             description: |
-              Имя Secret в пространстве имён `d8-system`, содержащего ключи `tls.crt`, `tls.key` и `ca.crt`.
+          Имя Secret в пространстве имён `d8-system`, содержащего ключи `tls.crt`, `tls.key` и `ca.crt`.

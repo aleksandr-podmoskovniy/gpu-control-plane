@@ -1,3 +1,4 @@
+---
 image: {{ .ModuleNamePrefix }}builder-cuda
 final: false
 fromImage: builder/golang-bookworm-1.24

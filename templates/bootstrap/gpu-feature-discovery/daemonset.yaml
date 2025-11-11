@@ -1,12 +1,13 @@
-{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $component := "gpu-feature-discovery" }}
+{{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
+{{- if and $moduleEnabled $componentEnabled }}
 {{- $moduleValues := .Values.gpuControlPlane | default dict }}
 {{- $bootstrap := index $moduleValues "bootstrap" }}
 {{- if not (kindIs "map" $bootstrap) }}{{- $bootstrap = dict }}{{- end }}
 {{- $gfd := index $bootstrap "gfd" }}
 {{- if not (kindIs "map" $gfd) }}{{- $gfd = dict }}{{- end }}
-{{- if ne (default true (index $gfd "enabled")) false }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
-{{- $component := "gpu-feature-discovery" }}
 {{- $componentName := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $image := include "helm_lib_module_image" (list . "nvidiaDevicePlugin") }}
 {{- $sleepInterval := default "60s" (index $gfd "sleepInterval") }}
@@ -27,6 +28,11 @@ spec:
       app: {{ $componentName }}
   template:
     metadata:
+      {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
+      {{- if $hash }}
+      annotations:
+        gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
+      {{- end }}
       {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "gpu-feature-discovery") | nindent 6 }}
     spec:
       serviceAccountName: {{ $componentName }}
@@ -34,7 +40,7 @@ spec:
       {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
-      {{- include "gpuControlPlane.bootstrap.affinity" . | nindent 6 }}
+      {{- include "gpuControlPlane.bootstrap.affinity" (list . $component) | nindent 6 }}
       containers:
         - name: gpu-feature-discovery
           image: {{ $image }}
@@ -76,5 +82,4 @@ spec:
           hostPath:
             path: {{ $hostSysPath | quote }}
             type: Directory
-{{- end }}
 {{- end }}

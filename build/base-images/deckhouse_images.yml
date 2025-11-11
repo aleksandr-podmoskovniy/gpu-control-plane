@@ -12,3 +12,6 @@ builder/alt-go-svace: "sha256:15f8067534281275f4e4a0bb07a0ae59e17c6a107d64ca8244
 builder/golang-alpine-1.24: "sha256:6585b83e81bbffe3c273f61580a04073291a02c3a4e6114be040722be97f736e" # from: golang:1.24.6-alpine3.21
 builder/golang-bookworm-1.24: "sha256:f4dd8f0eeeb4c0ede56677cbd249af8c797933be830cb3d10ed4d472aca0f569" # from: golang:1.24.6-bookworm
 builder/src: "sha256:63eb0ebb701e5e19077f10a43243bfde02b1713960e94c75113e317ad145522b" # fromImage: builder/alt
+
+common/distroless: "sha256:6181c0922d240f806ed69842e0c35b2881db7e28f936b00241969fbe39545cde" # aligned with deckhouse common-distroless
+common/src-artifact: "sha256:63eb0ebb701e5e19077f10a43243bfde02b1713960e94c75113e317ad145522b" # aligned with deckhouse common-src-artifact

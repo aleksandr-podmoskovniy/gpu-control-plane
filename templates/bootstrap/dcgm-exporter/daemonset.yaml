@@ -1,8 +1,9 @@
-{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $cfg := (dig "bootstrap" "dcgmExporter" .Values.gpuControlPlane) | default dict }}
-{{- if ne (default true ($cfg.enabled)) false }}
-{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $component := "dcgm-exporter" }}
+{{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
+{{- if and $moduleEnabled $componentEnabled }}
+{{- $cfg := (dig "bootstrap" "dcgmExporter" .Values.gpuControlPlane) | default dict }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $image := include "helm_lib_module_image" (list . "nvidiaDcgmExporter") }}
 {{- $port := (default 9400 $cfg.port) }}
@@ -31,6 +32,11 @@ spec:
       app: {{ $name }}
   template:
     metadata:
+      {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
+      {{- if $hash }}
+      annotations:
+        gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
+      {{- end }}
       {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm-exporter") | nindent 6 }}
     spec:
       serviceAccountName: {{ $name }}
@@ -38,7 +44,7 @@ spec:
       {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
-      {{- include "gpuControlPlane.bootstrap.affinity" . | nindent 6 }}
+      {{- include "gpuControlPlane.bootstrap.affinity" (list . $component) | nindent 6 }}
       containers:
         - name: dcgm-exporter
           image: {{ $image }}
@@ -86,5 +92,4 @@ spec:
           hostPath:
             path: /var/lib/kubelet/pod-resources
             type: Directory
-{{- end }}
 {{- end }}

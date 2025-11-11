@@ -22,7 +22,6 @@
     ]
   },
   "editable": false,
-  "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "links": [],
   "panels": [
@@ -36,7 +35,7 @@
       },
       "id": 1,
       "panels": [],
-      "title": "Cluster Summary",
+      "title": "Node summary",
       "type": "row"
     },
     {
@@ -62,7 +61,8 @@
                 "value": 0
               }
             ]
-          }
+          },
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -94,16 +94,16 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "count(count by (node) (gpu_inventory_devices_total>0))",
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{Hostname=\"$node\", UUID=~\"$gpu\"})",
           "instant": true,
           "legendFormat": "",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Nodes with detected GPUs",
+      "title": "Average utilisation",
       "type": "stat",
-      "description": "Inventory nodes where GPU hardware is present."
+      "description": "Average utilisation across selected GPUs."
     },
     {
       "datasource": {
@@ -128,7 +128,8 @@
                 "value": 0
               }
             ]
-          }
+          },
+          "unit": "decgbytes"
         },
         "overrides": []
       },
@@ -160,16 +161,15 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "count(gpu_bootstrap_condition{condition=\"ReadyForPooling\"})",
+          "expr": "sum(DCGM_FI_DEV_FB_USED{Hostname=\"$node\", UUID=~\"$gpu\"}) / 1024 / 1024 / 1024",
           "instant": true,
           "legendFormat": "",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Nodes ready for pooling",
-      "type": "stat",
-      "description": "Nodes that passed driver/toolkit/DCGM validation."
+      "title": "Memory in use (GiB)",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -194,7 +194,8 @@
                 "value": 0
               }
             ]
-          }
+          },
+          "unit": "celsius"
         },
         "overrides": []
       },
@@ -226,16 +227,15 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_state{state=\"ReadyForPooling\"})",
+          "expr": "max(DCGM_FI_DEV_GPU_TEMP{Hostname=\"$node\", UUID=~\"$gpu\"})",
           "instant": true,
           "legendFormat": "",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Ready GPUs",
-      "type": "stat",
-      "description": "Number of GPUs available for pools."
+      "title": "Max temperature (\u00b0C)",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -260,7 +260,8 @@
                 "value": 0
               }
             ]
-          }
+          },
+          "unit": "watt"
         },
         "overrides": []
       },
@@ -292,16 +293,15 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_state{state=\"Faulted\"})",
+          "expr": "avg(DCGM_FI_DEV_POWER_USAGE{Hostname=\"$node\", UUID=~\"$gpu\"})",
           "instant": true,
           "legendFormat": "",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Faulted GPUs",
-      "type": "stat",
-      "description": "Devices currently blocked by bootstrap."
+      "title": "Average power (W)",
+      "type": "stat"
     },
     {
       "collapsed": false,
@@ -313,613 +313,7 @@
       },
       "id": 6,
       "panels": [],
-      "title": "Bootstrap Health",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 6
-      },
-      "id": 7,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(gpu_bootstrap_node_phase) by (phase)",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Nodes per bootstrap phase",
-      "type": "bargauge",
-      "description": "Distribution of nodes across bootstrap phases."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "id": 8,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "count(gpu_bootstrap_condition{condition!=\"ReadyForPooling\"}) by (condition)",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Active blockers",
-      "type": "bargauge",
-      "description": "Conditions that are currently true."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "id": 9,
-      "options": {
-        "footer": {
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (node, phase) (gpu_bootstrap_node_phase)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Node phase assignments",
-      "type": "table",
-      "description": "Instant snapshot of node phases."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 12
-      },
-      "id": 10,
-      "options": {
-        "footer": {
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "gpu_bootstrap_condition{condition!=\"ReadyForPooling\"}",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Nodes with blocking conditions",
-      "type": "table",
-      "description": "Nodes where bootstrap still reports problems."
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 20
-      },
-      "id": 11,
-      "panels": [],
-      "title": "Inventory & Devices",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 21
-      },
-      "id": 12,
-      "options": {
-        "displayMode": "gradient",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_state) by (state)",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Devices by state",
-      "type": "bargauge",
-      "description": "Current device state distribution."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 16,
-        "x": 8,
-        "y": 21
-      },
-      "id": 13,
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_state) by (state)",
-          "legendFormat": "{{Hostname}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Device states trend",
-      "type": "timeseries",
-      "description": "How device states change over time."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 27
-      },
-      "id": 14,
-      "options": {
-        "footer": {
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_total) by (node)",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Devices per node",
-      "type": "table",
-      "description": "Reported GPUs per node."
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "id": 15,
-      "panels": [],
-      "title": "Controller handlers",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 34
-      },
-      "id": 16,
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(gpu_bootstrap_handler_errors_total[5m])) by (handler)",
-          "legendFormat": "{{Hostname}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Bootstrap handler errors (5m)",
-      "type": "timeseries",
-      "description": "Bootstrap handler error rate."
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds_prometheus}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 34
-      },
-      "id": 17,
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "expr": "sum(rate(gpu_inventory_handler_errors_total[5m])) by (handler)",
-          "legendFormat": "{{Hostname}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Inventory handler errors (5m)",
-      "type": "timeseries",
-      "description": "Inventory handler error rate."
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 40
-      },
-      "id": 18,
-      "panels": [],
-      "title": "Node telemetry",
+      "title": "Per-device metrics",
       "type": "row"
     },
     {
@@ -954,9 +348,9 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 41
+        "y": 6
       },
-      "id": 19,
+      "id": 7,
       "options": {
         "legend": {
           "displayMode": "table",
@@ -975,15 +369,14 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "avg by (Hostname) (DCGM_FI_DEV_GPU_UTIL{Hostname=~\"$node\"})",
-          "legendFormat": "{{Hostname}}",
+          "expr": "DCGM_FI_DEV_GPU_UTIL{Hostname=\"$node\", UUID=~\"$gpu\"}",
+          "legendFormat": "{{UUID}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "GPU utilisation by node",
-      "type": "timeseries",
-      "description": "Average utilisation reported by DCGM."
+      "title": "GPU utilisation per device",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1015,16 +408,16 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 6,
+        "w": 12,
         "x": 12,
-        "y": 41
+        "y": 6
       },
-      "id": 20,
+      "id": 8,
       "options": {
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -1038,15 +431,14 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_DEV_FB_USED{Hostname=~\"$node\"}) by (Hostname) / 1024 / 1024 / 1024",
-          "legendFormat": "{{Hostname}}",
+          "expr": "DCGM_FI_DEV_FB_USED{Hostname=\"$node\", UUID=~\"$gpu\"} / 1024 / 1024 / 1024",
+          "legendFormat": "{{UUID}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Memory usage (GiB)",
-      "type": "timeseries",
-      "description": "Framebuffer memory usage per node."
+      "title": "Framebuffer usage per device",
+      "type": "timeseries"
     },
     {
       "datasource": {
@@ -1078,16 +470,16 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 6,
-        "x": 18,
-        "y": 41
+        "w": 12,
+        "x": 0,
+        "y": 12
       },
-      "id": 21,
+      "id": 9,
       "options": {
         "legend": {
           "displayMode": "table",
           "placement": "bottom",
-          "showLegend": true
+          "showLegend": false
         },
         "tooltip": {
           "mode": "single",
@@ -1101,18 +493,214 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "avg by (Hostname) (DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"})",
-          "legendFormat": "{{Hostname}}",
+          "expr": "DCGM_FI_DEV_POWER_USAGE{Hostname=\"$node\", UUID=~\"$gpu\"}",
+          "legendFormat": "{{UUID}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Power usage (W)",
+      "title": "Power draw per device",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prometheus}"
+          },
+          "editorMode": "code",
+          "expr": "DCGM_FI_DEV_GPU_TEMP{Hostname=\"$node\", UUID=~\"$gpu\"}",
+          "legendFormat": "{{UUID}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "GPU temperature per device",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 11,
+      "panels": [],
+      "title": "Health counters",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prometheus}"
+          },
+          "editorMode": "code",
+          "expr": "DCGM_FI_DEV_ECC_DBE_AGG_TOTAL{Hostname=\"$node\", UUID=~\"$gpu\"}",
+          "legendFormat": "{{UUID}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "ECC errors (accumulated)",
       "type": "timeseries",
-      "description": "Instant power draw per node."
+      "description": "Double-bit ECC errors reported by DCGM."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prometheus}"
+          },
+          "editorMode": "code",
+          "expr": "DCGM_FI_DEV_NVLINK_REPLAY_ERROR_COUNT_TOTAL{Hostname=\"$node\", UUID=~\"$gpu\"}",
+          "legendFormat": "{{UUID}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "NVLink retry errors",
+      "type": "timeseries"
     }
   ],
-  "refresh": "30s",
   "schemaVersion": 39,
   "style": "dark",
   "tags": [
@@ -1142,6 +730,33 @@
         "allValue": ".*",
         "current": {
           "selected": false,
+          "text": "node",
+          "value": "node"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds_prometheus}"
+        },
+        "definition": "label_values(DCGM_FI_DEV_GPU_UTIL,Hostname)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Node",
+        "multi": false,
+        "name": "node",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(DCGM_FI_DEV_GPU_UTIL,Hostname)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
           "text": "All",
           "value": "$__all"
         },
@@ -1149,21 +764,19 @@
           "type": "prometheus",
           "uid": "${ds_prometheus}"
         },
-        "definition": "label_values(gpu_inventory_devices_total,node)",
+        "definition": "label_values(DCGM_FI_DEV_GPU_UTIL{Hostname=\"$node\"},UUID)",
         "hide": 0,
         "includeAll": true,
-        "label": "Node",
+        "label": "GPU UUID",
         "multi": false,
-        "name": "node",
+        "name": "gpu",
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(gpu_inventory_devices_total,node)",
+          "query": "label_values(DCGM_FI_DEV_GPU_UTIL{Hostname=\"$node\"},UUID)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
-        "regex": "",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       }
@@ -1173,10 +786,7 @@
     "from": "now-3h",
     "to": "now"
   },
-  "timepicker": {},
-  "timezone": "",
-  "title": "GPU Control Plane / Overview",
-  "uid": "gpu-control-plane-inventory",
-  "version": 2,
-  "weekStart": ""
+  "title": "GPU Control Plane / Node",
+  "uid": "gpu-control-plane-node",
+  "version": 1
 }

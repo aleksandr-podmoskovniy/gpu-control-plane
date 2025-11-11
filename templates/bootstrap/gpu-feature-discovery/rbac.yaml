@@ -1,18 +1,10 @@
 {{/* Copyright 2025 Flant JSC */}}
-{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $component := "gpu-feature-discovery" }}
+{{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true") }}
+{{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $serviceAccount := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $labels := dict "app" $serviceAccount "component" "gpu-feature-discovery" }}
 {{- $clusterRole := printf "%s-gfd" (include "gpuControlPlane.moduleName" .) }}
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ $serviceAccount }}
-  namespace: {{ $namespace }}
-  {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "gpu-feature-discovery") | nindent 2 }}
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

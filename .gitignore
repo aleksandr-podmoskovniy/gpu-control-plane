@@ -71,3 +71,5 @@ tools/kubeconform/kubeconform.git
 tools/kubeconform/schemas
 tools/kubeconform/helm-template-render.yaml
 tools/kubeconform/kubeconform-report.json
+
+.werf_secret_key
