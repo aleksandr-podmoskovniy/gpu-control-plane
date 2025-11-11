@@ -83,10 +83,6 @@ import:
       - lib
     to: /
     before: setup
-  - image: {{ .ModuleNamePrefix }}nvidia-device-plugin-build-artifact
-    add: /usr/local/cuda
-    to: /usr/local/cuda
-    before: setup
 imageSpec:
   config:
     env:
