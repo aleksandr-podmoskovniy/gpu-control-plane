@@ -396,15 +396,15 @@ bootstrap и gpupool.
   на подготовку автоматически.
 - `GPUNodeInventory` хранит агрегированное состояние узла:
 
-| Поле                                          | Содержимое                                                                                   | Комментарий                                                                              |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `status.hw.present`                           | Есть ли на узле поддерживаемые GPU                                                           | Используется bootstrap'ом и мониторингом                                                 |
-| `status.hw.devices[]`                         | Список устройств с зеркалированием ключевых атрибутов `GPUDevice`                            | Позволяет быстро увидеть состав узла                                                     |
-| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit                                                                  | Bootstrap обновляет при проверке совместимости                                           |
-| `status.bootstrap.phase`                      | `Disabled`, `Validating`, `ValidatingFailed`, `GFD`, `Monitoring`, `Ready`                   | Фаза подготовки узла; на неё ориентируются bootstrap и gpupool                           |
-| `status.pools.assigned[]`                     | Список подтверждённых пулов: `{poolName, resource, since}`                                   | Заполняется `gpupool-controller`, используется admission и мониторинг                    |
-| `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                                 | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
-| `status.conditions`                           | `ManagedDisabled`, `InventoryIncomplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла                                                      |
+| Поле                                          | Содержимое                                                                                 | Комментарий                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `status.hw.present`                           | Есть ли на узле поддерживаемые GPU                                                         | Используется bootstrap'ом и мониторингом                                                 |
+| `status.hw.devices[]`                         | Список устройств с зеркалированием ключевых атрибутов `GPUDevice`                          | Позволяет быстро увидеть состав узла                                                     |
+| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit                                                                | Bootstrap обновляет при проверке совместимости                                           |
+| `status.bootstrap.phase`                      | `Disabled`, `Validating`, `ValidatingFailed`, `GFD`, `Monitoring`, `Ready`                 | Фаза подготовки узла; на неё ориентируются bootstrap и gpupool                           |
+| `status.pools.assigned[]`                     | Список подтверждённых пулов: `{poolName, resource, since}`                                 | Заполняется `gpupool-controller`, используется admission и мониторинг                    |
+| `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                               | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
+| `status.conditions`                           | `ManagedDisabled`, `InventoryComplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла                                                      |
 
 - Причины (`reason`) в `pending[]` — фиксированный набор:
 
@@ -425,7 +425,7 @@ bootstrap и gpupool.
 - Для диагностики контроллер публикует события `GPUDeviceDetected`,
   `GPUDeviceRemoved`, `GPUInventoryOutdated` и метрики `gpu_device_unassigned_total`.
   Если правило NFD не заполнило обязательные атрибуты, контроллер выставляет
-  `InventoryIncomplete=True`, блокирует выдачу карты и поднимает предупреждение —
+  `InventoryComplete=False`, блокирует выдачу карты и поднимает предупреждение —
   это предотвращает «тихий» пропуск устройств. Лейблы `gpu.deckhouse.io/*`
   остаются на ноде для селекторов DaemonSet'ов и планировщика.
 - **CR — источник правды.** Все потребители (gpupool, admission, UI, мониторинг)
@@ -1179,7 +1179,7 @@ status:
    появляется condition `ManagedDisabled=True`, поэтому карты не попадут в кандидаты пулов.
 2. **Игнорировать отдельные устройства:** добавить на `GPUDevice`
    аннотацию/label `gpu.deckhouse.io/ignore=true`. Контроллер выставляет
-   `InventoryIncomplete=True`, карта не выдаётся.
+   `InventoryComplete=False`, карта не выдаётся.
 3. **Оставить узел в ожидании:** пока bootstrap не снял `DriverMissing`,
    `ToolkitMissing`, `MonitoringMissing`, condition `ReadyForPooling=False` —
    карта отображается, но привязать её к пулу нельзя.
@@ -1255,7 +1255,7 @@ status:
 ## Механизмы снижения рисков
 
 - **Защита инвентаризации.** `gpu-inventory-controller` блокирует выдачу устройств
-  с неполными данными (`InventoryIncomplete=True`) и запускает e2e-проверку, если
+  с неполными данными (`InventoryComplete=False`) и запускает e2e-проверку, если
   правило NFD не сработало. Пока condition не снят, bootstrap и gpupool не смогут
   назначить карту.
 - **Управляемое включение узлов.** Как только bootstrap перевёл карты в
@@ -1322,7 +1322,7 @@ status:
   редкий GPU, `GPUNodeInventory` останется пустым и пул не получит слоты.
   _Снижение:_ модуль ставит e2e-проверку `gpu-nfd-coverage`, которая сравнивает
   ожидаемые лейблы с фактическими, хранит шаблон правила рядом с кодом и
-  выставляет `InventoryIncomplete=True`, что блокирует выдачу до тех пор, пока
+  выставляет `InventoryComplete=False`, что блокирует выдачу до тех пор, пока
   оператор не дополнит правило.
 - **Разъезд пулов и фактических конфигураций.** Случайное изменение MIG профиля
   или изменение количества карт приводит к `Misconfigured`, и workloads

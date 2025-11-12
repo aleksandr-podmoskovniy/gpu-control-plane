@@ -126,3 +126,13 @@ gpuControlPlane:
         ca: CONTROLLER-CA-CRT
         crt: CONTROLLER-CRT
         key: CONTROLLER-KEY
+    bootstrap:
+      components:
+        validator:
+          nodes: ["worker-a"]
+        gpu-feature-discovery:
+          nodes: ["worker-a"]
+        dcgm:
+          nodes: ["worker-a", "worker-b"]
+        dcgm-exporter:
+          nodes: ["worker-a", "worker-b"]

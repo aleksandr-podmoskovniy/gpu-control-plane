@@ -53,6 +53,8 @@ spec:
               value: {{ ternary "true" "false" $failOnInit | quote }}
             - name: NVIDIA_MIG_MONITOR_DEVICES
               value: {{ $migMonitor | quote }}
+            - name: LD_LIBRARY_PATH
+              value: "/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -73,6 +75,10 @@ spec:
             - name: host-sys
               mountPath: {{ $hostSysPath | quote }}
               readOnly: true
+            - name: driver-root
+              mountPath: /driver-root
+              readOnly: true
+              mountPropagation: HostToContainer
       volumes:
         - name: output-dir
           hostPath:
@@ -82,4 +88,8 @@ spec:
           hostPath:
             path: {{ $hostSysPath | quote }}
             type: Directory
+        - name: driver-root
+          hostPath:
+            path: /run/nvidia/driver
+            type: DirectoryOrCreate
 {{- end }}

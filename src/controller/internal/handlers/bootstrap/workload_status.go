@@ -35,27 +35,27 @@ import (
 )
 
 const (
-	conditionReadyForPooling     = "ReadyForPooling"
-	conditionDriverMissing       = "DriverMissing"
-	conditionToolkitMissing      = "ToolkitMissing"
-	conditionMonitoringMissing   = "MonitoringMissing"
-	conditionGFDReady            = "GFDReady"
-	conditionManagedDisabled     = "ManagedDisabled"
-	conditionInventoryIncomplete = "InventoryIncomplete"
-	reasonAllChecksPassed        = "AllChecksPassed"
-	reasonNoDevices              = "NoDevices"
-	reasonNodeDisabled           = "NodeDisabled"
-	reasonDriverNotDetected      = "DriverNotDetected"
-	reasonDriverDetected         = "DriverDetected"
-	reasonToolkitNotReady        = "ToolkitNotReady"
-	reasonToolkitReady           = "ToolkitReady"
-	reasonComponentPending       = "ComponentPending"
-	reasonMonitoringUnhealthy    = "MonitoringUnhealthy"
-	reasonMonitoringHealthy      = "MonitoringHealthy"
-	reasonComponentHealthy       = "ComponentHealthy"
-	reasonInventoryIncomplete    = "InventoryIncomplete"
-	defaultNotReadyRequeueDelay  = 15 * time.Second
-	defaultReadyRequeueDelay     = time.Minute
+	conditionReadyForPooling    = "ReadyForPooling"
+	conditionDriverMissing      = "DriverMissing"
+	conditionToolkitMissing     = "ToolkitMissing"
+	conditionMonitoringMissing  = "MonitoringMissing"
+	conditionGFDReady           = "GFDReady"
+	conditionManagedDisabled    = "ManagedDisabled"
+	conditionInventoryComplete  = "InventoryComplete"
+	reasonAllChecksPassed       = "AllChecksPassed"
+	reasonNoDevices             = "NoDevices"
+	reasonNodeDisabled          = "NodeDisabled"
+	reasonDriverNotDetected     = "DriverNotDetected"
+	reasonDriverDetected        = "DriverDetected"
+	reasonToolkitNotReady       = "ToolkitNotReady"
+	reasonToolkitReady          = "ToolkitReady"
+	reasonComponentPending      = "ComponentPending"
+	reasonMonitoringUnhealthy   = "MonitoringUnhealthy"
+	reasonMonitoringHealthy     = "MonitoringHealthy"
+	reasonComponentHealthy      = "ComponentHealthy"
+	reasonInventoryPending      = "InventoryPending"
+	defaultNotReadyRequeueDelay = 15 * time.Second
+	defaultReadyRequeueDelay    = time.Minute
 )
 
 var (
@@ -291,7 +291,7 @@ func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUN
 
 	switch {
 	case !inventoryComplete:
-		return false, reasonInventoryIncomplete, "Inventory data is incomplete, waiting for inventory controller"
+		return false, reasonInventoryPending, "Inventory data is incomplete, waiting for inventory controller"
 	case !driverReady:
 		return false, reasonDriverNotDetected, "NVIDIA driver version has not been reported yet"
 	case !toolkitReady:
@@ -324,8 +324,8 @@ func setCondition(inventory *v1alpha1.GPUNodeInventory, condType string, status 
 }
 
 func isInventoryComplete(inventory *v1alpha1.GPUNodeInventory) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
-	return cond == nil || cond.Status != metav1.ConditionTrue
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
+	return cond != nil && cond.Status == metav1.ConditionTrue
 }
 
 func boolReason(ok bool, success, failure string) string {

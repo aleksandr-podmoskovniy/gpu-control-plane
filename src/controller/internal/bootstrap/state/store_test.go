@@ -51,7 +51,7 @@ func TestStoreEnsureCreatesConfigMapWithOwner(t *testing.T) {
 		},
 	}
 	client := newTestClient(t, deploy).Build()
-	store := NewStore(client, "d8-gpu-control-plane", "gpu-state", types.NamespacedName{Name: "controller", Namespace: "d8-gpu-control-plane"})
+	store := NewStore(client, client, "d8-gpu-control-plane", "gpu-state", types.NamespacedName{Name: "controller", Namespace: "d8-gpu-control-plane"})
 
 	if err := store.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure failed: %v", err)
@@ -69,7 +69,7 @@ func TestStoreEnsureCreatesConfigMapWithOwner(t *testing.T) {
 func TestStoreEnsurePropagatesGetError(t *testing.T) {
 	base := newTestClient(t).Build()
 	client := &errorClient{Client: base, getErr: errors.New("boom")}
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.Ensure(context.Background()); err == nil {
 		t.Fatal("expected error from Ensure when client.Get fails")
 	}
@@ -78,7 +78,7 @@ func TestStoreEnsurePropagatesGetError(t *testing.T) {
 func TestStoreEnsureExistingConfigMap(t *testing.T) {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "gpu-state", Namespace: "ns"}}
 	client := newTestClient(t, cm).Build()
-	store := NewStore(client, "ns", "gpu-state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "gpu-state", types.NamespacedName{})
 
 	if err := store.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure existing configmap: %v", err)
@@ -87,7 +87,7 @@ func TestStoreEnsureExistingConfigMap(t *testing.T) {
 
 func TestStoreEnsureSkipsMissingOwner(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{Name: "missing", Namespace: "ns"})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{Name: "missing", Namespace: "ns"})
 
 	if err := store.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure should ignore missing owner: %v", err)
@@ -98,7 +98,7 @@ func TestStoreEnsureOwnerReferenceError(t *testing.T) {
 	base := newTestClient(t).Build()
 	key := types.NamespacedName{Name: "controller", Namespace: "ns"}
 	client := &errorClient{Client: base, getErr: errors.New("owner error"), failKey: &key}
-	store := NewStore(client, "ns", "state", key)
+	store := NewStore(client, client, "ns", "state", key)
 	if err := store.Ensure(context.Background()); err == nil {
 		t.Fatal("expected error when owner lookup fails")
 	}
@@ -106,7 +106,7 @@ func TestStoreEnsureOwnerReferenceError(t *testing.T) {
 
 func TestStoreUpdateAndDeleteNode(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure failed: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestStoreUpdateNodeWithCorruptPayload(t *testing.T) {
 		Data:       map[string]string{"node-a.yaml": "phase: ["},
 	}
 	client := newTestClient(t, cm).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	state := NodeState{Phase: "Ready"}
 	if err := store.UpdateNode(context.Background(), "node-a", state); err == nil {
 		t.Fatal("expected error when payload cannot be unmarshalled")
@@ -165,7 +165,7 @@ func TestStoreUpdateNodeWithCorruptPayload(t *testing.T) {
 func TestStoreUpdateNodeInitialisesComponentsAndData(t *testing.T) {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: "ns"}}
 	client := newTestClient(t, cm).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	state := NodeState{Phase: "Ready"}
 	if err := store.UpdateNode(context.Background(), "node-a", state); err != nil {
 		t.Fatalf("update node with nil components failed: %v", err)
@@ -186,7 +186,7 @@ func TestStoreUpdateNodeInitialisesComponentsAndData(t *testing.T) {
 func TestStoreUpdateNodePropagatesGetError(t *testing.T) {
 	base := newTestClient(t).Build()
 	client := &errorClient{Client: base, getErr: errors.New("boom")}
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.UpdateNode(context.Background(), "node-a", NodeState{Phase: "Ready"}); err == nil {
 		t.Fatal("expected error when Get fails")
 	}
@@ -196,7 +196,7 @@ func TestStoreUpdateNodePropagatesUpdateError(t *testing.T) {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: "ns"}}
 	base := newTestClient(t, cm).Build()
 	client := &errorClient{Client: base, updateErr: errors.New("update fail")}
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.UpdateNode(context.Background(), "node-a", NodeState{Phase: "Ready"}); err == nil || !strings.Contains(err.Error(), "update fail") {
 		t.Fatalf("expected update error, got %v", err)
 	}
@@ -204,7 +204,7 @@ func TestStoreUpdateNodePropagatesUpdateError(t *testing.T) {
 
 func TestStoreUpdateNodeCreatesConfigMap(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.UpdateNode(context.Background(), "node-a", NodeState{Phase: "Ready"}); err == nil || !strings.Contains(err.Error(), "retry update") {
 		t.Fatalf("expected retry error, got %v", err)
 	}
@@ -222,7 +222,7 @@ func TestStoreUpdateNodeEnsureError(t *testing.T) {
 		getErr:  errors.New("owner boom"),
 		failKey: &owner,
 	}
-	store := NewStore(client, "ns", "state", owner)
+	store := NewStore(client, client, "ns", "state", owner)
 
 	err := store.UpdateNode(context.Background(), "node-a", NodeState{Phase: "Ready"})
 	if err == nil || !strings.Contains(err.Error(), "owner boom") {
@@ -232,7 +232,7 @@ func TestStoreUpdateNodeEnsureError(t *testing.T) {
 
 func TestStoreUpdateNodeMarshalError(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure failed: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestNormaliseNodeStateInitialisesFields(t *testing.T) {
 
 func TestStoreDeleteNodeMissingConfigMap(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 
 	if err := store.DeleteNode(context.Background(), "node-a"); err != nil {
 		t.Fatalf("delete node should ignore missing configmap: %v", err)
@@ -271,7 +271,7 @@ func TestStoreDeleteNodeMissingConfigMap(t *testing.T) {
 func TestStoreDeleteNodeHandlesNilData(t *testing.T) {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state", Namespace: "ns"}}
 	client := newTestClient(t, cm).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 
 	if err := store.DeleteNode(context.Background(), "node-a"); err != nil {
 		t.Fatalf("delete node with nil data: %v", err)
@@ -284,7 +284,7 @@ func TestStoreDeleteNodeNoEntry(t *testing.T) {
 		Data:       map[string]string{"other.yaml": "phase: Ready"},
 	}
 	client := newTestClient(t, cm).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 
 	if err := store.DeleteNode(context.Background(), "node-a"); err != nil {
 		t.Fatalf("delete node without entry: %v", err)
@@ -294,7 +294,7 @@ func TestStoreDeleteNodeNoEntry(t *testing.T) {
 func TestStoreDeleteNodePropagatesGetError(t *testing.T) {
 	base := newTestClient(t).Build()
 	client := &errorClient{Client: base, getErr: errors.New("boom")}
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	if err := store.DeleteNode(context.Background(), "node-a"); err == nil {
 		t.Fatal("expected error when Get fails")
 	}
@@ -302,7 +302,7 @@ func TestStoreDeleteNodePropagatesGetError(t *testing.T) {
 
 func TestSetOwnerReferenceSkipsEmpty(t *testing.T) {
 	client := newTestClient(t).Build()
-	store := NewStore(client, "ns", "state", types.NamespacedName{})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{})
 	cm := &corev1.ConfigMap{}
 	if err := store.setOwnerReference(context.Background(), cm); err != nil {
 		t.Fatalf("setOwnerReference empty owner: %v", err)
@@ -312,10 +312,27 @@ func TestSetOwnerReferenceSkipsEmpty(t *testing.T) {
 func TestSetOwnerReferencePropagatesError(t *testing.T) {
 	base := newTestClient(t).Build()
 	client := &errorClient{Client: base, getErr: errors.New("boom")}
-	store := NewStore(client, "ns", "state", types.NamespacedName{Name: "controller", Namespace: "ns"})
+	store := NewStore(client, client, "ns", "state", types.NamespacedName{Name: "controller", Namespace: "ns"})
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "state"}}
 	if err := store.setOwnerReference(context.Background(), cm); err == nil {
 		t.Fatal("expected error from setOwnerReference when Get fails")
+	}
+}
+
+func TestStoreGetReaderPrefersExplicitReader(t *testing.T) {
+	client := newTestClient(t).Build()
+	reader := newTestClient(t).Build()
+	store := NewStore(client, reader, "ns", "state", types.NamespacedName{})
+	if got := store.getReader(); got != reader {
+		t.Fatalf("expected explicit reader to be used, got %T", got)
+	}
+}
+
+func TestStoreGetReaderFallsBackToClient(t *testing.T) {
+	client := newTestClient(t).Build()
+	store := NewStore(client, nil, "ns", "state", types.NamespacedName{})
+	if got := store.getReader(); got != client {
+		t.Fatalf("expected client fallback when reader is nil, got %T", got)
 	}
 }
 

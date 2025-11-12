@@ -597,8 +597,8 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if !inventory.Status.Driver.ToolkitReady {
 		t.Fatal("expected driver toolkit ready true")
 	}
-	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Status != metav1.ConditionFalse {
-		t.Fatalf("expected InventoryIncomplete=false, got %+v", cond)
+	if cond := getCondition(inventory.Status.Conditions, conditionInventoryComplete); cond == nil || cond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected InventoryComplete=true, got %+v", cond)
 	}
 	if cond := getCondition(inventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ManagedDisabled=false, got %+v", cond)
@@ -695,9 +695,9 @@ func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory not found: %v", err)
 	}
-	cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
-	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != reasonInventorySynced {
-		t.Fatalf("expected InventoryIncomplete=false reason=%s, got %+v", reasonInventorySynced, cond)
+	cond := getCondition(inventory.Status.Conditions, conditionInventoryComplete)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != reasonInventorySynced {
+		t.Fatalf("expected InventoryComplete=true reason=%s, got %+v", reasonInventorySynced, cond)
 	}
 }
 
@@ -926,8 +926,8 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 	if cond := getCondition(inventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionTrue {
 		t.Fatalf("expected ManagedDisabled=true, got %+v", cond)
 	}
-	if cond := getCondition(inventory.Status.Conditions, conditionInventoryIncomplete); cond == nil || cond.Status != metav1.ConditionTrue {
-		t.Fatalf("expected InventoryIncomplete=true, got %+v", cond)
+	if cond := getCondition(inventory.Status.Conditions, conditionInventoryComplete); cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Fatalf("expected InventoryComplete=false, got %+v", cond)
 	}
 }
 
@@ -1633,12 +1633,12 @@ func TestReconcileHandlesNodeFeatureMissing(t *testing.T) {
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("expected inventory to be created, got error: %v", err)
 	}
-	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
 	if condition == nil {
-		t.Fatalf("expected incomplete condition to be set")
+		t.Fatalf("expected inventory condition to be set")
 	}
-	if condition.Status != metav1.ConditionTrue || condition.Reason != reasonNodeFeatureMissing {
-		t.Fatalf("expected incomplete condition (true, %s), got status=%s reason=%s", reasonNodeFeatureMissing, condition.Status, condition.Reason)
+	if condition.Status != metav1.ConditionFalse || condition.Reason != reasonNodeFeatureMissing {
+		t.Fatalf("expected inventory condition (false, %s), got status=%s reason=%s", reasonNodeFeatureMissing, condition.Status, condition.Reason)
 	}
 }
 
@@ -1722,7 +1722,7 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(5)
 	inventoryConditionGauge.WithLabelValues(node.Name, conditionManagedDisabled).Set(1)
-	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryIncomplete).Set(1)
+	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryComplete).Set(1)
 
 	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
 	if err != nil {
@@ -2287,12 +2287,12 @@ func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 		t.Fatalf("expected inventory to be created, got error: %v", err)
 	}
 
-	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryIncomplete)
+	condition := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
 	if condition == nil {
-		t.Fatalf("expected incomplete condition to be present")
+		t.Fatalf("expected inventory condition to be present")
 	}
-	if condition.Reason != reasonNoDevicesDiscovered || condition.Status != metav1.ConditionTrue {
-		t.Fatalf("expected condition=%s/true, got reason=%s status=%s", reasonNoDevicesDiscovered, condition.Reason, condition.Status)
+	if condition.Reason != reasonNoDevicesDiscovered || condition.Status != metav1.ConditionFalse {
+		t.Fatalf("expected condition=%s/false, got reason=%s status=%s", reasonNoDevicesDiscovered, condition.Reason, condition.Status)
 	}
 }
 
@@ -2478,7 +2478,7 @@ func TestCleanupNodeDeletesMetrics(t *testing.T) {
 	const nodeName = "cleanup-metrics"
 	inventoryDevicesGauge.WithLabelValues(nodeName).Set(2)
 	inventoryConditionGauge.WithLabelValues(nodeName, conditionManagedDisabled).Set(1)
-	inventoryConditionGauge.WithLabelValues(nodeName, conditionInventoryIncomplete).Set(1)
+	inventoryConditionGauge.WithLabelValues(nodeName, conditionInventoryComplete).Set(1)
 
 	scheme := newTestScheme(t)
 	client := newTestClient(scheme)

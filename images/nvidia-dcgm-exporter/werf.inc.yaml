@@ -77,11 +77,12 @@ import:
   - x86_64-linux-gnu.conf
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
-  add: /
-  to: /usr/bin
-  includePaths:
-  - dcgm-exporter
-  - dcgm-exporter-entrypoint.sh
+  add: /dcgm-exporter
+  to: /usr/bin/dcgm-exporter
+  before: setup
+- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
+  add: /dcgm-exporter-entrypoint.sh
+  to: /usr/bin/dcgm-exporter-entrypoint.sh
   before: setup
 - image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
   add: /pkg/usr
@@ -93,11 +94,6 @@ import:
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src/etc/*
   to: /etc/dcgm-exporter
-  before: setup
-- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
-  add: /
-  includePaths:
-    - lib64
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
   add: /bash

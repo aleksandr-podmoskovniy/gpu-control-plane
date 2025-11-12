@@ -1,9 +1,22 @@
-# Structured state produced by bootstrap controller.
+# Structured state produced by bootstrap controller, covers all components.
 gpuControlPlane:
-  bootstrap:
-    components:
-      dcgm:
-        phase: Ready
-        nodes:
-          - worker-a
-          - worker-b
+  internal:
+    bootstrap:
+      components:
+        validator:
+          phase: Monitoring
+          nodes:
+            - worker-a
+        gpu-feature-discovery:
+          phase: Monitoring
+          nodes:
+            - worker-a
+        dcgm:
+          phase: Ready
+          nodes:
+            - worker-a
+            - worker-b
+        dcgm-exporter:
+          phase: Ready
+          nodes:
+            - worker-a

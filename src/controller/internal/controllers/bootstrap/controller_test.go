@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/yaml"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	bootstrapmeta "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
@@ -644,10 +645,14 @@ func TestPersistNodeStateWritesComponents(t *testing.T) {
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
-	rec.stateStore = state.NewStore(client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
+	rec.stateStore = state.NewStore(client, client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
 
 	inventory := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 	inventory.Status.Bootstrap.Phase = v1alpha1.GPUNodeBootstrapPhaseMonitoring
+	inventory.Status.Conditions = []metav1.Condition{{
+		Type:   conditionInventoryComplete,
+		Status: metav1.ConditionTrue,
+	}}
 
 	if err := rec.stateStore.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure state store: %v", err)
@@ -670,13 +675,57 @@ func TestPersistNodeStateWritesComponents(t *testing.T) {
 	}
 }
 
+func TestPersistNodeStateSkipsComponentsWhenInventoryNotComplete(t *testing.T) {
+	scheme := newScheme(t)
+	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace, UID: "uid-1"}}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = client
+	rec.stateStore = state.NewStore(client, client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{
+		Name:      bootstrapmeta.ControllerDeploymentName,
+		Namespace: bootstrapmeta.WorkloadsNamespace,
+	})
+	if err := rec.stateStore.Ensure(context.Background()); err != nil {
+		t.Fatalf("ensure state store: %v", err)
+	}
+
+	inventory := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}}
+	inventory.Status.Bootstrap.Phase = v1alpha1.GPUNodeBootstrapPhaseMonitoring
+	inventory.Status.Conditions = []metav1.Condition{{
+		Type:   conditionInventoryComplete,
+		Status: metav1.ConditionFalse,
+	}}
+
+	rec.persistNodeState(context.Background(), inventory)
+
+	cm := &corev1.ConfigMap{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: bootstrapmeta.StateConfigMapName, Namespace: bootstrapmeta.WorkloadsNamespace}, cm); err != nil {
+		t.Fatalf("get configmap: %v", err)
+	}
+	payload := cm.Data["node-b.yaml"]
+	if payload == "" {
+		t.Fatalf("expected node entry, data=%v", cm.Data)
+	}
+	var stored state.NodeState
+	if err := yaml.Unmarshal([]byte(payload), &stored); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(stored.Components) != 0 {
+		t.Fatalf("expected no components stored, got %+v", stored.Components)
+	}
+	if stored.Phase != string(v1alpha1.GPUNodeBootstrapPhaseMonitoring) {
+		t.Fatalf("expected phase persisted, got %s", stored.Phase)
+	}
+}
+
 func TestDeleteNodeStateRemovesEntry(t *testing.T) {
 	scheme := newScheme(t)
 	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace, UID: "uid-1"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
-	rec.stateStore = state.NewStore(client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
+	rec.stateStore = state.NewStore(client, client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
 	if err := rec.stateStore.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure store: %v", err)
 	}
@@ -700,7 +749,7 @@ func TestDeleteNodeStateLogsError(t *testing.T) {
 	base := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 	errClient := &getErrorClient{Client: base, err: errors.New("boom")}
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.stateStore = state.NewStore(errClient, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{})
+	rec.stateStore = state.NewStore(errClient, errClient, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{})
 	rec.deleteNodeState(context.Background(), "node")
 }
 
@@ -721,7 +770,7 @@ func TestPersistNodeStateDisabledPhase(t *testing.T) {
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
-	rec.stateStore = state.NewStore(client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
+	rec.stateStore = state.NewStore(client, client, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace})
 	if err := rec.stateStore.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure store: %v", err)
 	}
@@ -745,7 +794,7 @@ func TestPersistNodeStateLogsError(t *testing.T) {
 	base := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 	errClient := &getErrorClient{Client: base, err: errors.New("boom")}
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.stateStore = state.NewStore(errClient, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{})
+	rec.stateStore = state.NewStore(errClient, errClient, bootstrapmeta.WorkloadsNamespace, bootstrapmeta.StateConfigMapName, types.NamespacedName{})
 	rec.persistNodeState(context.Background(), &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node"}})
 }
 

@@ -334,9 +334,7 @@ spec:
                 type: object
               state:
                 description: State reflects current lifecycle state of the device
-                  (Discovered, ReadyForPooling, PendingAssignment, NoPoolMatched,
-                  Assigned, Reserved, InUse, Faulted). The legacy value `Unassigned`
-                  is preserved for backwards compatibility.
+                  (unassigned, reserved, assigned, faulted).
                 enum:
                 - Discovered
                 - ReadyForPooling

@@ -1,3 +1,4 @@
 # Baseline bootstrap section is present but empty.
 gpuControlPlane:
-  bootstrap: {}
+  internal:
+    bootstrap: {}

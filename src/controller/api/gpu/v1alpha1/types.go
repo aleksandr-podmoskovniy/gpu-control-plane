@@ -302,6 +302,7 @@ type GPUNodeMonitoring struct {
 	LastHeartbeat *metav1.Time `json:"lastHeartbeat,omitempty"`
 }
 
+// +kubebuilder:validation:Enum=Disabled;Validating;ValidatingFailed;GFD;Monitoring;Ready
 // GPUNodeBootstrapPhase enumerates bootstrap phases for a node.
 type GPUNodeBootstrapPhase string
 

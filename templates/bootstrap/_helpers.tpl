@@ -44,11 +44,11 @@ affinity:
 {{- $components := (index $bootstrap "components") | default dict -}}
 {{- if not (kindIs "map" $components) }}{{- $components = dict }}{{- end }}
 {{- if not (hasKey $components $component) -}}
-true
+false
 {{- else -}}
   {{- $componentData := index $components $component -}}
   {{- if not (kindIs "map" $componentData) -}}
-true
+false
   {{- else -}}
     {{- $nodes := (index $componentData "nodes") | default (list) -}}
     {{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) -}}

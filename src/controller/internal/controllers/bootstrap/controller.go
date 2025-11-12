@@ -133,6 +133,7 @@ const (
 	conditionToolkitMissing    = "ToolkitMissing"
 	conditionMonitoringMissing = "MonitoringMissing"
 	conditionGFDReady          = "GFDReady"
+	conditionInventoryComplete = "InventoryComplete"
 )
 
 var managedComponentSet = func() map[string]struct{} {
@@ -241,6 +242,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.scheme = mgr.GetScheme()
 	r.stateStore = state.NewStore(
 		mgr.GetClient(),
+		mgr.GetAPIReader(),
 		meta.WorkloadsNamespace,
 		meta.StateConfigMapName,
 		types.NamespacedName{
@@ -393,10 +395,13 @@ func (r *Reconciler) persistNodeState(ctx context.Context, inventory *v1alpha1.G
 		return
 	}
 	phase := effectiveBootstrapPhase(inventory)
-	enabled := components.EnabledComponents(phase)
-	componentSet := make(map[string]bool, len(enabled))
-	for component := range enabled {
-		componentSet[string(component)] = true
+	componentSet := map[string]bool{}
+	if inventoryReadyForBootstrap(inventory) {
+		enabled := components.EnabledComponents(phase)
+		componentSet = make(map[string]bool, len(enabled))
+		for component := range enabled {
+			componentSet[string(component)] = true
+		}
 	}
 	nodeState := state.NodeState{
 		Phase:      string(phase),
@@ -455,6 +460,11 @@ func effectiveBootstrapPhase(inventory *v1alpha1.GPUNodeInventory) v1alpha1.GPUN
 
 func isManagedDisabled(inventory *v1alpha1.GPUNodeInventory) bool {
 	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
+	return cond != nil && cond.Status == metav1.ConditionTrue
+}
+
+func inventoryReadyForBootstrap(inventory *v1alpha1.GPUNodeInventory) bool {
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
 	return cond != nil && cond.Status == metav1.ConditionTrue
 }
 

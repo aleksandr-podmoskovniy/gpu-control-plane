@@ -72,7 +72,7 @@ consistent view of detected hardware for other Deckhouse modules.
 4. Removes orphan devices when NodeFeature data disappears or labels are
    cleared, and publishes corresponding events.
 5. Reconciles `GPUNodeInventory` status, updates conditions
-   (`ManagedDisabled`, `InventoryIncomplete`) and records metrics.
+   (`ManagedDisabled`, `InventoryComplete`) and records metrics.
 
 ## Hooks and bootstrap
 

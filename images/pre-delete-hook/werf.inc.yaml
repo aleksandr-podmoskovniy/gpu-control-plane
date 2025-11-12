@@ -33,7 +33,7 @@ shell:
     {{- include "image-build.build" (set $ "BuildCommand" `go build -ldflags="-s -w" -a -o /out/pre-delete-hook main.go`) | nindent 6 }}
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-fromImage: {{ .ModuleNamePrefix }}distroless
+fromImage: common/distroless
 import:
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
   add: /out/pre-delete-hook

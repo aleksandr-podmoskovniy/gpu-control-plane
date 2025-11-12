@@ -1,8 +1,9 @@
 # Bootstrap state where nodes map exists but entries are malformed strings.
 gpuControlPlane:
-  bootstrap:
-    components:
-      dcgm: "legacy"
-      dcgm-exporter: "legacy"
-      gpu-feature-discovery: "legacy"
-      validator: "legacy"
+  internal:
+    bootstrap:
+      components:
+        dcgm: "legacy"
+        dcgm-exporter: "legacy"
+        gpu-feature-discovery: "legacy"
+        validator: "legacy"

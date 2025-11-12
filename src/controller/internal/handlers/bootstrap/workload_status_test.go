@@ -99,6 +99,10 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 			Driver:   v1alpha1.GPUNodeDriver{Version: "535.104.05", ToolkitReady: true},
 		},
 	}
+	inventory.Status.Conditions = []metav1.Condition{{
+		Type:   conditionInventoryComplete,
+		Status: metav1.ConditionTrue,
+	}}
 
 	res, err := handler.HandleNode(context.Background(), inventory)
 	if err != nil {
@@ -156,6 +160,10 @@ func TestWorkloadStatusHandlerReportsComponentPending(t *testing.T) {
 			Driver:   v1alpha1.GPUNodeDriver{Version: "535.104.05", ToolkitReady: true},
 		},
 	}
+	inventory.Status.Conditions = []metav1.Condition{{
+		Type:   conditionInventoryComplete,
+		Status: metav1.ConditionTrue,
+	}}
 
 	res, err := handler.HandleNode(context.Background(), inventory)
 	if err != nil {
@@ -392,8 +400,8 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 
 	// Inventory incomplete blocks readiness.
 	inventory = makeInventory()
-	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, false, true, true, true, true); ready || reason != reasonInventoryIncomplete {
-		t.Fatalf("expected reason %s for incomplete inventory, got ready=%t reason=%s", reasonInventoryIncomplete, ready, reason)
+	if ready, reason, _ := handler.evaluateReadyForPooling(inventory, false, true, true, true, true); ready || reason != reasonInventoryPending {
+		t.Fatalf("expected reason %s for incomplete inventory, got ready=%t reason=%s", reasonInventoryPending, ready, reason)
 	}
 
 	// Driver/toolkit/component/monitoring issues.

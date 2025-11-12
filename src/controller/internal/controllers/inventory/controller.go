@@ -61,8 +61,8 @@ const (
 	controllerName           = "gpu-inventory-controller"
 	cacheSyncTimeoutDuration = 10 * time.Minute
 
-	conditionManagedDisabled     = "ManagedDisabled"
-	conditionInventoryIncomplete = "InventoryIncomplete"
+	conditionManagedDisabled   = "ManagedDisabled"
+	conditionInventoryComplete = "InventoryComplete"
 
 	reasonNodeManagedEnabled  = "NodeManaged"
 	reasonNodeManagedDisabled = "NodeMarkedDisabled"
@@ -847,7 +847,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 	managedChanged := setStatusCondition(&conditions, managedCond)
 	inventoryConditionGauge.WithLabelValues(node.Name, conditionManagedDisabled).Set(boolToFloat(!snapshot.Managed))
 
-	inventoryIncomplete := !snapshot.FeatureDetected || len(snapshot.Devices) == 0
+	inventoryComplete := snapshot.FeatureDetected && len(snapshot.Devices) > 0
 	inventoryReason := reasonInventorySynced
 	inventoryMessage := "inventory data collected"
 	switch {
@@ -858,15 +858,15 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 		inventoryReason = reasonNoDevicesDiscovered
 		inventoryMessage = "no NVIDIA devices detected on the node"
 	}
-	incompleteCond := metav1.Condition{
-		Type:               conditionInventoryIncomplete,
-		Status:             boolToConditionStatus(inventoryIncomplete),
+	completeCond := metav1.Condition{
+		Type:               conditionInventoryComplete,
+		Status:             boolToConditionStatus(inventoryComplete),
 		Reason:             inventoryReason,
 		Message:            inventoryMessage,
 		ObservedGeneration: inventory.Generation,
 	}
-	inventoryChanged := setStatusCondition(&conditions, incompleteCond)
-	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryIncomplete).Set(boolToFloat(inventoryIncomplete))
+	inventoryChanged := setStatusCondition(&conditions, completeCond)
+	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryComplete).Set(boolToFloat(inventoryComplete))
 
 	inventory.Status.Conditions = conditions
 	if managedChanged {
@@ -874,10 +874,10 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 	}
 	if inventoryChanged {
 		eventType := corev1.EventTypeNormal
-		if inventoryIncomplete {
+		if !inventoryComplete {
 			eventType = corev1.EventTypeWarning
 		}
-		r.recorder.Eventf(node, eventType, eventInventoryChanged, "Condition %s changed to %t (%s)", conditionInventoryIncomplete, inventoryIncomplete, inventoryReason)
+		r.recorder.Eventf(node, eventType, eventInventoryChanged, "Condition %s changed to %t (%s)", conditionInventoryComplete, inventoryComplete, inventoryReason)
 	}
 
 	if !equality.Semantic.DeepEqual(statusBefore.Status, inventory.Status) {
@@ -906,7 +906,7 @@ func (r *Reconciler) deleteInventory(ctx context.Context, nodeName string) error
 func (r *Reconciler) clearInventoryMetrics(nodeName string) {
 	inventoryDevicesGauge.DeleteLabelValues(nodeName)
 	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionManagedDisabled)
-	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryIncomplete)
+	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryComplete)
 	for _, state := range knownDeviceStates {
 		inventoryDeviceStateGauge.DeleteLabelValues(nodeName, string(state))
 	}

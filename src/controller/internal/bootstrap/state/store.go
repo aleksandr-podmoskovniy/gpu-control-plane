@@ -49,15 +49,17 @@ type NodeState struct {
 // Store persists bootstrap state in a ConfigMap so that Helm templates can read it.
 type Store struct {
 	client    client.Client
+	reader    client.Reader
 	namespace string
 	name      string
 	owner     types.NamespacedName
 }
 
 // NewStore constructs a bootstrap state store writing to the given ConfigMap.
-func NewStore(cl client.Client, namespace, name string, owner types.NamespacedName) *Store {
+func NewStore(cl client.Client, reader client.Reader, namespace, name string, owner types.NamespacedName) *Store {
 	return &Store{
 		client:    cl,
+		reader:    reader,
 		namespace: namespace,
 		name:      name,
 		owner:     owner,
@@ -67,7 +69,7 @@ func NewStore(cl client.Client, namespace, name string, owner types.NamespacedNa
 // Ensure guarantees that the ConfigMap exists.
 func (s *Store) Ensure(ctx context.Context) error {
 	cm := &corev1.ConfigMap{}
-	err := s.client.Get(ctx, types.NamespacedName{Name: s.name, Namespace: s.namespace}, cm)
+	err := s.getReader().Get(ctx, types.NamespacedName{Name: s.name, Namespace: s.namespace}, cm)
 	switch {
 	case err == nil:
 		return nil
@@ -153,7 +155,7 @@ func (s *Store) setOwnerReference(ctx context.Context, cm *corev1.ConfigMap) err
 		return nil
 	}
 	deploy := &appsv1.Deployment{}
-	if err := s.client.Get(ctx, s.owner, deploy); err != nil {
+	if err := s.getReader().Get(ctx, s.owner, deploy); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
@@ -188,4 +190,11 @@ func normaliseNodeState(state NodeState) NodeState {
 		state.Components = map[string]bool{}
 	}
 	return state
+}
+
+func (s *Store) getReader() client.Reader {
+	if s.reader != nil {
+		return s.reader
+	}
+	return s.client
 }

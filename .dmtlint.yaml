@@ -24,6 +24,7 @@ linters-settings:
         directories:
           - .bin/
           - .cache/
+          - tools/kubeconform/kubeconform.git/
 
 global:
   linters-settings:
@@ -33,3 +34,4 @@ global:
           directories:
             - .bin/
             - .cache/
+            - tools/kubeconform/kubeconform.git/

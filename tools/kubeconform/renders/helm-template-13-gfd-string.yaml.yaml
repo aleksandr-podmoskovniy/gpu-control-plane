@@ -1,0 +1,633 @@
+---
+# Source: gpu-control-plane/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: d8-gpu-control-plane
+  annotations:
+    meta.helm.sh/release-name: gpu-control-plane
+    meta.helm.sh/release-namespace: amd-ollama
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app.kubernetes.io/managed-by: "Helm"
+    prometheus.deckhouse.io/rules-watcher-enabled: "true"
+---
+# Source: gpu-control-plane/templates/controller/policies.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gpu-control-plane-controller
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gpu-control-plane-controller
+---
+# Source: gpu-control-plane/templates/controller/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-control-plane-controller
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+---
+# Source: gpu-control-plane/templates/pre-delete-hook/rbac-for-us.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gpu-control-plane-pre-delete-hook
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-pre-delete-hook"
+imagePullSecrets:
+  - name: gpu-control-plane-module-registry
+---
+# Source: gpu-control-plane/templates/controller/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gpu-control-plane-controller-tls
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+type: kubernetes.io/tls
+data:
+  ca.crt: Q09OVFJPTExFUi1DQS1DUlQ=
+  tls.crt: Q09OVFJPTExFUi1DUlQ=
+  tls.key: Q09OVFJPTExFUi1LRVk=
+---
+# Source: gpu-control-plane/templates/controller/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gpu-control-plane-ca
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane"
+type: kubernetes.io/tls
+data:
+  tls.crt: Uk9PVC1DQS1DUlQ=
+  tls.key: Uk9PVC1DQS1LRVk=
+---
+# Source: gpu-control-plane/templates/registry-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gpu-control-plane-module-registry
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: "ZmFrZQ=="
+---
+# Source: gpu-control-plane/templates/kube-api-rewriter/cm-kubeconfig-local.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kube-api-rewriter-kubeconfig
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+data:
+  kube-api-rewriter.kubeconfig: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - cluster:
+          server: http://127.0.0.1:23915
+        name: kube-api-rewriter
+    contexts:
+      - context:
+          cluster: kube-api-rewriter
+        name: kube-api-rewriter
+    current-context: kube-api-rewriter
+---
+# Source: gpu-control-plane/templates/namespace.yaml
+---
+apiVersion: v1
+data:
+  ca.crt: |
+    
+    -----BEGIN CERTIFICATE-----
+    KUBE-RBAC-PROXY-CA
+    -----END CERTIFICATE-----
+    
+kind: ConfigMap
+metadata:
+  annotations:
+    kubernetes.io/description: |
+      Contains a CA bundle that can be used to verify the kube-rbac-proxy clients.
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+  name: kube-rbac-proxy-ca.crt
+  namespace: d8-gpu-control-plane
+---
+# Source: gpu-control-plane/templates/controller/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gpu-control-plane-controller
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpudevices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpudevices/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpunodeinventories"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpunodeinventories/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["nfd.k8s-sigs.io"]
+    resources: ["nodefeatures"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["deckhouse.io"]
+    resources: ["moduleconfigs"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["deckhouse.io"]
+    resources: ["moduleconfigs/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+---
+# Source: gpu-control-plane/templates/pre-delete-hook/rbac-for-us.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: d8:gpu-control-plane:pre-delete-hook
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-pre-delete-hook"
+rules:
+  - apiGroups:
+      - nfd.k8s-sigs.io
+    resources:
+      - nodefeaturerules
+    verbs:
+      - get
+      - delete
+---
+# Source: gpu-control-plane/templates/controller/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpu-control-plane-controller
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gpu-control-plane-controller
+subjects:
+  - kind: ServiceAccount
+    name: gpu-control-plane-controller
+    namespace: d8-gpu-control-plane
+---
+# Source: gpu-control-plane/templates/pre-delete-hook/rbac-for-us.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: d8:gpu-control-plane:pre-delete-hook
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-pre-delete-hook"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: d8:gpu-control-plane:pre-delete-hook
+subjects:
+  - kind: ServiceAccount
+    name: gpu-control-plane-pre-delete-hook
+    namespace: d8-gpu-control-plane
+---
+# Source: gpu-control-plane/templates/monitoring-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gpu-control-plane-access
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane"
+rules:
+  - apiGroups: ["apps"]
+    resources:
+      - deployments/prometheus-metrics
+      - daemonsets/prometheus-metrics
+    resourceNames:
+      - gpu-control-plane-controller
+    verbs: ["get"]
+---
+# Source: gpu-control-plane/templates/controller/service-metrics.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-control-plane-controller-metrics
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: https-metrics
+  selector:
+    app: gpu-control-plane-controller
+---
+# Source: gpu-control-plane/templates/controller/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+  name: gpu-control-plane-controller
+  namespace: d8-gpu-control-plane
+spec:
+  selector:
+    app: gpu-control-plane-controller
+  ports:
+    - name: https-metrics
+      port: 8080
+      protocol: TCP
+      targetPort: https-metrics
+---
+# Source: gpu-control-plane/templates/controller/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-controller"
+  name: gpu-control-plane-controller
+  namespace: d8-gpu-control-plane
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: gpu-control-plane-controller
+  template:
+    metadata:
+      labels:
+        app: gpu-control-plane-controller
+        module: gpu-control-plane
+      annotations:
+        kubectl.kubernetes.io/default-container: controller
+    spec:
+      
+      
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: "gpu-control-plane-controller"
+            topologyKey: kubernetes.io/hostname
+      serviceAccountName: gpu-control-plane-controller
+      containers:
+        
+        - name: proxy
+          image: registry.example.com/sys/deckhouse@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: MONITORING_BIND_ADDRESS
+              value: "127.0.0.1:9090"
+          resources:
+            requests:
+              
+              ephemeral-storage: 50Mi
+              
+              cpu: 50m
+              memory: 30Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 8082
+              name: https-metrics
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /proxy/healthz
+              port: 8082
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /proxy/readyz
+              port: 8082
+              scheme: HTTPS
+            initialDelaySeconds: 10
+        - name: controller
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          image: registry.example.com/sys/deckhouse@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LEADER_ELECTION
+              value: "true"
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LEADER_ELECTION_ID
+              value: gpu-control-plane-controller-leader-election
+            - name: CONFIG_PATH
+              value: /etc/gpu-control-plane/config.yaml
+            - name: KUBECONFIG
+              value: /kubeconfig.local/kube-api-rewriter.kubeconfig
+            - name: METRICS_BIND_ADDRESS
+              value: 127.0.0.1:8080
+          volumeMounts:
+            - name: controller-tls
+              mountPath: /var/lib/gpu-control-plane/tls
+              readOnly: true
+            - name: controller-config
+              mountPath: /etc/gpu-control-plane
+              readOnly: true
+            - name: kube-api-rewriter-kubeconfig
+              mountPath: /kubeconfig.local
+              readOnly: true
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 50Mi
+            limits:
+              memory: 256Mi
+        
+        - name: kube-rbac-proxy
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          image: registry.example.com/sys/deckhouse@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--secure-listen-address=$(KUBE_RBAC_PROXY_LISTEN_ADDRESS):8082"
+            - "--v=2"
+            - "--logtostderr=true"
+            - "--stale-cache-interval=1h30m"
+            - "--livez-path=/livez"
+            - "--tls-cert-file=/var/lib/kube-rbac-proxy/tls/tls.crt"
+            - "--tls-private-key-file=/var/lib/kube-rbac-proxy/tls/tls.key"
+            - "--ignore-paths=/proxy/healthz,/proxy/readyz"
+          env:
+            - name: KUBE_RBAC_PROXY_LISTEN_ADDRESS
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: KUBE_RBAC_PROXY_CONFIG
+              value: |
+                excludePaths:
+                  - /healthz
+                upstreams:
+                  - upstream: http://127.0.0.1:8080/metrics
+                    path: /metrics
+                    authorization:
+                      resourceAttributes:
+                        namespace: d8-gpu-control-plane
+                        apiGroup: apps
+                        apiVersion: v1
+                        resource: deployments
+                        subresource: prometheus-metrics
+                        name: gpu-control-plane-controller
+                  - upstream: http://127.0.0.1:9090/metrics
+                    path: /proxy/metrics
+                    authorization:
+                      resourceAttributes:
+                        namespace: d8-gpu-control-plane
+                        apiGroup: apps
+                        apiVersion: v1
+                        resource: deployments
+                        subresource: prometheus-metrics
+                        name: kube-api-rewriter
+                  - upstream: http://127.0.0.1:9090/healthz
+                    path: /proxy/healthz
+                    authorization:
+                      resourceAttributes:
+                        namespace: d8-gpu-control-plane
+                        apiGroup: apps
+                        apiVersion: v1
+                        resource: deployments
+                        subresource: prometheus-metrics
+                        name: kube-api-rewriter
+                  - upstream: http://127.0.0.1:9090/readyz
+                    path: /proxy/readyz
+                    authorization:
+                      resourceAttributes:
+                        namespace: d8-gpu-control-plane
+                        apiGroup: apps
+                        apiVersion: v1
+                        resource: deployments
+                        subresource: prometheus-metrics
+                        name: kube-api-rewriter
+          resources:
+            requests:
+              ephemeral-storage: 50Mi
+              cpu: 10m
+              memory: 25Mi
+          ports:
+            - containerPort: 8082
+              name: https-metrics
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: https-metrics
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /livez
+              port: https-metrics
+              scheme: HTTPS
+            initialDelaySeconds: 10
+          volumeMounts:
+            - name: kube-rbac-proxy-tls
+              mountPath: /var/lib/kube-rbac-proxy/tls
+              readOnly: true
+      priorityClassName: system-cluster-critical
+      
+      
+      
+      
+      
+      tolerations:
+      - key: node-role.kubernetes.io/master
+      - key: node-role.kubernetes.io/control-plane
+      - key: dedicated.deckhouse.io
+        operator: "Exists"
+      - key: dedicated
+        operator: "Exists"
+      - key: DeletionCandidateOfClusterAutoscaler
+      - key: ToBeDeletedByClusterAutoscaler
+      - key: drbd.linbit.com/lost-quorum
+      - key: drbd.linbit.com/force-io-error
+      - key: drbd.linbit.com/ignore-fail-over
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64535
+        runAsGroup: 64535
+      volumes:
+        - name: controller-tls
+          secret:
+            secretName: gpu-control-plane-controller-tls
+        - name: controller-config
+          configMap:
+            name: gpu-control-plane-controller-config
+        - name: kube-rbac-proxy-tls
+          secret:
+            secretName: gpu-control-plane-controller-metrics-tls
+        - name: kube-api-rewriter-kubeconfig
+          configMap:
+            defaultMode: 0644
+            name: kube-api-rewriter-kubeconfig
+---
+# Source: gpu-control-plane/templates/pre-delete-hook/job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-control-plane-pre-delete-hook
+  namespace: d8-gpu-control-plane
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+    app: "gpu-control-plane-pre-delete-hook"
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: gpu-control-plane-pre-delete-hook
+      labels:
+        heritage: deckhouse
+        module: gpu-control-plane
+        app: "gpu-control-plane-pre-delete-hook"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: gpu-control-plane-pre-delete-hook
+      containers:
+        - name: gpu-control-plane-pre-delete-hook
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          image: "registry.example.com/sys/deckhouse@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          env:
+            - name: WAIT_TIMEOUT
+              value: 600s
+            - name: RESOURCES
+              value: '[{"gvr":{"Group":"nfd.k8s-sigs.io","Resource":"nodefeaturerules","Version":"v1alpha1"},"name":"deckhouse-gpu-kernel-os"},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpudevices","Version":"v1alpha1"},"name":""},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpunodeinventories","Version":"v1alpha1"},"name":""}]'
+          resources:
+            requests:
+              ephemeral-storage: 50Mi
+              cpu: 10m
+              memory: 64Mi
+      
+      tolerations:
+      - key: node-role.kubernetes.io/master
+      - key: node-role.kubernetes.io/control-plane
+      - key: dedicated.deckhouse.io
+        operator: "Exists"
+      - key: dedicated
+        operator: "Exists"
+      - key: DeletionCandidateOfClusterAutoscaler
+      - key: ToBeDeletedByClusterAutoscaler
+      - key: drbd.linbit.com/lost-quorum
+      - key: drbd.linbit.com/force-io-error
+      - key: drbd.linbit.com/ignore-fail-over
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 64535
+        runAsGroup: 64535
