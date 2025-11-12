@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -256,6 +257,7 @@ type Reconciler struct {
 	handlers                 []contracts.InventoryHandler
 	recorder                 record.EventRecorder
 	resyncPeriod             time.Duration
+	resyncMu                 sync.RWMutex
 	builderFactory           func(ctrl.Manager) controllerBuilder
 	nodeFeatureSourceFactory func(cache.Cache) source.SyncingSource
 	moduleWatcherFactory     func(cache.Cache, controllerBuilder) controllerBuilder
@@ -286,13 +288,14 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 		log:                      log,
 		cfg:                      cfg,
 		handlers:                 handlers,
-		resyncPeriod:             cfg.ResyncPeriod,
 		builderFactory:           defaultControllerBuilder,
 		nodeFeatureSourceFactory: defaultNodeFeatureSource,
 		store:                    store,
 		fallbackManaged:          managed,
 		fallbackApproval:         approval,
 	}
+	rec.setResyncPeriod(cfg.ResyncPeriod)
+	rec.applyInventoryResync(state)
 	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
 		return rec.attachModuleWatcher(builder, c)
 	}
@@ -383,6 +386,7 @@ func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, cache cache.
 }
 
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
+	r.refreshInventorySettings()
 	return r.requeueAllNodes(ctx)
 }
 
@@ -477,17 +481,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	ctrlResult := ctrl.Result{}
-	if len(reconciledDevices) == 0 {
-		r.clearInventoryMetrics(node.Name)
-		if err := r.deleteInventory(ctx, node.Name); err != nil {
-			return ctrlResult, err
-		}
-		if r.resyncPeriod > 0 {
-			ctrlResult.RequeueAfter = r.resyncPeriod
-		}
-		return ctrlResult, nil
-	}
-
 	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -502,8 +495,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			ctrlResult.RequeueAfter = aggregate.RequeueAfter
 		}
 	}
-	if !ctrlResult.Requeue && ctrlResult.RequeueAfter == 0 && r.resyncPeriod > 0 {
-		ctrlResult.RequeueAfter = r.resyncPeriod
+	if !ctrlResult.Requeue && ctrlResult.RequeueAfter == 0 {
+		if period := r.getResyncPeriod(); period > 0 {
+			ctrlResult.RequeueAfter = period
+		}
 	}
 
 	if ctrlResult.Requeue || ctrlResult.RequeueAfter > 0 {
@@ -513,6 +508,37 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	return ctrlResult, nil
+}
+
+func (r *Reconciler) applyInventoryResync(state moduleconfigpkg.State) {
+	if state.Inventory.ResyncPeriod == "" {
+		return
+	}
+	duration, err := time.ParseDuration(state.Inventory.ResyncPeriod)
+	if err != nil || duration <= 0 {
+		return
+	}
+	r.setResyncPeriod(duration)
+}
+
+func (r *Reconciler) refreshInventorySettings() {
+	if r.store == nil {
+		return
+	}
+	state := r.store.Current()
+	r.applyInventoryResync(state)
+}
+
+func (r *Reconciler) setResyncPeriod(period time.Duration) {
+	r.resyncMu.Lock()
+	r.resyncPeriod = period
+	r.resyncMu.Unlock()
+}
+
+func (r *Reconciler) getResyncPeriod() time.Duration {
+	r.resyncMu.RLock()
+	defer r.resyncMu.RUnlock()
+	return r.resyncPeriod
 }
 
 func (r *Reconciler) findNodeFeature(ctx context.Context, nodeName string) (*nfdv1alpha1.NodeFeature, error) {

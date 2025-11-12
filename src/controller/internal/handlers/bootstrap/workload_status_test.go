@@ -177,11 +177,11 @@ func TestWorkloadStatusHandlerReportsComponentPending(t *testing.T) {
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected ready condition false, got %+v", cond)
 	}
-	if cond.Reason != reasonComponentPending {
-		t.Fatalf("expected reason %s, got %s", reasonComponentPending, cond.Reason)
+	if cond.Reason != reasonDriverNotDetected {
+		t.Fatalf("expected reason %s, got %s", reasonDriverNotDetected, cond.Reason)
 	}
-	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseGFD {
-		t.Fatalf("expected phase GFD, got %s", inventory.Status.Bootstrap.Phase)
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseValidating {
+		t.Fatalf("expected phase Validating, got %s", inventory.Status.Bootstrap.Phase)
 	}
 	foundPending := false
 	for _, workload := range inventory.Status.Bootstrap.Workloads {
@@ -194,6 +194,80 @@ func TestWorkloadStatusHandlerReportsComponentPending(t *testing.T) {
 	}
 	if !foundPending {
 		t.Fatalf("expected validator workload to be pending, got %+v", inventory.Status.Bootstrap.Workloads)
+	}
+}
+
+func TestWorkloadStatusHandlerEnablesGFDAfterValidator(t *testing.T) {
+	scheme := newScheme(t)
+	node := "worker-c"
+
+	objs := []runtime.Object{
+		readyPod("validator", appValidator, node),
+	}
+
+	client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(objs...).Build()
+
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	handler.SetClient(client)
+
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: node},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+		},
+	}
+	inventory.Status.Conditions = []metav1.Condition{{
+		Type:   conditionInventoryComplete,
+		Status: metav1.ConditionTrue,
+	}}
+
+	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseGFD {
+		t.Fatalf("expected phase GFD, got %s", inventory.Status.Bootstrap.Phase)
+	}
+
+	cond := findCondition(inventory.Status.Conditions, conditionReadyForPooling)
+	if cond == nil || cond.Reason != reasonComponentPending {
+		t.Fatalf("expected ready condition pending, got %+v", cond)
+	}
+}
+
+func TestWorkloadStatusHandlerMarksPhaseFailedOnRegression(t *testing.T) {
+	scheme := newScheme(t)
+	node := "worker-d"
+
+	client := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	handler.SetClient(client)
+
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: node},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
+				Phase: v1alpha1.GPUNodeBootstrapPhaseReady,
+			},
+		},
+	}
+	inventory.Status.Conditions = []metav1.Condition{
+		{Type: conditionInventoryComplete, Status: metav1.ConditionTrue},
+		{Type: conditionReadyForPooling, Status: metav1.ConditionTrue},
+	}
+
+	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+		t.Fatalf("expected phase ValidatingFailed, got %s", inventory.Status.Bootstrap.Phase)
+	}
+	cond := findCondition(inventory.Status.Conditions, conditionDriverMissing)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected driver missing condition, got %+v", cond)
 	}
 }
 
@@ -361,17 +435,23 @@ func TestComponentMessageVariants(t *testing.T) {
 }
 
 func TestDriverAndToolkitMessages(t *testing.T) {
-	if msg := driverMessage(true); !strings.Contains(msg, "reported") {
+	if msg := driverMessage(true, componentStatus{}); !strings.Contains(msg, "succeeded") {
 		t.Fatalf("unexpected driver message: %s", msg)
 	}
-	if msg := driverMessage(false); !strings.Contains(msg, "not reported") {
+	if msg := driverMessage(false, componentStatus{Message: "pod pending"}); !strings.Contains(msg, "pod pending") {
 		t.Fatalf("unexpected driver missing message: %s", msg)
 	}
-	if msg := toolkitMessage(true); !strings.Contains(msg, "completed") {
+	if msg := driverMessage(false, componentStatus{}); !strings.Contains(msg, "not completed yet") {
+		t.Fatalf("unexpected default driver message: %s", msg)
+	}
+	if msg := toolkitMessage(true, componentStatus{}); !strings.Contains(msg, "validation completed") {
 		t.Fatalf("unexpected toolkit ready message: %s", msg)
 	}
-	if msg := toolkitMessage(false); !strings.Contains(msg, "Waiting") {
+	if msg := toolkitMessage(false, componentStatus{Message: "waiting for toolkit"}); !strings.Contains(msg, "waiting for toolkit") {
 		t.Fatalf("unexpected toolkit missing message: %s", msg)
+	}
+	if msg := toolkitMessage(false, componentStatus{}); !strings.Contains(msg, "still running") {
+		t.Fatalf("unexpected default toolkit message: %s", msg)
 	}
 }
 
@@ -517,22 +597,21 @@ func TestDetermineBootstrapPhase(t *testing.T) {
 		name              string
 		inv               *v1alpha1.GPUNodeInventory
 		inventoryComplete bool
-		driver            bool
-		toolkit           bool
-		component         bool
+		validator         bool
+		gfd               bool
 		monitor           bool
 		expected          v1alpha1.GPUNodeBootstrapPhase
 	}{
-		{name: "disabled", inv: &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{Conditions: []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}}}, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseDisabled},
-		{name: "inventory-incomplete", inv: inventory, inventoryComplete: false, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
-		{name: "validating", inv: inventory, inventoryComplete: true, driver: false, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidatingFailed},
-		{name: "component", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: false, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseGFD},
-		{name: "monitoring", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: false, expected: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
-		{name: "ready", inv: inventory, inventoryComplete: true, driver: true, toolkit: true, component: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseReady},
+		{name: "disabled", inv: &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{Conditions: []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}}}, inventoryComplete: true, validator: true, gfd: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseDisabled},
+		{name: "inventory-incomplete", inv: inventory, inventoryComplete: false, validator: true, gfd: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
+		{name: "validator-pending", inv: inventory, inventoryComplete: true, validator: false, gfd: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
+		{name: "gfd-pending", inv: inventory, inventoryComplete: true, validator: true, gfd: false, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseGFD},
+		{name: "monitoring", inv: inventory, inventoryComplete: true, validator: true, gfd: true, monitor: false, expected: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
+		{name: "ready", inv: inventory, inventoryComplete: true, validator: true, gfd: true, monitor: true, expected: v1alpha1.GPUNodeBootstrapPhaseReady},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			phase := determineBootstrapPhase(tt.inv, tt.inventoryComplete, tt.driver, tt.toolkit, tt.component, tt.monitor)
+			phase := determineBootstrapPhase(tt.inv, tt.inventoryComplete, tt.validator, tt.gfd, tt.monitor)
 			if phase != tt.expected {
 				t.Fatalf("expected %s, got %s", tt.expected, phase)
 			}

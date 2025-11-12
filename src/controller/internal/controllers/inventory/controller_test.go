@@ -739,8 +739,8 @@ func TestNewAppliesDefaultsAndPolicies(t *testing.T) {
 	if rec.cfg.Workers != 1 {
 		t.Fatalf("expected workers default to 1, got %d", rec.cfg.Workers)
 	}
-	if rec.resyncPeriod != defaultResyncPeriod {
-		t.Fatalf("expected default resync period %s, got %s", defaultResyncPeriod, rec.resyncPeriod)
+	if rec.getResyncPeriod() != defaultResyncPeriod {
+		t.Fatalf("expected default resync period %s, got %s", defaultResyncPeriod, rec.getResyncPeriod())
 	}
 	if rec.fallbackManaged.LabelKey != module.ManagedNodes.LabelKey {
 		t.Fatalf("unexpected managed label key %s", rec.fallbackManaged.LabelKey)
@@ -1582,7 +1582,7 @@ func TestReconcileSkipsFollowupWhenResyncDisabled(t *testing.T) {
 	reconciler.client = client
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
-	reconciler.resyncPeriod = 0
+	reconciler.setResyncPeriod(0)
 
 	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if err != nil {
@@ -1680,12 +1680,21 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 	}
 
 	inventory := &v1alpha1.GPUNodeInventory{}
-	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); !apierrors.IsNotFound(err) {
-		if err != nil {
-			t.Fatalf("expected inventory to be absent, got error: %v", err)
-		} else {
-			t.Fatalf("expected inventory to be absent, but resource still exists")
-		}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
+		t.Fatalf("expected inventory to exist, got error: %v", err)
+	}
+	if inventory.Status.Hardware.Present {
+		t.Fatalf("expected hardware.present=false, got true")
+	}
+	if len(inventory.Status.Hardware.Devices) != 0 {
+		t.Fatalf("expected no devices recorded, got %d", len(inventory.Status.Hardware.Devices))
+	}
+	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != reasonNoDevicesDiscovered {
+		t.Fatalf("expected inventory condition (false, %s), got %+v", reasonNoDevicesDiscovered, cond)
+	}
+	if value := testutil.ToFloat64(inventoryDevicesGauge.WithLabelValues(node.Name)); value != 0 {
+		t.Fatalf("expected devices gauge 0, got %f", value)
 	}
 }
 
@@ -1748,62 +1757,18 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 			t.Fatalf("expected GPUDevice to be deleted, but resource still exists")
 		}
 	}
-	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, &v1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
-		if err != nil {
-			t.Fatalf("expected GPUNodeInventory to be deleted, got error: %v", err)
-		} else {
-			t.Fatalf("expected GPUNodeInventory to be deleted, but resource still exists")
-		}
+	persisted := &v1alpha1.GPUNodeInventory{}
+	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, persisted); err != nil {
+		t.Fatalf("expected inventory to persist, got error: %v", err)
 	}
-
-	if count := testutil.CollectAndCount(inventoryDevicesGauge); count != 0 {
-		t.Fatalf("expected inventoryDevicesGauge to be empty, got %d metrics", count)
+	if persisted.Status.Hardware.Present {
+		t.Fatalf("expected hardware.present=false after cleanup")
 	}
-	if count := testutil.CollectAndCount(inventoryConditionGauge); count != 0 {
-		t.Fatalf("expected inventoryConditionGauge to be empty, got %d metrics", count)
+	if len(persisted.Status.Hardware.Devices) != 0 {
+		t.Fatalf("expected no devices recorded, got %d", len(persisted.Status.Hardware.Devices))
 	}
-}
-
-func TestReconcileReturnsInventoryDeleteError(t *testing.T) {
-	scheme := newTestScheme(t)
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker-delete-inventory",
-			UID:  types.UID("worker-delete-inventory"),
-		},
-	}
-	inventory := &v1alpha1.GPUNodeInventory{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: node.Name,
-		},
-		Spec: v1alpha1.GPUNodeInventorySpec{
-			NodeName: node.Name,
-		},
-	}
-
-	baseClient := newTestClient(scheme, node, inventory)
-	deleteErr := errors.New("inventory delete failed")
-	client := &delegatingClient{
-		Client: baseClient,
-		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
-			if inv, ok := obj.(*v1alpha1.GPUNodeInventory); ok && inv.Name == node.Name {
-				return deleteErr
-			}
-			return baseClient.Delete(ctx, obj, opts...)
-		},
-	}
-
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
-	if err != nil {
-		t.Fatalf("unexpected error constructing reconciler: %v", err)
-	}
-	reconciler.client = client
-	reconciler.scheme = scheme
-	reconciler.recorder = record.NewFakeRecorder(32)
-
-	_, err = reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
-	if !errors.Is(err, deleteErr) {
-		t.Fatalf("expected delete error, got %v", err)
+	if value := testutil.ToFloat64(inventoryDevicesGauge.WithLabelValues(node.Name)); value != 0 {
+		t.Fatalf("expected devices gauge 0, got %f", value)
 	}
 }
 
@@ -2048,7 +2013,7 @@ func TestReconcileAggregatesHandlerResults(t *testing.T) {
 	reconciler.client = client
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
-	reconciler.resyncPeriod = 0
+	reconciler.setResyncPeriod(0)
 
 	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if err != nil {
@@ -2067,7 +2032,9 @@ func TestReconcileAccountsResyncPeriodWhenNoHandlers(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-resync-only", UID: types.UID("resync-only")}}
 
 	client := newTestClient(scheme, node)
-	reconciler, err := New(testr.New(t), config.ControllerConfig{ResyncPeriod: 5 * time.Second}, moduleStoreFrom(defaultModuleSettings()), nil)
+	module := defaultModuleSettings()
+	module.Inventory.ResyncPeriod = "5s"
+	reconciler, err := New(testr.New(t), config.ControllerConfig{ResyncPeriod: 5 * time.Second}, moduleStoreFrom(module), nil)
 	if err != nil {
 		t.Fatalf("unexpected error constructing reconciler: %v", err)
 	}
@@ -2160,7 +2127,7 @@ func TestReconcileStatusConflictTriggersRetry(t *testing.T) {
 	reconciler.client = client
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
-	reconciler.resyncPeriod = 0
+	reconciler.setResyncPeriod(0)
 
 	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if err != nil {
@@ -2265,12 +2232,12 @@ func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 
 	client := newTestClient(scheme, node)
 	reconciler := &Reconciler{
-		client:       client,
-		scheme:       scheme,
-		recorder:     record.NewFakeRecorder(32),
-		log:          testr.New(t),
-		resyncPeriod: defaultResyncPeriod,
+		client:   client,
+		scheme:   scheme,
+		recorder: record.NewFakeRecorder(32),
+		log:      testr.New(t),
 	}
+	reconciler.setResyncPeriod(defaultResyncPeriod)
 
 	snapshot := nodeSnapshot{
 		Managed:         true,
@@ -3085,7 +3052,7 @@ func TestReconcileNoFollowupWhenIdle(t *testing.T) {
 	reconciler.client = client
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
-	reconciler.resyncPeriod = 0
+	reconciler.setResyncPeriod(0)
 
 	res, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
 	if err != nil {
@@ -3093,6 +3060,119 @@ func TestReconcileNoFollowupWhenIdle(t *testing.T) {
 	}
 	if res.Requeue || res.RequeueAfter != 0 {
 		t.Fatalf("expected no requeue and no resync, got %+v", res)
+	}
+}
+
+func TestDeleteInventoryRemovesResource(t *testing.T) {
+	scheme := newTestScheme(t)
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-cleanup"},
+	}
+	fixtureClient := newTestClient(scheme, inventory)
+
+	reconciler := &Reconciler{client: fixtureClient}
+
+	if err := reconciler.deleteInventory(context.Background(), "node-cleanup"); err != nil {
+		t.Fatalf("deleteInventory returned error: %v", err)
+	}
+
+	err := fixtureClient.Get(context.Background(), types.NamespacedName{Name: "node-cleanup"}, &v1alpha1.GPUNodeInventory{})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expected inventory to be deleted, got err=%v", err)
+	}
+
+	if err := reconciler.deleteInventory(context.Background(), "missing-node"); err != nil {
+		t.Fatalf("deleteInventory should ignore missing objects, got %v", err)
+	}
+
+	baseClient := newTestClient(scheme, &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-delete-race"},
+	})
+	delClient := &delegatingClient{
+		Client: baseClient,
+		delete: func(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+			return apierrors.NewNotFound(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "gpunodeinventories"}, obj.GetName())
+		},
+	}
+	reconciler.client = delClient
+
+	if err := reconciler.deleteInventory(context.Background(), "node-delete-race"); err != nil {
+		t.Fatalf("deleteInventory should ignore not found error from delete, got %v", err)
+	}
+}
+
+func TestDeleteInventoryPropagatesGetError(t *testing.T) {
+	scheme := newTestScheme(t)
+	base := newTestClient(scheme)
+	boom := errors.New("get failure")
+
+	client := &delegatingClient{
+		Client: base,
+		get: func(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+			return boom
+		},
+	}
+
+	reconciler := &Reconciler{client: client}
+
+	if err := reconciler.deleteInventory(context.Background(), "node-error"); !errors.Is(err, boom) {
+		t.Fatalf("expected error %v, got %v", boom, err)
+	}
+}
+func TestApplyInventoryResyncUpdatesPeriod(t *testing.T) {
+	reconciler := &Reconciler{}
+	reconciler.setResyncPeriod(2 * time.Minute)
+
+	state := moduleconfig.DefaultState()
+	state.Inventory.ResyncPeriod = "15s"
+
+	reconciler.applyInventoryResync(state)
+
+	if got := reconciler.getResyncPeriod(); got != 15*time.Second {
+		t.Fatalf("expected resync period 15s, got %s", got)
+	}
+}
+
+func TestApplyInventoryResyncIgnoresInvalidValue(t *testing.T) {
+	reconciler := &Reconciler{}
+	reconciler.setResyncPeriod(45 * time.Second)
+
+	state := moduleconfig.DefaultState()
+	state.Inventory.ResyncPeriod = "not-a-duration"
+
+	reconciler.applyInventoryResync(state)
+
+	if got := reconciler.getResyncPeriod(); got != 45*time.Second {
+		t.Fatalf("resync period should remain unchanged, got %s", got)
+	}
+}
+
+func TestApplyInventoryResyncIgnoresEmptyValue(t *testing.T) {
+	reconciler := &Reconciler{}
+	reconciler.setResyncPeriod(time.Minute)
+
+	state := moduleconfig.DefaultState()
+	state.Inventory.ResyncPeriod = ""
+
+	reconciler.applyInventoryResync(state)
+
+	if got := reconciler.getResyncPeriod(); got != time.Minute {
+		t.Fatalf("resync period should remain unchanged when value empty, got %s", got)
+	}
+}
+
+func TestRefreshInventorySettingsReadsStore(t *testing.T) {
+	state := moduleconfig.DefaultState()
+	state.Inventory.ResyncPeriod = "90s"
+	store := config.NewModuleConfigStore(state)
+
+	reconciler := &Reconciler{store: store}
+	reconciler.setResyncPeriod(30 * time.Second)
+
+	reconciler.refreshInventorySettings()
+
+	if got := reconciler.getResyncPeriod(); got != 90*time.Second {
+		t.Fatalf("expected resync period from store (90s), got %s", got)
 	}
 }
 

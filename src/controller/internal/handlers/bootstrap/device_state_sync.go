@@ -62,6 +62,11 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	}
 
 	ready := isConditionTrue(inventory, conditionReadyForPooling)
+	phase := inventory.Status.Bootstrap.Phase
+	if phase == "" {
+		phase = v1alpha1.GPUNodeBootstrapPhaseValidating
+	}
+
 	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
 		return contracts.Result{}, fmt.Errorf("list devices on node %s: %w", nodeName, err)
@@ -74,7 +79,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	var errs []error
 	for i := range deviceList.Items {
 		device := &deviceList.Items[i]
-		target, mutate := desiredDeviceState(device.Status.State, ready)
+		target, mutate := desiredDeviceState(device.Status.State, ready, phase)
 		if !mutate || device.Status.State == target {
 			continue
 		}
@@ -100,7 +105,7 @@ func isConditionTrue(inventory *v1alpha1.GPUNodeInventory, condType string) bool
 	return false
 }
 
-func desiredDeviceState(current v1alpha1.GPUDeviceState, nodeReady bool) (v1alpha1.GPUDeviceState, bool) {
+func desiredDeviceState(current v1alpha1.GPUDeviceState, nodeReady bool, phase v1alpha1.GPUNodeBootstrapPhase) (v1alpha1.GPUDeviceState, bool) {
 	switch current {
 	case v1alpha1.GPUDeviceStateAssigned,
 		v1alpha1.GPUDeviceStateReserved,
@@ -112,11 +117,26 @@ func desiredDeviceState(current v1alpha1.GPUDeviceState, nodeReady bool) (v1alph
 		if nodeReady {
 			return current, false
 		}
-		return v1alpha1.GPUDeviceStateFaulted, true
+		if phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+			return v1alpha1.GPUDeviceStateFaulted, true
+		}
+		return v1alpha1.GPUDeviceStateDiscovered, true
+	case v1alpha1.GPUDeviceStateFaulted:
+		if phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+			return current, false
+		}
+		if nodeReady {
+			return v1alpha1.GPUDeviceStateReadyForPooling, true
+		}
+		return v1alpha1.GPUDeviceStateDiscovered, true
 	default:
 		if nodeReady {
 			return v1alpha1.GPUDeviceStateReadyForPooling, true
 		}
-		return v1alpha1.GPUDeviceStateFaulted, true
+		// Devices that never reached Ready should remain Discovered even if validation failed.
+		if current == v1alpha1.GPUDeviceStateDiscovered {
+			return current, false
+		}
+		return v1alpha1.GPUDeviceStateDiscovered, current != v1alpha1.GPUDeviceStateDiscovered
 	}
 }

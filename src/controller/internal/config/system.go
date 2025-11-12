@@ -64,9 +64,13 @@ const (
 
 // ModuleSettings holds high-level module policies delivered via ModuleConfig.
 type ModuleSettings struct {
-	ManagedNodes   ManagedNodesSettings   `json:"managedNodes" yaml:"managedNodes"`
-	DeviceApproval DeviceApprovalSettings `json:"deviceApproval" yaml:"deviceApproval"`
-	Scheduling     SchedulingSettings     `json:"scheduling" yaml:"scheduling"`
+	ManagedNodes     ManagedNodesSettings     `json:"managedNodes" yaml:"managedNodes"`
+	DeviceApproval   DeviceApprovalSettings   `json:"deviceApproval" yaml:"deviceApproval"`
+	Scheduling       SchedulingSettings       `json:"scheduling" yaml:"scheduling"`
+	Monitoring       MonitoringSettings       `json:"monitoring" yaml:"monitoring"`
+	Inventory        InventorySettings        `json:"inventory" yaml:"inventory"`
+	HTTPS            HTTPSSettings            `json:"https" yaml:"https"`
+	HighAvailability *bool                    `json:"highAvailability,omitempty" yaml:"highAvailability,omitempty"`
 }
 
 // ManagedNodesSettings controls which nodes are considered managed by default.
@@ -87,15 +91,42 @@ type SchedulingSettings struct {
 	TopologyKey     string `json:"topologyKey,omitempty" yaml:"topologyKey,omitempty"`
 }
 
+type MonitoringSettings struct {
+	ServiceMonitor bool `json:"serviceMonitor" yaml:"serviceMonitor"`
+}
+
+type InventorySettings struct {
+	ResyncPeriod string `json:"resyncPeriod" yaml:"resyncPeriod"`
+}
+
+type HTTPSMode string
+
+const (
+	HTTPSModeDisabled          HTTPSMode = "Disabled"
+	HTTPSModeCertManager       HTTPSMode = "CertManager"
+	HTTPSModeCustomCertificate HTTPSMode = "CustomCertificate"
+	HTTPSModeOnlyInURI         HTTPSMode = "OnlyInURI"
+)
+
+type HTTPSSettings struct {
+	Mode                  HTTPSMode `json:"mode" yaml:"mode"`
+	CertManagerIssuer     string    `json:"certManagerIssuer" yaml:"certManagerIssuer"`
+	CustomCertificateSecret string  `json:"customCertificateSecret,omitempty" yaml:"customCertificateSecret,omitempty"`
+}
+
 const (
 	DefaultLeaderElectionID           = "gpu-control-plane-controller-leader-election"
 	DefaultLeaderElectionResourceLock = "leases"
 	defaultControllerWorkers          = 1
 	defaultControllerResyncPeriod     = 30 * time.Second
 
-	defaultManagedNodeLabelKey   = "gpu.deckhouse.io/enabled"
-	defaultSchedulingStrategy    = "Spread"
-	defaultSchedulingTopologyKey = "topology.kubernetes.io/zone"
+	defaultManagedNodeLabelKey    = "gpu.deckhouse.io/enabled"
+	defaultSchedulingStrategy     = "Spread"
+	defaultSchedulingTopologyKey  = "topology.kubernetes.io/zone"
+	defaultMonitoringService      = true
+	defaultInventoryResyncPeriod  = "30s"
+	defaultHTTPSMode              = HTTPSModeCertManager
+	defaultHTTPSCertManagerIssuer = "letsencrypt"
 )
 
 // DefaultSystem returns a System configuration populated with safe defaults.
@@ -118,6 +149,16 @@ func DefaultSystem() System {
 			Scheduling: SchedulingSettings{
 				DefaultStrategy: defaultSchedulingStrategy,
 				TopologyKey:     defaultSchedulingTopologyKey,
+			},
+			Monitoring: MonitoringSettings{
+				ServiceMonitor: defaultMonitoringService,
+			},
+			Inventory: InventorySettings{
+				ResyncPeriod: defaultInventoryResyncPeriod,
+			},
+			HTTPS: HTTPSSettings{
+				Mode:              defaultHTTPSMode,
+				CertManagerIssuer: defaultHTTPSCertManagerIssuer,
 			},
 		},
 		LeaderElection: LeaderElectionConfig{
@@ -216,5 +257,24 @@ func normalizeModuleSettings(cfg *ModuleSettings) {
 	cfg.Scheduling.TopologyKey = strings.TrimSpace(cfg.Scheduling.TopologyKey)
 	if cfg.Scheduling.DefaultStrategy == "Spread" && cfg.Scheduling.TopologyKey == "" {
 		cfg.Scheduling.TopologyKey = defaultSchedulingTopologyKey
+	}
+
+	cfg.Inventory.ResyncPeriod = strings.TrimSpace(cfg.Inventory.ResyncPeriod)
+	if cfg.Inventory.ResyncPeriod == "" {
+		cfg.Inventory.ResyncPeriod = defaultInventoryResyncPeriod
+	}
+
+	switch cfg.HTTPS.Mode {
+	case HTTPSModeDisabled, HTTPSModeCertManager, HTTPSModeCustomCertificate, HTTPSModeOnlyInURI:
+	default:
+		cfg.HTTPS.Mode = defaultHTTPSMode
+	}
+	cfg.HTTPS.CertManagerIssuer = strings.TrimSpace(cfg.HTTPS.CertManagerIssuer)
+	if cfg.HTTPS.CertManagerIssuer == "" {
+		cfg.HTTPS.CertManagerIssuer = defaultHTTPSCertManagerIssuer
+	}
+	cfg.HTTPS.CustomCertificateSecret = strings.TrimSpace(cfg.HTTPS.CustomCertificateSecret)
+	if cfg.HTTPS.Mode != HTTPSModeCustomCertificate {
+		cfg.HTTPS.CustomCertificateSecret = ""
 	}
 }

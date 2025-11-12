@@ -35,6 +35,18 @@ func ModuleSettingsToState(settings ModuleSettings) (moduleconfig.State, error) 
 				"defaultStrategy": settings.Scheduling.DefaultStrategy,
 				"topologyKey":     settings.Scheduling.TopologyKey,
 			},
+			"monitoring": map[string]any{
+				"serviceMonitor": settings.Monitoring.ServiceMonitor,
+			},
+			"inventory": map[string]any{
+				"resyncPeriod": settings.Inventory.ResyncPeriod,
+			},
+			"https": map[string]any{
+				"mode": string(settings.HTTPS.Mode),
+				"certManager": map[string]any{
+					"clusterIssuerName": settings.HTTPS.CertManagerIssuer,
+				},
+			},
 		},
 	}
 
@@ -45,6 +57,16 @@ func ModuleSettingsToState(settings ModuleSettings) (moduleconfig.State, error) 
 				input.Settings["deviceApproval"].(map[string]any)["selector"] = selector
 			}
 		}
+	}
+
+	if settings.HTTPS.Mode == HTTPSModeCustomCertificate && settings.HTTPS.CustomCertificateSecret != "" {
+		input.Settings["https"].(map[string]any)["customCertificate"] = map[string]any{
+			"secretName": settings.HTTPS.CustomCertificateSecret,
+		}
+	}
+
+	if settings.HighAvailability != nil {
+		input.Settings["highAvailability"] = *settings.HighAvailability
 	}
 
 	return moduleconfig.Parse(input)

@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -139,35 +138,39 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 
 	h.log.V(2).Info("checking bootstrap workloads", "node", nodeName)
 
-	driverReady := stringsTrimNotEmpty(inventory.Status.Driver.Version)
-	toolkitReady := inventory.Status.Driver.ToolkitReady
-
 	componentStatuses, err := h.probeComponents(ctx, nodeName)
 	if err != nil {
 		return contracts.Result{}, err
 	}
 
 	workloads := h.buildWorkloadStatuses(componentStatuses)
-	gfdReady := componentStatuses[appGPUFeatureDiscovery].Ready
-	validatorReady := componentStatuses[appValidator].Ready
-	dcgmReady := componentStatuses[appDCGM].Ready
-	exporterReady := componentStatuses[appDCGMExporter].Ready
+	validatorStatus := componentStatuses[appValidator]
+	gfdStatus := componentStatuses[appGPUFeatureDiscovery]
+	dcgmStatus := componentStatuses[appDCGM]
+	exporterStatus := componentStatuses[appDCGMExporter]
+
+	validatorReady := validatorStatus.Ready
+	gfdReady := gfdStatus.Ready
+	dcgmReady := dcgmStatus.Ready
+	exporterReady := exporterStatus.Ready
 
 	monitoringReady := dcgmReady && exporterReady
+	driverReady := validatorReady
+	toolkitReady := validatorReady
 	componentHealthy := gfdReady && validatorReady
 
-	h.updateBootstrapStatus(inventory, componentHealthy, toolkitReady, monitoringReady, workloads)
+	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, workloads)
 	inventoryComplete := isInventoryComplete(inventory)
-	phase := determineBootstrapPhase(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady)
+	phase := determineBootstrapPhase(inventory, inventoryComplete, validatorReady, gfdReady, monitoringReady)
 	h.setBootstrapPhase(inventory, phase)
 
 	requeue := defaultReadyRequeueDelay
 	conditionsChanged := false
 
-	conditionsChanged = setCondition(inventory, conditionGFDReady, componentHealthy, boolReason(componentHealthy, reasonComponentHealthy, reasonComponentPending), h.componentMessage(componentHealthy, componentStatuses[appGPUFeatureDiscovery], componentStatuses[appValidator])) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionDriverMissing, !driverReady, boolReason(driverReady, reasonDriverDetected, reasonDriverNotDetected), driverMessage(driverReady)) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady)) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, !monitoringReady, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMessage(monitoringReady, componentStatuses[appDCGM], componentStatuses[appDCGMExporter])) || conditionsChanged
+	conditionsChanged = setCondition(inventory, conditionGFDReady, componentHealthy, boolReason(componentHealthy, reasonComponentHealthy, reasonComponentPending), h.componentMessage(componentHealthy, gfdStatus, validatorStatus)) || conditionsChanged
+	conditionsChanged = setCondition(inventory, conditionDriverMissing, !driverReady, boolReason(driverReady, reasonDriverDetected, reasonDriverNotDetected), driverMessage(driverReady, validatorStatus)) || conditionsChanged
+	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady, validatorStatus)) || conditionsChanged
+	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, !monitoringReady, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMessage(monitoringReady, dcgmStatus, exporterStatus)) || conditionsChanged
 
 	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady)
 	conditionsChanged = setCondition(inventory, conditionReadyForPooling, nodeReady, readyReason, readyMessage) || conditionsChanged
@@ -335,18 +338,24 @@ func boolReason(ok bool, success, failure string) string {
 	return failure
 }
 
-func driverMessage(ok bool) string {
+func driverMessage(ok bool, validator componentStatus) string {
 	if ok {
-		return "Driver information reported by GPU Feature Discovery"
+		return "Driver validation succeeded"
 	}
-	return "Driver version not reported by GPU Feature Discovery"
+	if validator.Message != "" {
+		return fmt.Sprintf("Validator pending: %s", validator.Message)
+	}
+	return "Validator pod has not completed yet"
 }
 
-func toolkitMessage(ok bool) string {
+func toolkitMessage(ok bool, validator componentStatus) string {
 	if ok {
-		return "CUDA toolkit preparation completed"
+		return "CUDA toolkit validation completed"
 	}
-	return "Waiting for CUDA toolkit preparation to finish"
+	if validator.Message != "" {
+		return fmt.Sprintf("Toolkit validation pending: %s", validator.Message)
+	}
+	return "Toolkit validation is still running"
 }
 
 func monitoringMessage(ok bool, dcgm, exporter componentStatus) string {
@@ -375,23 +384,41 @@ func (h *WorkloadStatusHandler) componentMessage(ok bool, gfd, validator compone
 	return "Bootstrap workloads are still running"
 }
 
-func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool) v1alpha1.GPUNodeBootstrapPhase {
+func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, validatorReady, gfdReady, monitoringReady bool) v1alpha1.GPUNodeBootstrapPhase {
 	if managedDisabled(inventory) {
 		return v1alpha1.GPUNodeBootstrapPhaseDisabled
 	}
 	if !inventoryComplete {
 		return v1alpha1.GPUNodeBootstrapPhaseValidating
 	}
-	if !driverReady || !toolkitReady {
-		return v1alpha1.GPUNodeBootstrapPhaseValidatingFailed
+	prev := inventory.Status.Bootstrap.Phase
+	if prev == "" {
+		prev = v1alpha1.GPUNodeBootstrapPhaseValidating
 	}
-	if !componentReady {
+	if !validatorReady {
+		if phasePastValidation(prev) {
+			return v1alpha1.GPUNodeBootstrapPhaseValidatingFailed
+		}
+		return v1alpha1.GPUNodeBootstrapPhaseValidating
+	}
+	if !gfdReady {
 		return v1alpha1.GPUNodeBootstrapPhaseGFD
 	}
 	if !monitoringReady {
 		return v1alpha1.GPUNodeBootstrapPhaseMonitoring
 	}
 	return v1alpha1.GPUNodeBootstrapPhaseReady
+}
+
+func phasePastValidation(phase v1alpha1.GPUNodeBootstrapPhase) bool {
+	switch phase {
+	case v1alpha1.GPUNodeBootstrapPhaseGFD,
+		v1alpha1.GPUNodeBootstrapPhaseMonitoring,
+		v1alpha1.GPUNodeBootstrapPhaseReady:
+		return true
+	default:
+		return false
+	}
 }
 
 func managedDisabled(inventory *v1alpha1.GPUNodeInventory) bool {
@@ -423,8 +450,4 @@ func podPendingMessage(pod *corev1.Pod) string {
 		}
 	}
 	return "pod not ready"
-}
-
-func stringsTrimNotEmpty(value string) bool {
-	return strings.TrimSpace(value) != ""
 }

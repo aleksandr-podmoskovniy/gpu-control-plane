@@ -83,7 +83,7 @@ func (f *failingDevicePatchClient) Status() client.StatusWriter {
 	return failingStatusWriter{}
 }
 
-func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenNodeNotReady(t *testing.T) {
+func TestDeviceStateSyncHandlerKeepsDevicesDiscoveredWhileValidating(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
@@ -98,6 +98,39 @@ func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenNodeNotReady(t *testing.T)
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionFalse}},
+			Bootstrap:  v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseValidating},
+		},
+	}
+
+	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	updated := &v1alpha1.GPUDevice{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "gpu-dev"}, updated); err != nil {
+		t.Fatalf("get device: %v", err)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateDiscovered {
+		t.Fatalf("expected device state Discovered, got %s", updated.Status.State)
+	}
+}
+
+func TestDeviceStateSyncHandlerMarksDevicesFaultedOnFailure(t *testing.T) {
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateReadyForPooling},
+	}
+
+	client := newDeviceClient(t, device)
+
+	handler := NewDeviceStateSyncHandler(testr.New(t))
+	handler.SetClient(client)
+
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionFalse}},
+			Bootstrap:  v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseValidatingFailed},
 		},
 	}
 
@@ -111,6 +144,38 @@ func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenNodeNotReady(t *testing.T)
 	}
 	if updated.Status.State != v1alpha1.GPUDeviceStateFaulted {
 		t.Fatalf("expected device state Faulted, got %s", updated.Status.State)
+	}
+}
+
+func TestDeviceStateSyncHandlerDoesNotFaultNewDevices(t *testing.T) {
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
+	}
+
+	client := newDeviceClient(t, device)
+
+	handler := NewDeviceStateSyncHandler(testr.New(t))
+	handler.SetClient(client)
+
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionFalse}},
+			Bootstrap:  v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseValidatingFailed},
+		},
+	}
+
+	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+
+	updated := &v1alpha1.GPUDevice{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "gpu-dev"}, updated); err != nil {
+		t.Fatalf("get device: %v", err)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateDiscovered {
+		t.Fatalf("expected device state Discovered, got %s", updated.Status.State)
 	}
 }
 
@@ -268,20 +333,27 @@ func TestDesiredDeviceState(t *testing.T) {
 		name    string
 		current v1alpha1.GPUDeviceState
 		ready   bool
+		phase   v1alpha1.GPUNodeBootstrapPhase
 		want    v1alpha1.GPUDeviceState
 		mutate  bool
 	}{
-		{"assigned", v1alpha1.GPUDeviceStateAssigned, true, v1alpha1.GPUDeviceStateAssigned, false},
-		{"reserved", v1alpha1.GPUDeviceStateReserved, false, v1alpha1.GPUDeviceStateReserved, false},
-		{"ready-stays", v1alpha1.GPUDeviceStateReadyForPooling, true, v1alpha1.GPUDeviceStateReadyForPooling, false},
-		{"ready-faults", v1alpha1.GPUDeviceStateReadyForPooling, false, v1alpha1.GPUDeviceStateFaulted, true},
-		{"discovered-ready", v1alpha1.GPUDeviceStateDiscovered, true, v1alpha1.GPUDeviceStateReadyForPooling, true},
-		{"discovered-faulted", v1alpha1.GPUDeviceStateDiscovered, false, v1alpha1.GPUDeviceStateFaulted, true},
+		{"assigned", v1alpha1.GPUDeviceStateAssigned, true, v1alpha1.GPUNodeBootstrapPhaseReady, v1alpha1.GPUDeviceStateAssigned, false},
+		{"reserved", v1alpha1.GPUDeviceStateReserved, false, v1alpha1.GPUNodeBootstrapPhaseValidating, v1alpha1.GPUDeviceStateReserved, false},
+		{"ready-stays", v1alpha1.GPUDeviceStateReadyForPooling, true, v1alpha1.GPUNodeBootstrapPhaseReady, v1alpha1.GPUDeviceStateReadyForPooling, false},
+		{"ready-pending", v1alpha1.GPUDeviceStateReadyForPooling, false, v1alpha1.GPUNodeBootstrapPhaseGFD, v1alpha1.GPUDeviceStateDiscovered, true},
+		{"ready-faults", v1alpha1.GPUDeviceStateReadyForPooling, false, v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, v1alpha1.GPUDeviceStateFaulted, true},
+		{"discovered-ready", v1alpha1.GPUDeviceStateDiscovered, true, v1alpha1.GPUNodeBootstrapPhaseReady, v1alpha1.GPUDeviceStateReadyForPooling, true},
+		{"discovered-pending", v1alpha1.GPUDeviceStateDiscovered, false, v1alpha1.GPUNodeBootstrapPhaseValidating, v1alpha1.GPUDeviceStateDiscovered, false},
+		{"discovered-failed-stays", v1alpha1.GPUDeviceStateDiscovered, false, v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, v1alpha1.GPUDeviceStateDiscovered, false},
+		{"faulted-holds-on-failure", v1alpha1.GPUDeviceStateFaulted, false, v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, v1alpha1.GPUDeviceStateFaulted, false},
+		{"faulted-to-ready", v1alpha1.GPUDeviceStateFaulted, true, v1alpha1.GPUNodeBootstrapPhaseReady, v1alpha1.GPUDeviceStateReadyForPooling, true},
+		{"faulted-to-discovered", v1alpha1.GPUDeviceStateFaulted, false, v1alpha1.GPUNodeBootstrapPhaseMonitoring, v1alpha1.GPUDeviceStateDiscovered, true},
+		{"legacy-unassigned", v1alpha1.GPUDeviceStateUnassigned, false, v1alpha1.GPUNodeBootstrapPhaseValidating, v1alpha1.GPUDeviceStateDiscovered, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, mutate := desiredDeviceState(tt.current, tt.ready)
+			got, mutate := desiredDeviceState(tt.current, tt.ready, tt.phase)
 			if got != tt.want || mutate != tt.mutate {
 				t.Fatalf("expected (%s,%t), got (%s,%t)", tt.want, tt.mutate, got, mutate)
 			}

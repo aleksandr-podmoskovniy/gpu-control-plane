@@ -505,6 +505,44 @@ func TestModuleConfigFromSnapshotInvalidSettings(t *testing.T) {
 	}
 }
 
+func TestModuleConfigFromSnapshotUsesGlobalHTTPSDefaults(t *testing.T) {
+	input, _ := newHookInput(t, map[string]any{
+		"global": map[string]any{
+			"modules": map[string]any{
+				"https": map[string]any{
+					"mode": "OnlyInURI",
+				},
+			},
+		},
+	})
+	enabled := true
+	input.Snapshots = simpleSnapshots{
+		moduleConfigSnapshot: {
+			simpleSnapshot{payload: moduleConfigSnapshotPayload{
+				Spec: moduleConfigSnapshotSpec{
+					Enabled:  &enabled,
+					Settings: map[string]any{},
+				},
+			}},
+		},
+	}
+
+	state, err := moduleConfigFromSnapshot(input)
+	if err != nil {
+		t.Fatalf("moduleConfigFromSnapshot: %v", err)
+	}
+	if state.HTTPS.Mode != moduleconfig.HTTPSModeOnlyInURI {
+		t.Fatalf("expected HTTPS mode to follow global default, got %s", state.HTTPS.Mode)
+	}
+	sanitizedHTTPS, ok := state.Sanitized["https"].(map[string]any)
+	if !ok {
+		t.Fatalf("sanitized settings missing https block: %#v", state.Sanitized)
+	}
+	if mode := sanitizedHTTPS["mode"]; mode != string(moduleconfig.HTTPSModeOnlyInURI) {
+		t.Fatalf("expected sanitized https.mode OnlyInURI, got %#v", mode)
+	}
+}
+
 func TestBuildControllerConfigNilInput(t *testing.T) {
 	if result := buildControllerConfig(nil); result != nil {
 		t.Fatalf("expected nil result for nil input, got %#v", result)

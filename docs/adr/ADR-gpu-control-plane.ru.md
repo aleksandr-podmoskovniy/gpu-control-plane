@@ -406,6 +406,12 @@ bootstrap и gpupool.
 | `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                               | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
 | `status.conditions`                           | `ManagedDisabled`, `InventoryComplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла                                                      |
 
+- Интервал фонового пересъёма узлов задаётся через
+  `ModuleConfig.spec.settings.inventory.resyncPeriod` (формат `<число><s|m|h>`,
+  значение по умолчанию `30s`). `gpu-inventory-controller` подписан на события
+  `ModuleConfig` и без рестарта обновляет локальный таймер, поэтому изменение
+  параметра немедленно отражается на всех reconcile-проходах.
+
 - Причины (`reason`) в `pending[]` — фиксированный набор:
 
   - `AwaitingApproval` — карта/узел готов(ы), требуется решение оператора;
@@ -499,8 +505,12 @@ flowchart LR
    событиями Pod/DaemonSet/ServiceMonitor. При проблемах он мгновенно меняет
    фазу на `ValidatingFailed`, ставит conditions, выключает GFD/DCGM для
    конкретного узла (через аннотации/taint/values) и переводит устройства
-   обратно в `state=Faulted`. Как только валидатор снова подтверждает среду,
-   фазы проходят pipeline повторно и сервисы включаются автоматически. Это
+   обратно в `state=Faulted`. Обработчик `device-state-sync` помечает
+   `Faulted` только те карты, которые уже успели перейти в `ReadyForPooling`
+   (новые устройства остаются в `Discovered` до первой успешной проверки) и
+   автоматически возвращает их в `ReadyForPooling`, как только узел повторно
+   проходит pipeline. Как только валидатор снова подтверждает среду, фазы
+   проходят pipeline повторно и сервисы включаются автоматически. Это
    покрывает сценарии удаления драйвера или toolkit: валидатор фиксирует
    проблему, bootstrap сохраняет в CR причину и даёт операторам (или будущему
    автоинсталлятору) сигнал для восстановления.
@@ -605,8 +615,9 @@ stateDiagram-v2
   выставляет `ManagedDisabled`, но не переводит карту в `ReadyForPooling`.
 - **Bootstrap** управляет переходами `Discovered ⇄ Faulted ⇄ ReadyForPooling`,
   выставляя conditions `DriverMissing/ToolkitMissing/MonitoringMissing`.
-- Если проверка проходит сразу, карта идёт по «зелёной» ветке:
-  `Discovered → ReadyForPooling → PendingAssignment → Assigned`.
+  - Если проверка проходит сразу, карта идёт по «зелёной» ветке:
+    `Discovered → ReadyForPooling → PendingAssignment → Assigned`.
+- Пока узел находится в фазах `Validating/GFD/Monitoring`, устройства остаются в состоянии `Discovered`. Мы переводим их в `Faulted` только когда узел перешёл в `ValidatingFailed` или деградировал из `Ready` (например, после падения мониторинга).
 - **GPUPool** берёт карты с `ReadyForPooling=true` и отвечает за condition
   `UnassignedDevice`: `AwaitingApproval`, `NoPoolMatched`, `Faulted`. После
   утверждения карта становится `Assigned` (свободна, но принадлежит пулу). Если

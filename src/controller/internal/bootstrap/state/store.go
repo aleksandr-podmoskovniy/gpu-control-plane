@@ -156,7 +156,7 @@ func (s *Store) setOwnerReference(ctx context.Context, cm *corev1.ConfigMap) err
 	}
 	deploy := &appsv1.Deployment{}
 	if err := s.getReader().Get(ctx, s.owner, deploy); err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
 			return nil
 		}
 		return err

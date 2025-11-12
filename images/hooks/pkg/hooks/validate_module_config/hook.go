@@ -144,6 +144,7 @@ func moduleConfigFromSnapshot(input *pkg.HookInput) (*moduleconfig.State, error)
 	state, err := moduleconfig.Parse(moduleconfig.Input{
 		Enabled:  payload.Spec.Enabled,
 		Settings: payload.Spec.Settings,
+		Global:   globalHTTPSDefaults(input),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("parse ModuleConfig/%s: %w", settings.ModuleName, err)
@@ -292,4 +293,18 @@ func ensureValuesMap(values pkg.OutputPatchableValuesCollector, path string) {
 		return
 	}
 	values.Set(path, map[string]any{})
+}
+
+func globalHTTPSDefaults(input *pkg.HookInput) moduleconfig.GlobalValues {
+	if input == nil {
+		return moduleconfig.GlobalValues{}
+	}
+	get := func(path string) string {
+		return strings.TrimSpace(input.Values.Get(path).String())
+	}
+	return moduleconfig.GlobalValues{
+		Mode:              get("global.modules.https.mode"),
+		CertManagerIssuer: get("global.modules.https.certManager.clusterIssuerName"),
+		CustomSecret:      get("global.modules.https.customCertificate.secretName"),
+	}
 }

@@ -675,7 +675,7 @@ func TestPersistNodeStateWritesComponents(t *testing.T) {
 	}
 }
 
-func TestPersistNodeStateSkipsComponentsWhenInventoryNotComplete(t *testing.T) {
+func TestPersistNodeStatePersistsComponentsEvenWhenInventoryIncomplete(t *testing.T) {
 	scheme := newScheme(t)
 	deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: bootstrapmeta.ControllerDeploymentName, Namespace: bootstrapmeta.WorkloadsNamespace, UID: "uid-1"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
@@ -711,8 +711,8 @@ func TestPersistNodeStateSkipsComponentsWhenInventoryNotComplete(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(payload), &stored); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
-	if len(stored.Components) != 0 {
-		t.Fatalf("expected no components stored, got %+v", stored.Components)
+	if len(stored.Components) == 0 {
+		t.Fatalf("expected components stored, got %+v", stored.Components)
 	}
 	if stored.Phase != string(v1alpha1.GPUNodeBootstrapPhaseMonitoring) {
 		t.Fatalf("expected phase persisted, got %s", stored.Phase)

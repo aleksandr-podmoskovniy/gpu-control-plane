@@ -18,6 +18,8 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
 func TestModuleSettingsToState(t *testing.T) {
@@ -35,6 +37,18 @@ func TestModuleSettingsToState(t *testing.T) {
 		Scheduling: SchedulingSettings{
 			DefaultStrategy: "BinPack",
 		},
+		Monitoring: MonitoringSettings{
+			ServiceMonitor: false,
+		},
+		Inventory: InventorySettings{
+			ResyncPeriod: "5m",
+		},
+		HTTPS: HTTPSSettings{
+			Mode:                    HTTPSModeCustomCertificate,
+			CertManagerIssuer:       "ignored",
+			CustomCertificateSecret: "my-secret",
+		},
+		HighAvailability: boolPtr(true),
 	}
 
 	state, err := ModuleSettingsToState(settings)
@@ -60,4 +74,20 @@ func TestModuleSettingsToState(t *testing.T) {
 	if state.Settings.Scheduling.TopologyKey != "" {
 		t.Fatalf("topology key should be empty when not provided")
 	}
+	if state.Settings.Monitoring.ServiceMonitor {
+		t.Fatalf("expected monitoring service monitor false when disabled explicitly")
+	}
+	if state.Inventory.ResyncPeriod != "5m" {
+		t.Fatalf("unexpected inventory resync period: %s", state.Inventory.ResyncPeriod)
+	}
+	if state.HTTPS.Mode != moduleconfig.HTTPSModeCustomCertificate || state.HTTPS.CustomCertificateSecret != "my-secret" {
+		t.Fatalf("unexpected https settings: %+v", state.HTTPS)
+	}
+	if state.HighAvailability == nil || !*state.HighAvailability {
+		t.Fatalf("expected highAvailability true, got %+v", state.HighAvailability)
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

@@ -395,13 +395,10 @@ func (r *Reconciler) persistNodeState(ctx context.Context, inventory *v1alpha1.G
 		return
 	}
 	phase := effectiveBootstrapPhase(inventory)
-	componentSet := map[string]bool{}
-	if inventoryReadyForBootstrap(inventory) {
-		enabled := components.EnabledComponents(phase)
-		componentSet = make(map[string]bool, len(enabled))
-		for component := range enabled {
-			componentSet[string(component)] = true
-		}
+	enabled := components.EnabledComponents(phase)
+	componentSet := make(map[string]bool, len(enabled))
+	for component := range enabled {
+		componentSet[string(component)] = true
 	}
 	nodeState := state.NodeState{
 		Phase:      string(phase),
@@ -460,11 +457,6 @@ func effectiveBootstrapPhase(inventory *v1alpha1.GPUNodeInventory) v1alpha1.GPUN
 
 func isManagedDisabled(inventory *v1alpha1.GPUNodeInventory) bool {
 	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
-	return cond != nil && cond.Status == metav1.ConditionTrue
-}
-
-func inventoryReadyForBootstrap(inventory *v1alpha1.GPUNodeInventory) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
 	return cond != nil && cond.Status == metav1.ConditionTrue
 }
 
