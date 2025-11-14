@@ -16,7 +16,6 @@ package ca_discovery
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -116,10 +115,10 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 		t.Fatalf("unmarshal patch value: %v", err)
 	}
 
-	if payload["crt"] != base64.StdEncoding.EncodeToString([]byte(crtPEM)) {
+	if payload["crt"] != crtPEM {
 		t.Fatalf("unexpected crt payload: %q", payload["crt"])
 	}
-	if payload["key"] != base64.StdEncoding.EncodeToString([]byte(keyPEM)) {
+	if payload["key"] != keyPEM {
 		t.Fatalf("unexpected key payload: %q", payload["key"])
 	}
 }

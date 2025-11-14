@@ -77,10 +77,10 @@ func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
 
 	values := map[string]any{}
 	if len(secret.Crt) > 0 {
-		values["crt"] = secret.Crt
+		values["crt"] = string(secret.Crt)
 	}
 	if len(secret.Key) > 0 {
-		values["key"] = secret.Key
+		values["key"] = string(secret.Key)
 	}
 
 	if len(values) > 0 {
