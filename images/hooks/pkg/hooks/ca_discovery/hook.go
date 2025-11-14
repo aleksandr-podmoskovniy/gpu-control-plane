@@ -75,12 +75,12 @@ func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
 		return fmt.Errorf("unmarshal CA secret: %w", err)
 	}
 
-	values := map[string]string{}
+	values := map[string][]byte{}
 	if len(secret.Crt) > 0 {
-		values["crt"] = string(secret.Crt)
+		values["crt"] = secret.Crt
 	}
 	if len(secret.Key) > 0 {
-		values["key"] = string(secret.Key)
+		values["key"] = secret.Key
 	}
 
 	if len(values) == 0 {

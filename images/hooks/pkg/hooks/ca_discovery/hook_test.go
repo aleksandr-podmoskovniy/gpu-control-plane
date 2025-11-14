@@ -16,6 +16,7 @@ package ca_discovery
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -123,10 +124,10 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 		t.Fatalf("unmarshal patch value: %v", err)
 	}
 
-	if payload["crt"] != crtPEM {
+	if payload["crt"] != base64.StdEncoding.EncodeToString([]byte(crtPEM)) {
 		t.Fatalf("unexpected crt payload: %q", payload["crt"])
 	}
-	if payload["key"] != keyPEM {
+	if payload["key"] != base64.StdEncoding.EncodeToString([]byte(keyPEM)) {
 		t.Fatalf("unexpected key payload: %q", payload["key"])
 	}
 }
@@ -148,7 +149,7 @@ func TestHandleModuleCommonCARemovesValuesWhenSecretEmpty(t *testing.T) {
 		settings.ModuleValuesName: map[string]any{
 			"internal": map[string]any{
 				"rootCA": map[string]any{
-					"crt": "stale",
+					"crt": base64.StdEncoding.EncodeToString([]byte("stale")),
 				},
 			},
 		},
