@@ -60,9 +60,17 @@ func (s jsonSnapshot) String() string {
 }
 
 func newInput(t *testing.T, snapshots map[string][]pkg.Snapshot) (*pkg.HookInput, *patchablevalues.PatchableValues) {
+	return newInputWithValues(t, snapshots, map[string]any{})
+}
+
+func newInputWithValues(t *testing.T, snapshots map[string][]pkg.Snapshot, initial map[string]any) (*pkg.HookInput, *patchablevalues.PatchableValues) {
 	t.Helper()
 
-	values, err := patchablevalues.NewPatchableValues(map[string]any{})
+	if initial == nil {
+		initial = map[string]any{}
+	}
+
+	values, err := patchablevalues.NewPatchableValues(initial)
 	if err != nil {
 		t.Fatalf("create patchable values: %v", err)
 	}
@@ -132,6 +140,36 @@ func TestHandleModuleCommonCAPropagatesErrors(t *testing.T) {
 
 	if err := handleModuleCommonCA(context.Background(), input); err == nil {
 		t.Fatal("expected error when snapshot decoding fails")
+	}
+}
+
+func TestHandleModuleCommonCARemovesValuesWhenSecretEmpty(t *testing.T) {
+	initial := map[string]any{
+		settings.ModuleValuesName: map[string]any{
+			"internal": map[string]any{
+				"rootCA": map[string]any{
+					"crt": "stale",
+				},
+			},
+		},
+	}
+
+	input, patches := newInputWithValues(t, map[string][]pkg.Snapshot{
+		commonCASecretSnapshot: {
+			jsonSnapshot{value: caSecret{}},
+		},
+	}, initial)
+
+	if err := handleModuleCommonCA(context.Background(), input); err != nil {
+		t.Fatalf("handleModuleCommonCA returned error: %v", err)
+	}
+
+	patch := lastPatchForPath(patches.GetPatches(), patchPath(settings.InternalRootCAPath))
+	if patch == nil {
+		t.Fatalf("expected removal patch for %s", settings.InternalRootCAPath)
+	}
+	if patch.Op != "remove" {
+		t.Fatalf("expected remove operation, got %s", patch.Op)
 	}
 }
 
