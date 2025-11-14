@@ -91,6 +91,7 @@ limitations under the License.
 - Архитектура состоит из трёх последовательных этапов: обнаружение устройств (NFD → `GPUDevice`/`GPUNodeInventory`), подготовка узлов (bootstrap-контроллер, запуск GFD/DCGM) и управление пулами (`GPUPool` + admission).
 - Все вспомогательные сервисы поставляются модулем и запускаются только тогда, когда карта прошла bootstrap; оператор управляет поведением через `ModuleConfig`.
 - Логика распределения устройств опирается на покартовое управление (`Device`): каждая карта подтверждается отдельно и становится доступной для workload через `resources.limits`.
+- Модуль работает “из коробки”: любая нода считается управляемой, пока на ней нет явного `gpu.deckhouse.io/enabled=false`. Как только NFD навешивает GPU-лейблы, контроллер автоматически создаёт `GPUDevice` и `GPUNodeInventory`. Чтобы исключить узел, достаточно проставить `enabled=false` (или изменить `labelKey` через `ModuleConfig`); дополнительных “крутилок” не требуется.
 
 - Модуль GPU control plane зависит от Node Feature Discovery (NFD) версии 0.17
   или новее. При
@@ -116,10 +117,10 @@ limitations under the License.
   - Если на узле нет подходящих PCI-устройств, правило не срабатывает: лейблы
     `gpu.deckhouse.io/*` не появляются, что позволяет выбирать только GPU-ноды.
 - Процесс включения:
-  1. Администратор применяет `ModuleConfig` с обязательными полями.
-  2. Контроллер NFD подтягивает правила и начинает навешивать лейблы/NodeFeature.
-  3. `gpu-inventory-controller` на их основе создаёт/обновляет `GPUDevice` и `GPUNodeInventory`.
-  4. Bootstrap-контроллер видит готовые устройства и запускает подготовку узлов.
+  1. Администратор применяет `ModuleConfig` (можно без overrides — используются дефолты `gpu.deckhouse.io/enabled=true` и автоматическое одобрение устройств).
+  2. Hook доставляет `NodeFeatureRule`, NFD начинает публиковать лейблы (`gpu.deckhouse.io/device.*`, `nvidia.com/gpu.*`, `nvidia.com/mig.*`) и `NodeFeature` c подробностями железа.
+  3. `gpu-inventory-controller` наблюдает и `Node`, и `NodeFeature`: он фильтрует только те, где появился GPU-хардварный лейбл, собирает снапшот (лейблы `Node` + `NodeFeature`), создаёт/обновляет `GPUDevice` и агрегирует их в `GPUNodeInventory`. Если на узле уже нет карт, `GPUNodeInventory` сохраняется, но помечается `hardware.present=false` и больше не попадает в reconcile, пока NFD снова не вернёт GPU-лейблы.
+  4. После появления `GPUDevice` с `status.state=Discovered` bootstrap-контроллер подхватывает `GPUNodeInventory` и запускает подготовку: валидатор, драйверные проверки, GFD/DCGM и дальнейшие фазы.
 
 #### 1.1 ModuleConfig (включение)
 
@@ -371,6 +372,11 @@ spec:
 фиксирует фактическое состояние железа и health-коды, которыми затем пользуются
 bootstrap и gpupool.
 
+- Контроллер подписан одновременно на `Node` и `NodeFeature`, но пропускает через reconcile только узлы, где NFD уже повесил GPU-лейблы (`gpu.deckhouse.io/device.*`, `nvidia.com/gpu.*`, `nvidia.com/mig.*` и т. п.). Список меток `Node` и содержимое `NodeFeature` объединяются в `snapshot`, после чего:
+  - для каждого элемента `snapshot.Devices[]` создаётся/обновляется `GPUDevice` (если устройство новое — оно появляется в состоянии `Discovered`);
+  - агрегированные данные складываются в `GPUNodeInventory`. Пока у узла нет устройств, `GPUNodeInventory` не создаётся; если устройства пропали, CR остаётся, но отмечается `status.hardware.present=false`.
+- Управляемость ноды определяется политикой `ManagedNodesPolicy`: по умолчанию все узлы включены (`gpu.deckhouse.io/enabled=true`). Чтобы исключить ноду из инвентаризации и bootstrap, достаточно проставить `gpu.deckhouse.io/enabled=false` (или изменить `labelKey` через `ModuleConfig`). Контроллер автоматически переключает `GPUDevice.status.managed` и condition `ManagedDisabled`.
+
 - Для каждого PCI-устройства с vendor=0x10de создаётся `GPUDevice`. У ресурса
   нет `spec`; ключевые поля находятся в `status`:
 
@@ -481,6 +487,12 @@ flowchart LR
    `ToolkitMissing`) переводят фазу в `ValidatingFailed`, устройства — в
    `state=Faulted`, и поднимают события. Bootstrap подписан на события Pod'а и
    реагирует мгновенно, без периодического опроса.
+   Для каждой карты хранится `pendingDevices` и `validations[]` (счётчик попыток).
+   Валидатор перезапускается не чаще одного раза в минуту и делает до 5
+   автоматических попыток. После пятой неудачи контроллер помечает устройство
+   как требующее ручного вмешательства и прекращает включать валидатор на этой
+   ноде до тех пор, пока оператор не устранит причину (например, не переустановит
+   драйвер или toolkit).
 3. **Phase=GFD.** Как только драйвер подтверждён, bootstrap включает GFD на
    узле (через nodeAffinity/динамические значения Helm). GFD — обязательный
    компонент: он публикует PCI/MIG-информацию, которую inventory тут же
@@ -491,7 +503,9 @@ flowchart LR
    hostengine и (опционально) exporter/ServiceMonitor. Даже если глобальный
    мониторинг DKP выключен, DCGM продолжает работать как источник телеметрии для
    контроллеров; отключается он только при полном отсутствии драйвера. Готовность
-   отражается condition `MonitoringMissing`. Per-pool `nvidia-device-plugin` и
+   отражается condition `MonitoringMissing`: контроллер отслеживает метрику
+   `dcgm_exporter_last_update_time_seconds` для каждого узла и считает мониторинг
+   готовым только если heartbeat обновлялся за последние ~2 минуты. Per-pool `nvidia-device-plugin` и
    `nvidia-mig-manager` не запускаются на этом этапе — за них отвечает
    `gpupool-controller`.
 5. **Phase=Ready.** Когда `DriverMissing/ToolkitMissing/MonitoringMissing` равны
@@ -515,27 +529,34 @@ flowchart LR
    проблему, bootstrap сохраняет в CR причину и даёт операторам (или будущему
    автоинсталлятору) сигнал для восстановления.
 
+- Контроллер наблюдает `GPUNodeInventory.status.hardware.devices[].state`. Если на
+  узле появляется карта в `state=Discovered` (новое устройство) или `state=Faulted`
+  (деградация), фаза принудительно возвращается в `Validating`: валидатор вновь
+  разворачивается только на этой ноде, а GFD/DCGM временно отключаются. После
+  успешной проверки устройства переходят в `ReadyForPooling`, валидатор удаляется
+  до следующего появления "сырых" или проблемных карт.
+
 ##### Последовательность bootstrap
 
 ```mermaid
 sequenceDiagram
     participant Inv as GPUNodeInventory / GPUDevice
     participant Boot as Bootstrap Controller
-    participant CM as ConfigMap bootstrap-state
+    participant State as Inventory.status.bootstrap
     participant Helm as Helm templates (валидатор/GFD/DCGM)
     participant Node as Узел и DaemonSet'ы
     participant Pool as GPUPool Controller
     Inv->>Boot: Узел отмечен как управляемый
-    Boot->>CM: Phase=Validating, gfd/dcgm disabled
+    Boot->>State: Phase=Validating, gfd/dcgm disabled
     Helm->>Node: Запуск валидатора только на этом узле
     Node-->>Boot: Результат проверки драйвера/toolkit
-    Boot->>CM: Phase=GFD, включить gfdEnabled
+    Boot->>State: Phase=GFD, включить gfdEnabled
     Helm->>Node: Развёртывание GFD с nodeAffinity
     Node-->>Inv: Обновлены аппаратные факты (UUID/MIG/PCI)
-    Boot->>CM: Phase=Monitoring, включить dcgmEnabled
+    Boot->>State: Phase=Monitoring, включить dcgmEnabled
     Helm->>Node: Запуск DCGM hostengine + exporter
     Node-->>Boot: Телеметрия / Ready событие
-    Boot->>Inv: Phase=Ready, ReadyForPooling=true
+    Boot->>State: Phase=Ready, ReadyForPooling=true
     Inv-->>Pool: Появились кандидаты (pending[])
     Pool->>Node: Позже включает per-pool device-plugin/MIG при назначении
 ```
@@ -548,19 +569,17 @@ gpupool обновляет pending/assigned и запускает per-pool devic
 
 ##### Управление конфигурацией bootstrap
 
-- Bootstrap контроллер хранит оперативное состояние узлов в ConfigMap
-  `gpu-control-plane-bootstrap-state` (namespace `d8-gpu-control-plane`). Для
-  каждого узла фиксируются фаза, включённость GFD/DCGM и отметка времени
-  проверки. Контроллер — единственный владелец и writer (ownerReference +
-  отдельный RBAC), остальные компоненты могут только читать при необходимости.
-- Helm-шаблоны валидатора, GFD и DCGM читают ConfigMap через `lookup` и
-  применяют `nodeAffinity`/`replicas=0`, если сервис должен быть отключён на
-  конкретном узле. Так повторные `helm upgrade` или рестарты не нарушают
-  последовательность фаз.
-- Данные ConfigMap не секретные (они дублируются в CR и событиях), поэтому
-  шифрование не требуется; защита достигается ограничением прав и регулярным
-  обновлением записей контроллером. Ручные изменения не нужны — контроллер
-  перезапишет состояние при следующем reconcile.
+- Bootstrap-контроллер записывает текущее состояние напрямую в
+  `GPUNodeInventory.status.bootstrap`: фаза, включённость валидатора/GFD/DCGM,
+  список `pendingDevices`, счётчик попыток `validations[]`, отметка `validatorRequired`
+  и `monitoring.lastHeartbeat` (по данным DCGM exporter).
+- Hook `bootstrap_state_sync` читает CR `GPUNodeInventory` и переносит
+  `.status.bootstrap` в `.Values.gpuControlPlane.internal.bootstrap`, чтобы Helm-шаблоны
+  валидатора/GFD/DCGM применяли `nodeAffinity` и `replicas=0` в точном соответствии
+  с решением контроллера. Повторные рендеры не нарушают последовательность фаз.
+- Дополнительная ConfigMap больше не требуется: данные защищены RBAC самого CR,
+  записывает их исключительно контроллер, а другие компоненты получают доступ
+  только на чтение через Kubernetes API.
 
 #### Валидация и консистентность
 

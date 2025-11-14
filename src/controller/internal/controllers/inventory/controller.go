@@ -41,9 +41,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -348,9 +350,30 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		CacheSyncTimeout:        cacheSyncTimeoutDuration,
 	}
 
+	nodePredicates := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			node, ok := e.Object.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			return nodeHasGPUHardwareLabels(node.GetLabels())
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode, _ := e.ObjectOld.(*corev1.Node)
+			newNode, _ := e.ObjectNew.(*corev1.Node)
+			return nodeHasGPUHardwareLabels(nodeLabels(oldNode)) || nodeHasGPUHardwareLabels(nodeLabels(newNode))
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return true
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+	}
+
 	builder := deps.builder.
 		Named(controllerName).
-		For(&corev1.Node{}).
+		For(&corev1.Node{}, builder.WithPredicates(nodePredicates)).
 		Owns(&v1alpha1.GPUDevice{}).
 		Owns(&v1alpha1.GPUNodeInventory{}).
 		WatchesRawSource(deps.nodeFeatureSource).
@@ -364,17 +387,28 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 }
 
 func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
-	nodeList := &corev1.NodeList{}
-	if err := r.client.List(ctx, nodeList); err != nil {
+	deviceList := &v1alpha1.GPUDeviceList{}
+	if err := r.client.List(ctx, deviceList); err != nil {
 		if r.log.GetSink() != nil {
-			r.log.Error(err, "list nodes to resync after module config change")
+			r.log.Error(err, "list GPUDevices to resync after module config change")
 		}
 		return nil
 	}
-	requests := make([]reconcile.Request, 0, len(nodeList.Items))
-	for _, node := range nodeList.Items {
-		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	uniqueNodes := make(map[string]struct{}, len(deviceList.Items))
+	for i := range deviceList.Items {
+		nodeName := deviceList.Items[i].Status.NodeName
+		if nodeName == "" {
+			continue
+		}
+		uniqueNodes[nodeName] = struct{}{}
 	}
+	requests := make([]reconcile.Request, 0, len(uniqueNodes))
+	for node := range uniqueNodes {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: node}})
+	}
+	sort.Slice(requests, func(i, j int) bool {
+		return requests[i].NamespacedName.Name < requests[j].NamespacedName.Name
+	})
 	return requests
 }
 
@@ -487,15 +521,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	updateDeviceStateMetrics(node.Name, reconciledDevices)
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(float64(len(reconciledDevices)))
 
-	if aggregate.Requeue {
+	hasDevices := len(reconciledDevices) > 0
+	if hasDevices && aggregate.Requeue {
 		ctrlResult.Requeue = true
 	}
-	if aggregate.RequeueAfter > 0 {
+	if hasDevices && aggregate.RequeueAfter > 0 {
 		if ctrlResult.RequeueAfter == 0 || aggregate.RequeueAfter < ctrlResult.RequeueAfter {
 			ctrlResult.RequeueAfter = aggregate.RequeueAfter
 		}
 	}
-	if !ctrlResult.Requeue && ctrlResult.RequeueAfter == 0 {
+	if hasDevices && !ctrlResult.Requeue && ctrlResult.RequeueAfter == 0 {
 		if period := r.getResyncPeriod(); period > 0 {
 			ctrlResult.RequeueAfter = period
 		}
@@ -757,6 +792,9 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 	inventory := &v1alpha1.GPUNodeInventory{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
 	if apierrors.IsNotFound(err) {
+		if len(devices) == 0 {
+			return nil
+		}
 		inventory = &v1alpha1.GPUNodeInventory{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: node.Name,
@@ -983,6 +1021,12 @@ func resourceVersionNewer(candidate, current string) bool {
 
 func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature) []reconcile.Request {
 	_ = ctx
+	if feature == nil {
+		return nil
+	}
+	if !hasGPUDeviceLabels(feature.Spec.Labels) {
+		return nil
+	}
 	nodeName := feature.GetName()
 	if nodeName == "" {
 		return nil
@@ -1037,6 +1081,44 @@ func capabilityFromSnapshot(snapshot deviceSnapshot) *v1alpha1.GPUComputeCapabil
 		return nil
 	}
 	return &v1alpha1.GPUComputeCapability{Major: snapshot.ComputeMajor, Minor: snapshot.ComputeMinor}
+}
+
+func nodeLabels(node *corev1.Node) map[string]string {
+	if node == nil {
+		return nil
+	}
+	return node.Labels
+}
+
+func nodeHasGPUHardwareLabels(labels map[string]string) bool {
+	return hasGPUDeviceLabels(labels)
+}
+
+func hasGPUDeviceLabels(labels map[string]string) bool {
+	if len(labels) == 0 {
+		return false
+	}
+	for key := range labels {
+		if strings.HasPrefix(key, deviceLabelPrefix) {
+			return true
+		}
+	}
+	switch {
+	case labels[gfdProductLabel] != "":
+		return true
+	case labels[gfdMemoryLabel] != "":
+		return true
+	case labels[gfdMigCapableLabel] != "":
+		return true
+	case labels[gfdMigAltCapableLabel] != "":
+		return true
+	case labels[gfdMigStrategyLabel] != "":
+		return true
+	case labels[gfdMigAltStrategy] != "":
+		return true
+	default:
+		return false
+	}
 }
 
 func computeCapabilityEqual(left, right *v1alpha1.GPUComputeCapability) bool {

@@ -23,52 +23,45 @@ import (
 	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/yaml"
-
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"hooks/pkg/settings"
 )
 
 const (
-	bootstrapStateSnapshot = "gpu-bootstrap-state"
-	bootstrapStateFilter   = `{"data": .data}`
+	bootstrapStateSnapshot = "gpu-gpu-node-inventory"
+	bootstrapStateFilter   = `{"name": .metadata.name, "status": .status}`
 )
 
-type configMapSnapshot struct {
-	Data map[string]string `json:"data"`
+type inventorySnapshot struct {
+	Name   string                  `json:"name"`
+	Status inventorySnapshotStatus `json:"status"`
 }
 
-type nodeState struct {
-	Phase      string          `json:"phase"`
-	Components map[string]bool `json:"components"`
-	UpdatedAt  metav1.Time     `json:"updatedAt"`
+type inventorySnapshotStatus struct {
+	Bootstrap inventoryBootstrapStatus `json:"bootstrap"`
 }
 
-var (
-	yamlUnmarshal = yaml.Unmarshal
-)
+type inventoryBootstrapStatus struct {
+	Phase             string          `json:"phase"`
+	Components        map[string]bool `json:"components"`
+	LastRun           *metav1.Time    `json:"lastRun"`
+	ValidatorRequired bool            `json:"validatorRequired"`
+	PendingDevices    []string        `json:"pendingDevices"`
+}
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
 	OnBeforeHelm: &pkg.OrderedConfig{Order: 21},
 	Queue:        settings.ModuleQueue,
 	Kubernetes: []pkg.KubernetesConfig{
 		{
-			Name:       bootstrapStateSnapshot,
-			APIVersion: "v1",
-			Kind:       "ConfigMap",
-			JqFilter:   bootstrapStateFilter,
-			NamespaceSelector: &pkg.NamespaceSelector{
-				NameSelector: &pkg.NameSelector{
-					MatchNames: []string{settings.ModuleNamespace},
-				},
-			},
-			NameSelector: &pkg.NameSelector{
-				MatchNames: []string{settings.BootstrapStateConfigMapName},
-			},
+			Name:                         bootstrapStateSnapshot,
+			APIVersion:                   "gpu.deckhouse.io/v1alpha1",
+			Kind:                         "GPUNodeInventory",
+			JqFilter:                     bootstrapStateFilter,
 			ExecuteHookOnSynchronization: ptr.To(true),
 			ExecuteHookOnEvents:          ptr.To(true),
 			AllowFailure:                 ptr.To(true),
@@ -84,16 +77,6 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		return nil
 	}
 
-	var cm configMapSnapshot
-	if err := snaps[0].UnmarshalTo(&cm); err != nil {
-		return fmt.Errorf("decode bootstrap state snapshot: %w", err)
-	}
-
-	if len(cm.Data) == 0 {
-		input.Values.Remove(settings.InternalBootstrapStatePath)
-		return nil
-	}
-
 	nodes := map[string]map[string]any{}
 	componentNodes := map[string][]string{
 		settings.BootstrapComponentValidator:           {},
@@ -102,29 +85,39 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		settings.BootstrapComponentDCGMExporter:        {},
 	}
 
-	for key, raw := range cm.Data {
-		if key == "" || !strings.HasSuffix(key, settings.BootstrapStateNodeSuffix) {
+	for _, snap := range snaps {
+		var payload inventorySnapshot
+		if err := snap.UnmarshalTo(&payload); err != nil {
+			input.Logger.Info(fmt.Sprintf("bootstrap-state: skip inventory snapshot: %v", err))
 			continue
 		}
-		nodeName := strings.TrimSuffix(key, settings.BootstrapStateNodeSuffix)
+		nodeName := strings.TrimSpace(payload.Name)
 		if nodeName == "" {
 			continue
 		}
-
-		var state nodeState
-		if err := yamlUnmarshal([]byte(raw), &state); err != nil {
-			input.Logger.Info(fmt.Sprintf("bootstrap-state: skip node %q: %v", nodeName, err))
+		state := payload.Status.Bootstrap
+		if state.Phase == "" && len(state.Components) == 0 && state.LastRun == nil {
 			continue
 		}
 
-		entry := map[string]any{
-			"phase": state.Phase,
+		entry := map[string]any{}
+		if state.Phase != "" {
+			entry["phase"] = state.Phase
 		}
 		if len(state.Components) > 0 {
-			entry["components"] = state.Components
+			entry["components"] = copyComponents(state.Components)
 		}
-		if !state.UpdatedAt.IsZero() {
-			entry["updatedAt"] = state.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+		if state.LastRun != nil && !state.LastRun.IsZero() {
+			entry["updatedAt"] = state.LastRun.Time.UTC().Format(time.RFC3339Nano)
+		}
+		if state.ValidatorRequired {
+			entry["validatorRequired"] = true
+		}
+		if len(state.PendingDevices) > 0 {
+			entry["pendingDevices"] = append([]string(nil), state.PendingDevices...)
+		}
+		if len(entry) == 0 {
+			continue
 		}
 		nodes[nodeName] = entry
 
@@ -167,6 +160,17 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 	})
 
 	return nil
+}
+
+func copyComponents(components map[string]bool) map[string]bool {
+	if len(components) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(components))
+	for key, value := range components {
+		out[key] = value
+	}
+	return out
 }
 
 func hashStrings(items []string) string {

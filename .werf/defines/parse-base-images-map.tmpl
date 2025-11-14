@@ -12,12 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+{{- define "project_images"}}
+{{-   $globImages := "images/*/werf.inc.yaml" }}
+{{-   $globRootWerf := "werf.yaml" }}
+{{-   $regexp := "(builder|tools|libs|base)/([a-zA-Z0-9._-]+)" }}
+{{-   $globAll := merge (.Files.Glob $globImages) (.Files.Glob $globRootWerf) }}
+{{-   $imagesMap := dict }}
+{{-   range $path, $content := $globAll }}
+{{-     $findImg := regexFindAll $regexp $content -1 }}
+{{-     range $findImg }}
+{{-       $_ := set $imagesMap . "" }}
+{{-     end }}
+{{-   end }}
+{{- $imagesMap | toJson }}
+{{- end }}
+
 {{- define "parse_base_images_map" }}
 {{-   $deckhouseImages := .Files.Get "build/base-images/deckhouse_images.yml" | fromYaml }}
 {{/*
   # deckhouse_images has a format
   # <prefix>/<name>: "sha256:abcde12345
 */}}
+{{-   $usedImagesDict := (include "project_images" . | fromJson) }}
 {{-   range $k, $v := $deckhouseImages }}
 {{     $baseImagePath := (printf "%s@%s" $deckhouseImages.REGISTRY_PATH (trimSuffix "/" $v)) }}
 {{-     if ne $k "REGISTRY_PATH" }}
@@ -28,9 +44,11 @@
 {{-   $_ := set . "Images" (mustMerge $deckhouseImages) }}
 {{/* # base images artifacts */}}
 {{-   range $k, $v := .Images }}
+{{-     if hasKey $usedImagesDict $k }}
 ---
 image: {{ $k }}
 from: {{ $v }}
 final: false
+{{-     end }}
 {{-   end }}
 {{- end }}

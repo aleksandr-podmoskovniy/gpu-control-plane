@@ -42,7 +42,12 @@ var phaseRank = map[v1alpha1.GPUNodeBootstrapPhase]int{
 }
 
 // EnabledComponents returns the map of components that must be active for the phase.
-func EnabledComponents(phase v1alpha1.GPUNodeBootstrapPhase) map[meta.Component]bool {
+// Only validator is enabled during Validating/ValidatingFailed; GPU workloads appear
+// starting from their activation phase and require that hardware is present.
+func EnabledComponents(
+	phase v1alpha1.GPUNodeBootstrapPhase,
+	devicesPresent bool,
+) map[meta.Component]bool {
 	rank, ok := phaseRank[phase]
 	if !ok {
 		rank = phaseRank[v1alpha1.GPUNodeBootstrapPhaseValidating]
@@ -58,6 +63,13 @@ func EnabledComponents(phase v1alpha1.GPUNodeBootstrapPhase) map[meta.Component]
 			result[def.Name] = true
 		}
 	}
+
+	if !devicesPresent {
+		delete(result, meta.ComponentGPUFeatureDiscovery)
+		delete(result, meta.ComponentDCGM)
+		delete(result, meta.ComponentDCGMExporter)
+	}
+
 	return result
 }
 

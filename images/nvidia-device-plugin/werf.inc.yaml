@@ -1,7 +1,7 @@
 {{ $version := "0.17.4" }}
 ---
 image: {{ .ModuleNamePrefix }}nvidia-device-plugin-src-artifact
-fromImage: common/src-artifact
+fromImage: {{ .ModuleNamePrefix }}src-artifact
 final: false
 git:
   - add: /images/nvidia-device-plugin/patches
@@ -48,7 +48,7 @@ shell:
     - chmod 0700 /config-manager /gpu-feature-discovery /nvidia-device-plugin
 ---
 image: {{ .ModuleNamePrefix }}nvidia-device-plugin
-fromImage: common/distroless
+fromImage: {{ .ModuleNamePrefix }}distroless
 import:
   - image: {{ .ModuleNamePrefix }}nvidia-device-plugin-build-artifact
     add: /

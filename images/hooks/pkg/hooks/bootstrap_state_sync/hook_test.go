@@ -17,13 +17,16 @@ package bootstrap_state_sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	patchablevalues "github.com/deckhouse/module-sdk/pkg/patchable-values"
 	"github.com/deckhouse/module-sdk/pkg/utils"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"hooks/pkg/settings"
 )
@@ -44,6 +47,12 @@ type jsonSnapshot struct {
 func (s jsonSnapshot) UnmarshalTo(target any) error {
 	if s.err != nil {
 		return s.err
+	}
+	if snapshot, ok := s.value.(inventorySnapshot); ok {
+		if out, ok := target.(*inventorySnapshot); ok {
+			*out = snapshot
+			return nil
+		}
 	}
 	raw, err := json.Marshal(s.value)
 	if err != nil {
@@ -122,12 +131,18 @@ func TestHandleBootstrapStateSyncRemovesStateWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
-func TestHandleBootstrapStateSyncRemovesStateWhenConfigMapEmpty(t *testing.T) {
-	values := map[string]any{}
+func TestHandleBootstrapStateSyncRemovesStateWhenInventoriesEmpty(t *testing.T) {
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"bootstrap": map[string]any{"version": "stale"},
+			},
+		},
+	}
 
 	input, patchable := newHookInput(t, values, map[string][]pkg.Snapshot{
 		bootstrapStateSnapshot: {
-			jsonSnapshot{value: configMapSnapshot{Data: map[string]string{}}},
+			jsonSnapshot{value: inventorySnapshot{Name: "node-a"}},
 		},
 	})
 
@@ -135,33 +150,128 @@ func TestHandleBootstrapStateSyncRemovesStateWhenConfigMapEmpty(t *testing.T) {
 		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
 	}
 
-	if patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath)); patch != nil {
-		t.Fatalf("expected no patch for %s when ConfigMap is empty, got %#v", settings.InternalBootstrapStatePath, patch)
+	patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath))
+	if patch == nil || patch.Op != "remove" {
+		t.Fatalf("expected remove patch for %s, got %#v", settings.InternalBootstrapStatePath, patch)
+	}
+}
+
+func TestHandleBootstrapStateSyncSkipsInvalidSnapshot(t *testing.T) {
+	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{err: errors.New("boom")},
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-valid",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase:      "Ready",
+						Components: map[string]bool{settings.BootstrapComponentValidator: true},
+					},
+				},
+			}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patches := patchable.GetPatches()
+	if len(patches) != 1 {
+		t.Fatalf("expected single patch, got %d", len(patches))
+	}
+	nodes := decodePatchValue(t, patches[0].Value).(map[string]any)["nodes"].(map[string]any)
+	if len(nodes) != 1 || nodes["node-valid"] == nil {
+		t.Fatalf("expected only valid node in state: %#v", nodes)
+	}
+}
+
+func TestHandleBootstrapStateSyncSkipsBlankNodes(t *testing.T) {
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"bootstrap": map[string]any{"version": "old"},
+			},
+		},
+	}
+	input, patchable := newHookInput(t, values, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{Name: "   "}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath))
+	if patch == nil || patch.Op != "remove" {
+		t.Fatalf("expected removal patch for blank node snapshot, got %#v", patch)
+	}
+}
+
+func TestHandleBootstrapStateSyncSkipsEmptyEntries(t *testing.T) {
+	values := map[string]any{
+		settings.ConfigRoot: map[string]any{
+			"internal": map[string]any{
+				"bootstrap": map[string]any{"version": "old"},
+			},
+		},
+	}
+	input, patchable := newHookInput(t, values, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-empty",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						LastRun: &metav1.Time{}, // non-nil but zero to exercise len(entry)==0 branch
+					},
+				},
+			}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath))
+	if patch == nil || patch.Op != "remove" {
+		t.Fatalf("expected removal patch for empty entry, got %#v", patch)
 	}
 }
 
 func TestHandleBootstrapStateSyncPopulatesValues(t *testing.T) {
-	payload := configMapSnapshot{
-		Data: map[string]string{
-			"node-a.yaml": `
-phase: Ready
-components:
-  validator: true
-  gpu-feature-discovery: true
-  dcgm: true
-  dcgm-exporter: true
-updatedAt: "2025-01-01T00:00:00Z"
-`,
-			"node-b.yaml": `
-phase: Validating
-components:
-  validator: true
-`,
-		},
-	}
-
+	ts := metav1.NewTime(time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC))
 	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
-		bootstrapStateSnapshot: {jsonSnapshot{value: payload}},
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-a",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase: "Ready",
+						Components: map[string]bool{
+							settings.BootstrapComponentValidator:           true,
+							settings.BootstrapComponentGPUFeatureDiscovery: true,
+							settings.BootstrapComponentDCGM:                true,
+							settings.BootstrapComponentDCGMExporter:        true,
+						},
+						LastRun:        &ts,
+						PendingDevices: []string{"gpu-a"},
+					},
+				},
+			}},
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-b",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase:             "Validating",
+						Components:        map[string]bool{settings.BootstrapComponentValidator: true},
+						ValidatorRequired: true,
+					},
+				},
+			}},
+		},
 	})
 
 	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
@@ -198,10 +308,16 @@ components:
 	if nodeA["updatedAt"] == "" {
 		t.Fatalf("expected updatedAt for node-a")
 	}
+	if pending := nodeA["pendingDevices"].([]any); len(pending) != 1 || pending[0].(string) != "gpu-a" {
+		t.Fatalf("unexpected pendingDevices for node-a: %#v", pending)
+	}
 
 	nodeB := nodes["node-b"].(map[string]any)
 	if nodeB["phase"] != "Validating" {
 		t.Fatalf("unexpected node-b payload: %#v", nodeB)
+	}
+	if nodeB["validatorRequired"] != true {
+		t.Fatalf("expected validatorRequired for node-b, got %#v", nodeB)
 	}
 	compB := nodeB["components"].(map[string]any)
 	if len(compB) != 1 || compB[settings.BootstrapComponentValidator] != true {
@@ -252,17 +368,18 @@ components:
 }
 
 func TestHandleBootstrapStateSyncIncludesEmptyComponents(t *testing.T) {
-	payload := configMapSnapshot{
-		Data: map[string]string{
-			"node-a.yaml": `
-phase: Disabled
-components: {}
-`,
-		},
-	}
-
 	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
-		bootstrapStateSnapshot: {jsonSnapshot{value: payload}},
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-a",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase:      "Disabled",
+						Components: map[string]bool{},
+					},
+				},
+			}},
+		},
 	})
 
 	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
@@ -296,5 +413,102 @@ components: {}
 		if hash := data["hash"].(string); hash != hashStrings(nil) {
 			t.Fatalf("component %s hash expected %s for empty nodes, got %s", component, hashStrings(nil), hash)
 		}
+	}
+}
+
+func TestHandleBootstrapStateSyncHandlesUnknownComponents(t *testing.T) {
+	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-x",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase: "Ready",
+						Components: map[string]bool{
+							settings.BootstrapComponentValidator: false,
+							"custom-component":                   true,
+						},
+					},
+				},
+			}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath))
+	if patch == nil {
+		t.Fatalf("expected bootstrap state patch")
+	}
+	payload := decodePatchValue(t, patch.Value).(map[string]any)
+	components := payload["components"].(map[string]any)
+
+	custom, ok := components["custom-component"]
+	if !ok {
+		t.Fatalf("custom component missing in components map: %#v", components)
+	}
+	nodes := custom.(map[string]any)["nodes"].([]any)
+	if len(nodes) != 1 || nodes[0].(string) != "node-x" {
+		t.Fatalf("expected custom component bound to node-x, got %#v", nodes)
+	}
+
+	validator := components[settings.BootstrapComponentValidator].(map[string]any)
+	if nodesVal := validator["nodes"]; nodesVal != nil && len(nodesVal.([]any)) != 0 {
+		t.Fatalf("validator nodes should stay empty when disabled: %#v", nodesVal)
+	}
+}
+
+func TestHandleBootstrapStateSyncCopiesValidatorFields(t *testing.T) {
+	components := map[string]bool{
+		settings.BootstrapComponentValidator:           true,
+		settings.BootstrapComponentGPUFeatureDiscovery: true,
+	}
+	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-c",
+				Status: inventorySnapshotStatus{
+					Bootstrap: inventoryBootstrapStatus{
+						Phase:             "Monitoring",
+						Components:        components,
+						ValidatorRequired: true,
+						PendingDevices:    []string{"gpu-0", "gpu-1"},
+					},
+				},
+			}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patch := lastPatch(patchable.GetPatches(), pathToJSONPointer(settings.InternalBootstrapStatePath))
+	if patch == nil {
+		t.Fatalf("expected bootstrap state patch")
+	}
+	payload := decodePatchValue(t, patch.Value).(map[string]any)
+	nodes := payload["nodes"].(map[string]any)
+	node := nodes["node-c"].(map[string]any)
+	if node["validatorRequired"] != true {
+		t.Fatalf("expected validatorRequired flag, got %v", node["validatorRequired"])
+	}
+	pending := node["pendingDevices"].([]any)
+	if len(pending) != 2 {
+		t.Fatalf("expected pending devices propagated, got %v", pending)
+	}
+
+	components[settings.BootstrapComponentValidator] = false
+	compMap := node["components"].(map[string]any)
+	if compMap[settings.BootstrapComponentValidator] != true {
+		t.Fatalf("components map should be copied, got %v", compMap)
+	}
+}
+
+func TestCopyComponentsReturnsNil(t *testing.T) {
+	if copyComponents(map[string]bool{}) != nil {
+		t.Fatalf("expected nil copy for empty map")
 	}
 }

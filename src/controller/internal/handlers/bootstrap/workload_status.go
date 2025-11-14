@@ -15,9 +15,15 @@
 package bootstrap
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"math"
+	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -53,8 +59,12 @@ const (
 	reasonMonitoringHealthy     = "MonitoringHealthy"
 	reasonComponentHealthy      = "ComponentHealthy"
 	reasonInventoryPending      = "InventoryPending"
+	reasonDevicesPending        = "DevicesPending"
 	defaultNotReadyRequeueDelay = 15 * time.Second
 	defaultReadyRequeueDelay    = time.Minute
+	maxValidatorAttempts        = 5
+	validatorRetryInterval      = time.Minute
+	heartbeatStaleAfter         = 2 * time.Minute
 )
 
 var (
@@ -83,6 +93,7 @@ var (
 	appValidator           = meta.AppName(meta.ComponentValidator)
 	appDCGM                = meta.AppName(meta.ComponentDCGM)
 	appDCGMExporter        = meta.AppName(meta.ComponentDCGMExporter)
+	exporterHTTPClient     = &http.Client{Timeout: 3 * time.Second}
 )
 
 type workloadComponent struct {
@@ -97,10 +108,11 @@ func BootstrapComponentApps() []string {
 
 // WorkloadStatusHandler evaluates health of bootstrap workloads on a node and updates inventory conditions.
 type WorkloadStatusHandler struct {
-	log       logr.Logger
-	client    client.Client
-	namespace string
-	clock     func() time.Time
+	log            logr.Logger
+	client         client.Client
+	namespace      string
+	clock          func() time.Time
+	fetchHeartbeat func(context.Context, *corev1.Pod) (*metav1.Time, error)
 }
 
 // NewWorkloadStatusHandler creates handler that checks bootstrap workloads in the given namespace.
@@ -109,9 +121,10 @@ func NewWorkloadStatusHandler(log logr.Logger, namespace string) *WorkloadStatus
 		namespace = meta.WorkloadsNamespace
 	}
 	return &WorkloadStatusHandler{
-		log:       log,
-		namespace: namespace,
-		clock:     time.Now,
+		log:            log,
+		namespace:      namespace,
+		clock:          time.Now,
+		fetchHeartbeat: scrapeExporterHeartbeat,
 	}
 }
 
@@ -137,6 +150,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	}
 
 	h.log.V(2).Info("checking bootstrap workloads", "node", nodeName)
+	currentTime := h.clock().UTC()
 
 	componentStatuses, err := h.probeComponents(ctx, nodeName)
 	if err != nil {
@@ -154,15 +168,34 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	dcgmReady := dcgmStatus.Ready
 	exporterReady := exporterStatus.Ready
 
-	monitoringReady := dcgmReady && exporterReady
+	pendingIDs := pendingDeviceIDs(inventory)
+	activePending, throttledPending := h.reconcileValidationAttempts(inventory, pendingIDs, validatorReady)
+	pendingDevices := len(pendingIDs)
+	needsValidation := len(activePending) > 0
+
 	driverReady := validatorReady
 	toolkitReady := validatorReady
 	componentHealthy := gfdReady && validatorReady
+	var heartbeat *metav1.Time
+	monitoringReady := false
+	if dcgmReady && exporterReady {
+		if hb, err := h.exporterHeartbeat(ctx, nodeName); err == nil {
+			heartbeat = hb
+			if currentTime.Sub(hb.Time) <= heartbeatStaleAfter {
+				monitoringReady = true
+			}
+		} else {
+			h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
+		}
+	}
 
-	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, workloads)
+	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, heartbeat, workloads)
 	inventoryComplete := isInventoryComplete(inventory)
-	phase := determineBootstrapPhase(inventory, inventoryComplete, validatorReady, gfdReady, monitoringReady)
+	phase := determineBootstrapPhase(inventory, inventoryComplete, validatorReady, gfdReady, monitoringReady, needsValidation)
 	h.setBootstrapPhase(inventory, phase)
+	validatorRequired := h.validatorRequired(phase, needsValidation)
+	h.updateComponentEnablement(inventory, phase, validatorRequired)
+	h.updatePendingDevices(inventory, pendingIDs)
 
 	requeue := defaultReadyRequeueDelay
 	conditionsChanged := false
@@ -172,7 +205,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady, validatorStatus)) || conditionsChanged
 	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, !monitoringReady, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMessage(monitoringReady, dcgmStatus, exporterStatus)) || conditionsChanged
 
-	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady)
+	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady, pendingDevices, throttledPending)
 	conditionsChanged = setCondition(inventory, conditionReadyForPooling, nodeReady, readyReason, readyMessage) || conditionsChanged
 
 	if !nodeReady {
@@ -250,7 +283,7 @@ func (h *WorkloadStatusHandler) isPodReadyOnNode(ctx context.Context, app, node 
 	return false, pendingMsg, nil
 }
 
-func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, toolkitReady, monitoringReady bool, workloads []v1alpha1.GPUNodeBootstrapWorkloadStatus) {
+func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, toolkitReady, monitoringReady bool, heartbeat *metav1.Time, workloads []v1alpha1.GPUNodeBootstrapWorkloadStatus) {
 	if inventory.Status.Bootstrap.GFDReady != gfdReady {
 		inventory.Status.Bootstrap.GFDReady = gfdReady
 	}
@@ -265,9 +298,12 @@ func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNod
 
 	if inventory.Status.Monitoring.DCGMReady != monitoringReady {
 		inventory.Status.Monitoring.DCGMReady = monitoringReady
-		if monitoringReady {
-			inventory.Status.Monitoring.LastHeartbeat = &now
-		}
+	}
+	if !monitoringReady {
+		inventory.Status.Monitoring.LastHeartbeat = nil
+	} else if heartbeat != nil {
+		hb := *heartbeat
+		inventory.Status.Monitoring.LastHeartbeat = &hb
 	}
 	if len(workloads) > 0 {
 		inventory.Status.Bootstrap.Workloads = workloads
@@ -276,15 +312,234 @@ func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNod
 	}
 }
 
+func (h *WorkloadStatusHandler) updateComponentEnablement(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase, validatorRequired bool) {
+	devicesPresent := hardwarePresent(inventory)
+	enabled := bootstrapcomponents.EnabledComponents(phase, devicesPresent)
+	if validatorRequired {
+		enabled[meta.ComponentValidator] = true
+	} else {
+		delete(enabled, meta.ComponentValidator)
+	}
+
+	if len(enabled) == 0 {
+		inventory.Status.Bootstrap.Components = nil
+	} else {
+		next := make(map[string]bool, len(enabled))
+		for component := range enabled {
+			next[string(component)] = true
+		}
+		inventory.Status.Bootstrap.Components = next
+	}
+	inventory.Status.Bootstrap.ValidatorRequired = validatorRequired
+}
+
+func (h *WorkloadStatusHandler) updatePendingDevices(inventory *v1alpha1.GPUNodeInventory, pending []string) {
+	if len(pending) == 0 {
+		inventory.Status.Bootstrap.PendingDevices = nil
+		return
+	}
+	sorted := append([]string(nil), pending...)
+	sort.Strings(sorted)
+	inventory.Status.Bootstrap.PendingDevices = sorted
+}
+
+func (h *WorkloadStatusHandler) reconcileValidationAttempts(inventory *v1alpha1.GPUNodeInventory, pending []string, validatorReady bool) ([]string, []string) {
+	if len(pending) == 0 {
+		inventory.Status.Bootstrap.Validations = nil
+		return nil, nil
+	}
+
+	tracker := make(map[string]*v1alpha1.GPUNodeValidationState, len(inventory.Status.Bootstrap.Validations))
+	for _, state := range inventory.Status.Bootstrap.Validations {
+		copyState := v1alpha1.GPUNodeValidationState{
+			InventoryID: state.InventoryID,
+			Attempts:    state.Attempts,
+		}
+		if state.LastFailure != nil {
+			ts := *state.LastFailure
+			copyState.LastFailure = &ts
+		}
+		tracker[state.InventoryID] = &copyState
+	}
+
+	now := h.clock().UTC()
+	pendingSet := make(map[string]struct{}, len(pending))
+	for _, id := range pending {
+		pendingSet[id] = struct{}{}
+		state, ok := tracker[id]
+		if !ok && !validatorReady {
+			continue
+		}
+		if !ok {
+			state = &v1alpha1.GPUNodeValidationState{InventoryID: id}
+			tracker[id] = state
+		}
+		if validatorReady && state.Attempts < maxValidatorAttempts {
+			shouldRetry := state.LastFailure == nil || now.Sub(state.LastFailure.Time) >= validatorRetryInterval
+			if shouldRetry {
+				state.Attempts++
+				ts := metav1.NewTime(now)
+				state.LastFailure = &ts
+			}
+		}
+	}
+
+	for id := range tracker {
+		if _, ok := pendingSet[id]; !ok {
+			delete(tracker, id)
+		}
+	}
+
+	throttled := make([]string, 0)
+	active := make([]string, 0, len(pending))
+	for _, id := range pending {
+		state := tracker[id]
+		if state == nil {
+			continue
+		}
+		if state.Attempts >= maxValidatorAttempts {
+			throttled = append(throttled, id)
+		} else {
+			active = append(active, id)
+		}
+	}
+	sort.Strings(throttled)
+
+	inventory.Status.Bootstrap.Validations = flattenValidationStates(tracker)
+
+	return active, throttled
+}
+
+func flattenValidationStates(states map[string]*v1alpha1.GPUNodeValidationState) []v1alpha1.GPUNodeValidationState {
+	if len(states) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(states))
+	for id := range states {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+
+	result := make([]v1alpha1.GPUNodeValidationState, 0, len(keys))
+	for _, id := range keys {
+		state := states[id]
+		copyState := v1alpha1.GPUNodeValidationState{
+			InventoryID: id,
+			Attempts:    state.Attempts,
+		}
+		if state.LastFailure != nil {
+			ts := *state.LastFailure
+			copyState.LastFailure = &ts
+		}
+		result = append(result, copyState)
+	}
+	return result
+}
+
+func (h *WorkloadStatusHandler) exporterHeartbeat(ctx context.Context, node string) (*metav1.Time, error) {
+	podList := &corev1.PodList{}
+	if err := h.client.List(ctx, podList,
+		client.InNamespace(h.namespace),
+		client.MatchingLabels{"app": appDCGMExporter},
+	); err != nil {
+		return nil, err
+	}
+
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		if pod.Spec.NodeName != node || pod.Status.PodIP == "" {
+			continue
+		}
+		if !podReady(pod) {
+			continue
+		}
+		return h.fetchHeartbeat(ctx, pod)
+	}
+
+	return nil, fmt.Errorf("dcgm exporter pod for node %s not found", node)
+}
+
+func scrapeExporterHeartbeat(ctx context.Context, pod *corev1.Pod) (*metav1.Time, error) {
+	if pod.Status.PodIP == "" {
+		return nil, fmt.Errorf("pod %s has no IP assigned", pod.Name)
+	}
+
+	port := exporterPort(pod)
+	url := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, port)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := exporterHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %s", resp.Status)
+	}
+
+	ts, err := parseHeartbeatMetric(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	heartbeat := metav1.NewTime(ts.UTC())
+	return &heartbeat, nil
+}
+
+func parseHeartbeatMetric(r io.Reader) (time.Time, error) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "dcgm_exporter_last_update_time_seconds") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		value := fields[len(fields)-1]
+		seconds, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+			return time.Time{}, fmt.Errorf("invalid heartbeat value %q", value)
+		}
+		sec := int64(seconds)
+		nsec := int64((seconds - float64(sec)) * float64(time.Second))
+		return time.Unix(sec, nsec), nil
+	}
+	if err := scanner.Err(); err != nil {
+		return time.Time{}, err
+	}
+	return time.Time{}, fmt.Errorf("heartbeat metric not found")
+}
+
+func exporterPort(pod *corev1.Pod) int32 {
+	for _, container := range pod.Spec.Containers {
+		if container.Name != "dcgm-exporter" {
+			continue
+		}
+		for _, port := range container.Ports {
+			if port.ContainerPort > 0 {
+				return port.ContainerPort
+			}
+		}
+	}
+	return 9400
+}
+
 func (h *WorkloadStatusHandler) setBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase) {
 	if inventory.Status.Bootstrap.Phase != phase {
 		inventory.Status.Bootstrap.Phase = phase
 	}
 }
 
-func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool) (bool, string, string) {
-	hardwarePresent := inventory.Status.Hardware.Present || len(inventory.Status.Hardware.Devices) > 0
-	if !hardwarePresent {
+func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool, pendingDevices int, throttled []string) (bool, string, string) {
+	if !hardwarePresent(inventory) {
 		return false, reasonNoDevices, "GPU devices are not detected on the node"
 	}
 
@@ -295,6 +550,8 @@ func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUN
 	switch {
 	case !inventoryComplete:
 		return false, reasonInventoryPending, "Inventory data is incomplete, waiting for inventory controller"
+	case pendingDevices > 0:
+		return false, reasonDevicesPending, pendingDevicesMessage(pendingDevices, throttled)
 	case !driverReady:
 		return false, reasonDriverNotDetected, "NVIDIA driver version has not been reported yet"
 	case !toolkitReady:
@@ -329,6 +586,23 @@ func setCondition(inventory *v1alpha1.GPUNodeInventory, condType string, status 
 func isInventoryComplete(inventory *v1alpha1.GPUNodeInventory) bool {
 	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionInventoryComplete)
 	return cond != nil && cond.Status == metav1.ConditionTrue
+}
+
+func (h *WorkloadStatusHandler) validatorRequired(phase v1alpha1.GPUNodeBootstrapPhase, pendingDevices bool) bool {
+	switch phase {
+	case v1alpha1.GPUNodeBootstrapPhaseValidating,
+		v1alpha1.GPUNodeBootstrapPhaseValidatingFailed:
+		return true
+	default:
+		return pendingDevices
+	}
+}
+
+func hardwarePresent(inventory *v1alpha1.GPUNodeInventory) bool {
+	if inventory.Status.Hardware.Present {
+		return true
+	}
+	return len(inventory.Status.Hardware.Devices) > 0
 }
 
 func boolReason(ok bool, success, failure string) string {
@@ -368,7 +642,7 @@ func monitoringMessage(ok bool, dcgm, exporter componentStatus) string {
 	if !exporter.Ready {
 		return fmt.Sprintf("DCGM exporter pending: %s", exporter.Message)
 	}
-	return "GPU monitoring stack is not ready"
+	return "DCGM exporter heartbeat has not been observed yet"
 }
 
 func (h *WorkloadStatusHandler) componentMessage(ok bool, gfd, validator componentStatus) string {
@@ -384,7 +658,7 @@ func (h *WorkloadStatusHandler) componentMessage(ok bool, gfd, validator compone
 	return "Bootstrap workloads are still running"
 }
 
-func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, validatorReady, gfdReady, monitoringReady bool) v1alpha1.GPUNodeBootstrapPhase {
+func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, validatorReady, gfdReady, monitoringReady bool, needsValidation bool) v1alpha1.GPUNodeBootstrapPhase {
 	if managedDisabled(inventory) {
 		return v1alpha1.GPUNodeBootstrapPhaseDisabled
 	}
@@ -394,6 +668,9 @@ func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComp
 	prev := inventory.Status.Bootstrap.Phase
 	if prev == "" {
 		prev = v1alpha1.GPUNodeBootstrapPhaseValidating
+	}
+	if needsValidation && phasePastValidation(prev) && validatorReady {
+		return v1alpha1.GPUNodeBootstrapPhaseValidating
 	}
 	if !validatorReady {
 		if phasePastValidation(prev) {
@@ -408,6 +685,18 @@ func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComp
 		return v1alpha1.GPUNodeBootstrapPhaseMonitoring
 	}
 	return v1alpha1.GPUNodeBootstrapPhaseReady
+}
+
+func pendingDevicesMessage(total int, throttled []string) string {
+	base := "GPU devices require validation"
+	if total == 1 {
+		base = "GPU device requires validation"
+	}
+	message := fmt.Sprintf("%d %s", total, base)
+	if len(throttled) == 0 {
+		return message
+	}
+	return fmt.Sprintf("%s; manual intervention required for %s", message, strings.Join(throttled, ", "))
 }
 
 func phasePastValidation(phase v1alpha1.GPUNodeBootstrapPhase) bool {
@@ -450,4 +739,36 @@ func podPendingMessage(pod *corev1.Pod) string {
 		}
 	}
 	return "pod not ready"
+}
+
+func pendingDeviceIDs(inventory *v1alpha1.GPUNodeInventory) []string {
+	ids := make([]string, 0, len(inventory.Status.Hardware.Devices))
+	for idx, device := range inventory.Status.Hardware.Devices {
+		if !deviceStateNeedsValidation(device.State) {
+			continue
+		}
+		switch {
+		case device.InventoryID != "":
+			ids = append(ids, device.InventoryID)
+		case device.UUID != "":
+			ids = append(ids, device.UUID)
+		default:
+			ids = append(ids, fmt.Sprintf("%s#%d", inventory.Name, idx))
+		}
+	}
+	return ids
+}
+
+func deviceStateNeedsValidation(state v1alpha1.GPUDeviceState) bool {
+	switch state {
+	case v1alpha1.GPUDeviceStateReadyForPooling,
+		v1alpha1.GPUDeviceStatePendingAssignment,
+		v1alpha1.GPUDeviceStateNoPoolMatched,
+		v1alpha1.GPUDeviceStateAssigned,
+		v1alpha1.GPUDeviceStateReserved,
+		v1alpha1.GPUDeviceStateInUse:
+		return false
+	default:
+		return true
+	}
 }

@@ -61,7 +61,7 @@ func TestEnabledComponentsByPhase(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(string(tc.phase), func(t *testing.T) {
-			set := EnabledComponents(tc.phase)
+			set := EnabledComponents(tc.phase, true)
 			if len(set) != len(tc.expected) {
 				t.Fatalf("expected %d components, got %d (%v)", len(tc.expected), len(set), set)
 			}
@@ -75,8 +75,24 @@ func TestEnabledComponentsByPhase(t *testing.T) {
 }
 
 func TestEnabledComponentsDefaultsToValidating(t *testing.T) {
-	set := EnabledComponents("unknown")
+	set := EnabledComponents("unknown", true)
 	if len(set) != 1 || !set[meta.ComponentValidator] {
 		t.Fatalf("expected validator enabled for unknown phase, got %v", set)
+	}
+}
+
+func TestEnabledComponentsDisablesGPUWorkloadsWhenNoDevices(t *testing.T) {
+	set := EnabledComponents(v1alpha1.GPUNodeBootstrapPhaseReady, false)
+	for _, component := range []meta.Component{
+		meta.ComponentGPUFeatureDiscovery,
+		meta.ComponentDCGM,
+		meta.ComponentDCGMExporter,
+	} {
+		if set[component] {
+			t.Fatalf("component %s expected to be disabled when no devices present", component)
+		}
+	}
+	if !set[meta.ComponentValidator] {
+		t.Fatalf("validator should stay enabled in Ready phase")
 	}
 }

@@ -7,6 +7,9 @@
 {{- if kindIs "map" $cfgRaw }}
   {{- $cfg = $cfgRaw }}
 {{- end }}
+{{- $globalValues := .Values.global | default dict }}
+{{- $enabledModules := $globalValues.enabledModules | default list }}
+{{- $vpaEnabled := has "vertical-pod-autoscaler" $enabledModules }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
 {{- $image := include "helm_lib_module_image" (list . "nvidiaDcgmExporter") }}
@@ -73,17 +76,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          securityContext:
-            privileged: true
-            runAsNonRoot: false
-            runAsUser: 0
-            capabilities:
-              add: ["SYS_ADMIN"]
+          {{- include "helm_lib_module_container_security_context_privileged" . | nindent 10 }}
           resources:
             requests:
               {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
+        {{- if not $vpaEnabled }}
               cpu: 200m
               memory: 512Mi
+        {{- end }}
           ports:
             - name: metrics
               containerPort: {{ $port }}

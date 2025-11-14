@@ -60,7 +60,7 @@ shell:
 
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-fromImage: common/distroless
+fromImage: {{ .ModuleNamePrefix }}distroless
 final: true
 git:
   {{- include "image mount points" . }}

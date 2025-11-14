@@ -16,7 +16,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -42,9 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/components"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -209,7 +206,6 @@ type Reconciler struct {
 	log                    logr.Logger
 	cfg                    config.ControllerConfig
 	store                  *config.ModuleConfigStore
-	stateStore             *state.Store
 	handlers               []contracts.BootstrapHandler
 	builders               func(ctrl.Manager) controllerBuilder
 	moduleWatcherFactory   func(cache.Cache, controllerBuilder) controllerBuilder
@@ -240,19 +236,6 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.client = mgr.GetClient()
 	r.injectClient()
 	r.scheme = mgr.GetScheme()
-	r.stateStore = state.NewStore(
-		mgr.GetClient(),
-		mgr.GetAPIReader(),
-		meta.WorkloadsNamespace,
-		meta.StateConfigMapName,
-		types.NamespacedName{
-			Name:      meta.ControllerDeploymentName,
-			Namespace: meta.WorkloadsNamespace,
-		},
-	)
-	if err := r.stateStore.Ensure(ctx); err != nil {
-		return fmt.Errorf("ensure bootstrap state configmap: %w", err)
-	}
 
 	options := controller.Options{
 		MaxConcurrentReconciles: r.cfg.Workers,
@@ -333,7 +316,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, inventory); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("GPUNodeInventory removed")
-			r.deleteNodeState(ctx, req.Name)
+			r.clearBootstrapMetrics(req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -362,7 +345,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		log.Error(err, "handler chain failed")
 		return ctrl.Result{}, err
 	}
-	r.persistNodeState(ctx, inventory)
 	r.updateBootstrapMetrics(req.Name, prevPhase, inventory)
 
 	return ctrl.Result{
@@ -385,38 +367,12 @@ func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Requ
 
 	requests := make([]reconcile.Request, 0, len(list.Items))
 	for _, item := range list.Items {
+		if !item.Status.Hardware.Present {
+			continue
+		}
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: item.Name}})
 	}
 	return requests
-}
-
-func (r *Reconciler) persistNodeState(ctx context.Context, inventory *v1alpha1.GPUNodeInventory) {
-	if r.stateStore == nil {
-		return
-	}
-	phase := effectiveBootstrapPhase(inventory)
-	enabled := components.EnabledComponents(phase)
-	componentSet := make(map[string]bool, len(enabled))
-	for component := range enabled {
-		componentSet[string(component)] = true
-	}
-	nodeState := state.NodeState{
-		Phase:      string(phase),
-		Components: componentSet,
-	}
-	if err := r.stateStore.UpdateNode(ctx, inventory.Name, nodeState); err != nil {
-		r.log.Error(err, "failed to update bootstrap state", "node", inventory.Name)
-	}
-}
-
-func (r *Reconciler) deleteNodeState(ctx context.Context, node string) {
-	if r.stateStore == nil {
-		return
-	}
-	r.clearBootstrapMetrics(node)
-	if err := r.stateStore.DeleteNode(ctx, node); err != nil {
-		r.log.Error(err, "failed to drop bootstrap state", "node", node)
-	}
 }
 
 func (r *Reconciler) updateBootstrapMetrics(node string, prevPhase v1alpha1.GPUNodeBootstrapPhase, inventory *v1alpha1.GPUNodeInventory) {

@@ -29,7 +29,6 @@ const (
 	MetricsProxyCertCN          = "gpu-control-plane-metrics"
 	MetricsTLSSecretName        = "gpu-control-plane-controller-metrics-tls"
 	MonitoringNamespace         = "d8-monitoring"
-	BootstrapStateConfigMapName = "gpu-control-plane-bootstrap-state"
 
 	NodeFeatureRuleName       = "deckhouse-gpu-kernel-os"
 	NFDDependencyErrorMessage = "Module gpu-control-plane requires the node-feature-discovery module to be enabled"
@@ -50,5 +49,4 @@ const (
 	BootstrapComponentGPUFeatureDiscovery = "gpu-feature-discovery"
 	BootstrapComponentDCGM                = "dcgm"
 	BootstrapComponentDCGMExporter        = "dcgm-exporter"
-	BootstrapStateNodeSuffix              = ".yaml"
 )

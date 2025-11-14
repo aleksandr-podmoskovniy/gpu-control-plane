@@ -29,7 +29,7 @@ shell:
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
-fromImage: common/distroless
+fromImage: {{ .ModuleNamePrefix }}distroless
 import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
     add: /out/nvidia-validator

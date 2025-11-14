@@ -2,7 +2,9 @@
 {{- $component := "dcgm" }}
 {{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
 {{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
-{{- $vpaEnabled := has "vertical-pod-autoscaler" (.Values.global.enabledModules | default (list)) }}
+{{- $globalValues := .Values.global | default dict }}
+{{- $enabledModules := $globalValues.enabledModules | default (list) }}
+{{- $vpaEnabled := has "vertical-pod-autoscaler" $enabledModules }}
 {{- if and $moduleEnabled $componentEnabled $vpaEnabled }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $name := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}

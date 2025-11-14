@@ -6,7 +6,7 @@
 ### Общие принципы
 
 - **Werf**: для каждого образа (gfd, dcgm, dcgm-exporter) повторяем цепочку `*-src-artifact` →
-  `*-build-artifact` → финальный `common/distroless`, как это сделано в
+  `*-build-artifact` → финальный `distroless`, как это сделано в
   `nvidia-device-plugin`, `nvidia-dcgm`, `nvidia-dcgm-exporter`.
 - **Patched upstream**: исходники подтягиваем из официальных репозиториев (см. таблицу ниже),
   патчи кладём в `images/<name>/patches` с тем же форматом, что у node-manager.
@@ -34,7 +34,7 @@
 
    - Создать образы `gpu-gfd-src-artifact`/`gpu-gfd-build-artifact`/`gpu-gfd`.
    - Template: DaemonSet + (опционально) VPA по примеру `nvidia-gpu/gfd.yml`.
-   - Значения: только тюнинг (`sleepInterval`, `featuresDir`, `failOnInitError`, `hostSysPath`); включение/отключение управляется bootstrap-контроллером через ConfigMap `gpu-control-plane-bootstrap-state` и значения `internal.bootstrap.components`.
+   - Значения: только тюнинг (`sleepInterval`, `featuresDir`, `failOnInitError`, `hostSysPath`); включение/отключение управляется bootstrap-контроллером через `GPUNodeInventory.status.bootstrap` и значения `internal.bootstrap.components`.
 
 2. **DCGM daemon**
 
@@ -52,9 +52,9 @@
 
    - Контроллер следит за DaemonSet Ready/Unavailable и пишет condition'ы (`DriverMissing`,
      `ToolkitMissing`, `MonitoringMissing`).
-   - Состояние хранится в ConfigMap `gpu-control-plane-bootstrap-state`; hook
-     `bootstrap_state_sync` переносит его в `.Values.gpuControlPlane.internal.bootstrap`, а Helm-шаблоны
-     фильтруют узлы/ресурсы через `componentEnabled`/`componentHostExpression`.
+   - Состояние хранится в `GPUNodeInventory.status.bootstrap`; hook `bootstrap_state_sync`
+     выгружает список CR и переносит его в `.Values.gpuControlPlane.internal.bootstrap`, после чего
+     Helm-шаблоны фильтруют узлы/ресурсы через `componentEnabled`/`componentHostExpression`.
 
 5. **Интеграция с Inventory**
 

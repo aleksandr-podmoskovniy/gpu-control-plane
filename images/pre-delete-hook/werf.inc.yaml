@@ -1,7 +1,7 @@
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
 final: false
-fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/alt-go-svace" }}
+fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/golang-alt-svace-1.24.10" }}
 git:
 - add: {{ .ModuleDir }}/images/{{ .ImageName }}
   to: /pre-delete-hook
@@ -33,7 +33,7 @@ shell:
     {{- include "image-build.build" (set $ "BuildCommand" `go build -ldflags="-s -w" -a -o /out/pre-delete-hook main.go`) | nindent 6 }}
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-fromImage: common/distroless
+fromImage: {{ .ModuleNamePrefix }}distroless
 import:
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-builder
   add: /out/pre-delete-hook

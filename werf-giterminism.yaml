@@ -45,3 +45,4 @@ helm:
   allowUncommittedFiles:
   - "Chart.lock"
   - "charts/*.tgz"
+  - ".helmignore"

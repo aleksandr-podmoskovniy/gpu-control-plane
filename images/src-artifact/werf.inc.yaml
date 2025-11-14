@@ -1,0 +1,4 @@
+---
+image: {{ .ModuleNamePrefix }}src-artifact
+final: false
+fromImage: builder/src

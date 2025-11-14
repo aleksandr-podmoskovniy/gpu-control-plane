@@ -324,6 +324,8 @@ const (
 type GPUNodeBootstrapStatus struct {
 	// Phase reflects the current bootstrap phase.
 	Phase GPUNodeBootstrapPhase `json:"phase,omitempty"`
+	// Components stores enablement flags for bootstrap workloads on this node.
+	Components map[string]bool `json:"components,omitempty"`
 	// GFDReady indicates that GPU Feature Discovery DaemonSet is successfully running.
 	GFDReady bool `json:"gfdReady,omitempty"`
 	// ToolkitReady signals that toolkit preparation on the node completed.
@@ -332,6 +334,12 @@ type GPUNodeBootstrapStatus struct {
 	LastRun *metav1.Time `json:"lastRun,omitempty"`
 	// Workloads lists health state of every bootstrap workload on the node.
 	Workloads []GPUNodeBootstrapWorkloadStatus `json:"workloads,omitempty"`
+	// ValidatorRequired is true when at least one GPU still needs validation.
+	ValidatorRequired bool `json:"validatorRequired,omitempty"`
+	// PendingDevices lists inventory IDs of devices awaiting validation.
+	PendingDevices []string `json:"pendingDevices,omitempty"`
+	// Validations tracks validation attempts per device.
+	Validations []GPUNodeValidationState `json:"validations,omitempty"`
 }
 
 // GPUNodeBootstrapWorkloadStatus describes individual bootstrap workload health.
@@ -344,6 +352,16 @@ type GPUNodeBootstrapWorkloadStatus struct {
 	Message string `json:"message,omitempty"`
 	// Since marks when the workload entered its current state.
 	Since *metav1.Time `json:"since,omitempty"`
+}
+
+// GPUNodeValidationState stores validation attempts for a device.
+type GPUNodeValidationState struct {
+	// InventoryID references the GPUDevice inventory identifier.
+	InventoryID string `json:"inventoryID"`
+	// Attempts counts failed validation attempts.
+	Attempts int32 `json:"attempts,omitempty"`
+	// LastFailure records the timestamp of the last failed attempt.
+	LastFailure *metav1.Time `json:"lastFailure,omitempty"`
 }
 
 type GPUNodePoolsStatus struct {

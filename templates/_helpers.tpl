@@ -78,10 +78,18 @@ deckhouse-gpu-kernel-os
 {{- end -}}
 
 {{- define "gpuControlPlane.managedNodeMatchExpression" -}}
+{{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
+{{- $enabledByDefault := $managed.enabledByDefault | default true -}}
 - key: {{ include "gpuControlPlane.managedNodeLabelKey" . }}
+  {{- if $enabledByDefault }}
   operator: NotIn
   values:
     - "false"
+  {{- else }}
+  operator: In
+  values:
+    - "true"
+  {{- end }}
 {{- end -}}
 
 {{- define "gpuControlPlane.managedNodePresentExpression" -}}
@@ -93,6 +101,11 @@ deckhouse-gpu-kernel-os
   values:
     - "true"
 {{- end -}}
+{{- end -}}
+
+{{- define "gpuControlPlane.managedNodeAbsentExpression" -}}
+- key: {{ include "gpuControlPlane.managedNodeLabelKey" . }}
+  operator: DoesNotExist
 {{- end -}}
 
 {{- define "gpuControlPlane.managedNodeTolerations" -}}

@@ -20,6 +20,8 @@
 {{- if ge (len .) 2 -}}
   {{- $component = index . 1 -}}
 {{- end -}}
+{{- $managed := $ctx.Values.gpuControlPlane.managedNodes | default dict -}}
+{{- $enabledByDefault := $managed.enabledByDefault | default true -}}
 affinity:
   nodeAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
@@ -30,6 +32,14 @@ affinity:
 {{- if $component }}
 {{ include "gpuControlPlane.bootstrap.componentHostExpression" (list $ctx $component) | indent 12 }}
 {{- end }}
+        {{- if $enabledByDefault }}
+        - matchExpressions:
+{{ include "gpuControlPlane.managedNodePresentExpression" $ctx | indent 12 }}
+{{ include "gpuControlPlane.managedNodeAbsentExpression" $ctx | indent 12 }}
+{{- if $component }}
+{{ include "gpuControlPlane.bootstrap.componentHostExpression" (list $ctx $component) | indent 12 }}
+{{- end }}
+        {{- end }}
 {{- end -}}
 
 {{- define "gpuControlPlane.bootstrap.componentEnabled" -}}
@@ -37,25 +47,30 @@ affinity:
 {{- $component := index . 1 -}}
 {{- $values := $ctx.Values.gpuControlPlane | default dict -}}
 {{- if not (kindIs "map" $values) }}{{- $values = dict }}{{- end }}
-{{- $internal := (index $values "internal") | default dict -}}
-{{- if not (kindIs "map" $internal) }}{{- $internal = dict }}{{- end }}
-{{- $bootstrap := (index $internal "bootstrap") | default dict -}}
-{{- if not (kindIs "map" $bootstrap) }}{{- $bootstrap = dict }}{{- end }}
-{{- $components := (index $bootstrap "components") | default dict -}}
-{{- if not (kindIs "map" $components) }}{{- $components = dict }}{{- end }}
-{{- if not (hasKey $components $component) -}}
+{{- $bootstrapValues := (index $values "bootstrap") | default dict -}}
+{{- if not (kindIs "map" $bootstrapValues) }}{{- $bootstrapValues = dict }}{{- end }}
+{{- $componentCfg := (index $bootstrapValues $component) | default dict -}}
+{{- if not (kindIs "map" $componentCfg) }}{{- $componentCfg = dict }}{{- end }}
+{{- $cfgEnabled := true -}}
+{{- if hasKey $componentCfg "enabled" -}}
+  {{- $cfgEnabled = index $componentCfg "enabled" -}}
+{{- end -}}
+{{- if not $cfgEnabled -}}
 false
 {{- else -}}
-  {{- $componentData := index $components $component -}}
-  {{- if not (kindIs "map" $componentData) -}}
-false
-  {{- else -}}
-    {{- $nodes := (index $componentData "nodes") | default (list) -}}
-    {{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) -}}
+  {{- $internal := (index $values "internal") | default dict -}}
+  {{- if not (kindIs "map" $internal) }}{{- $internal = dict }}{{- end }}
+  {{- $bootstrap := (index $internal "bootstrap") | default dict -}}
+  {{- if not (kindIs "map" $bootstrap) }}{{- $bootstrap = dict }}{{- end }}
+  {{- $components := (index $bootstrap "components") | default dict -}}
+  {{- if not (kindIs "map" $components) }}{{- $components = dict }}{{- end }}
+  {{- $componentData := index $components $component | default dict -}}
+  {{- if not (kindIs "map" $componentData) }}{{- $componentData = dict }}{{- end }}
+  {{- $nodes := (index $componentData "nodes") | default (list) -}}
+  {{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) -}}
 true
-    {{- else -}}
+  {{- else -}}
 false
-    {{- end -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -71,18 +86,20 @@ false
 {{- if not (kindIs "map" $bootstrap) }}{{- $bootstrap = dict }}{{- end }}
 {{- $components := (index $bootstrap "components") | default dict -}}
 {{- if not (kindIs "map" $components) }}{{- $components = dict }}{{- end }}
-{{- if and (hasKey $components $component) (kindIs "map" (index $components $component)) }}
-{{- $componentData := index $components $component -}}
-{{- $nodes := (index $componentData "nodes") | default (list) -}}
+{{- $nodes := list -}}
+{{- if and (hasKey $components $component) (kindIs "map" (index $components $component)) -}}
+  {{- $componentData := index $components $component -}}
+  {{- $stateNodes := (index $componentData "nodes") | default (list) -}}
+  {{- if and (kindIs "slice" $stateNodes) (gt (len $stateNodes) 0) -}}
+    {{- $nodes = $stateNodes -}}
+  {{- end -}}
+{{- end -}}
+{{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) }}
 - key: kubernetes.io/hostname
   operator: In
   values:
-{{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) }}
 {{- range $nodes }}
     - {{ . | quote }}
-{{- end }}
-{{- else }}
-    - "__bootstrap-disabled__"
 {{- end }}
 {{- end }}
 {{- end -}}
