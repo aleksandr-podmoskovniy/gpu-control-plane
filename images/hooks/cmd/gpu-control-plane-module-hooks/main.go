@@ -19,7 +19,6 @@ package main
 import (
 	"github.com/deckhouse/module-sdk/pkg/app"
 
-	_ "hooks/pkg/hooks"
 	"hooks/pkg/readiness"
 )
 

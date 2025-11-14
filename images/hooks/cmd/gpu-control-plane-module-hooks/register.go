@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	_ "hooks/pkg/hooks/bootstrap_state_sync"
 	_ "hooks/pkg/hooks/ca_discovery"
 	_ "hooks/pkg/hooks/copy_custom_certificate"
 	_ "hooks/pkg/hooks/discovery-node-feature-rule"
