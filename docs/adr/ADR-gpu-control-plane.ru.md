@@ -573,6 +573,10 @@ gpupool обновляет pending/assigned и запускает per-pool devic
   `GPUNodeInventory.status.bootstrap`: фаза, включённость валидатора/GFD/DCGM,
   список `pendingDevices`, счётчик попыток `validations[]`, отметка `validatorRequired`
   и `monitoring.lastHeartbeat` (по данным DCGM exporter).
+  Флаг `validatorRequired` переключается сразу при появлении записей в `pendingDevices`,
+  даже если валидатор ещё не готов — это копирует модель `sds-node-configurator`, где
+  состояние Pending фиксируется фактом обнаружения проблемы, чтобы DaemonSet с валидатором
+  поднимался мгновенно на нужном узле.
 - Hook `bootstrap_state_sync` читает CR `GPUNodeInventory` и переносит
   `.status.bootstrap` в `.Values.gpuControlPlane.internal.bootstrap`, чтобы Helm-шаблоны
   валидатора/GFD/DCGM применяли `nodeAffinity` и `replicas=0` в точном соответствии

@@ -71,6 +71,12 @@ spec:
                 description: Bootstrap describes results of bootstrap-controller checks
                   for the node.
                 properties:
+                  components:
+                    additionalProperties:
+                      type: boolean
+                    description: Components stores enablement flags for bootstrap
+                      workloads on this node.
+                    type: object
                   gfdReady:
                     description: GFDReady indicates that GPU Feature Discovery DaemonSet
                       is successfully running.
@@ -79,6 +85,12 @@ spec:
                     description: LastRun stores time of the last bootstrap reconciliation.
                     format: date-time
                     type: string
+                  pendingDevices:
+                    description: PendingDevices lists inventory IDs of devices awaiting
+                      validation.
+                    items:
+                      type: string
+                    type: array
                   phase:
                     description: Phase reflects the current bootstrap phase.
                     enum:
@@ -92,6 +104,33 @@ spec:
                   toolkitReady:
                     description: ToolkitReady signals that toolkit preparation on
                       the node completed.
+                    type: boolean
+                  validations:
+                    description: Validations tracks validation attempts per device.
+                    items:
+                      description: GPUNodeValidationState stores validation attempts
+                        for a device.
+                      properties:
+                        attempts:
+                          description: Attempts counts failed validation attempts.
+                          format: int32
+                          type: integer
+                        inventoryID:
+                          description: InventoryID references the GPUDevice inventory
+                            identifier.
+                          type: string
+                        lastFailure:
+                          description: LastFailure records the timestamp of the last
+                            failed attempt.
+                          format: date-time
+                          type: string
+                      required:
+                      - inventoryID
+                      type: object
+                    type: array
+                  validatorRequired:
+                    description: ValidatorRequired is true when at least one GPU still
+                      needs validation.
                     type: boolean
                   workloads:
                     description: Workloads lists health state of every bootstrap workload

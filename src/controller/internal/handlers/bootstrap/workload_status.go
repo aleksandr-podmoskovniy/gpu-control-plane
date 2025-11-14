@@ -367,9 +367,6 @@ func (h *WorkloadStatusHandler) reconcileValidationAttempts(inventory *v1alpha1.
 	for _, id := range pending {
 		pendingSet[id] = struct{}{}
 		state, ok := tracker[id]
-		if !ok && !validatorReady {
-			continue
-		}
 		if !ok {
 			state = &v1alpha1.GPUNodeValidationState{InventoryID: id}
 			tracker[id] = state

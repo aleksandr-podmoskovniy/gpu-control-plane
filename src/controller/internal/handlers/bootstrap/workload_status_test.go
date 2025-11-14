@@ -839,15 +839,22 @@ func TestReconcileValidationAttemptsCleansStaleEntries(t *testing.T) {
 	}
 }
 
-func TestReconcileValidationAttemptsSkipsWhenValidatorNotReady(t *testing.T) {
+func TestReconcileValidationAttemptsTracksWhenValidatorNotReady(t *testing.T) {
 	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
 	inventory := &v1alpha1.GPUNodeInventory{}
 	active, throttled := handler.reconcileValidationAttempts(inventory, []string{"gpu-b"}, false)
-	if len(active) != 0 || len(throttled) != 0 {
-		t.Fatalf("expected no tracking when validator is not ready")
+	if len(active) != 1 || active[0] != "gpu-b" {
+		t.Fatalf("expected gpu-b active even when validator not ready, got %v", active)
 	}
-	if inventory.Status.Bootstrap.Validations != nil {
-		t.Fatalf("expected validations to stay nil")
+	if len(throttled) != 0 {
+		t.Fatalf("did not expect throttled devices: %v", throttled)
+	}
+	if inventory.Status.Bootstrap.Validations == nil || len(inventory.Status.Bootstrap.Validations) != 1 {
+		t.Fatalf("expected validation entry created")
+	}
+	state := inventory.Status.Bootstrap.Validations[0]
+	if state.InventoryID != "gpu-b" || state.Attempts != 0 || state.LastFailure != nil {
+		t.Fatalf("unexpected validation state: %+v", state)
 	}
 }
 
