@@ -50,12 +50,12 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		}
 
 		if globalCA := input.Values.Get(settings.GlobalKubeRBACProxyCAPath); globalCA.Exists() && globalCA.IsObject() {
-			caData := map[string]any{}
+			caData := map[string][]byte{}
 			if crt := strings.TrimSpace(globalCA.Get("cert").Str); crt != "" {
-				caData["crt"] = crt
+				caData["crt"] = []byte(crt)
 			}
 			if key := strings.TrimSpace(globalCA.Get("key").Str); key != "" {
-				caData["key"] = key
+				caData["key"] = []byte(key)
 			}
 			if len(caData) > 0 {
 				input.Values.Set(settings.InternalRootCAPath, caData)
