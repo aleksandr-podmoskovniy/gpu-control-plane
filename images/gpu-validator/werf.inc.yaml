@@ -33,7 +33,7 @@ fromImage: builder/alpine
 shell:
   install:
     - apk add --no-cache busybox-static
-    - mkdir -p /out/bin
+    - mkdir -p /out/rootfs/bin
     - |
       busybox_path=""
       for candidate in /bin/busybox-static /bin/busybox; do
@@ -46,12 +46,12 @@ shell:
         echo "busybox binary not found" >&2
         exit 1
       fi
-      cp "$busybox_path" /out/bin/busybox
-    - ln -s busybox /out/bin/sh
-    - ln -s busybox /out/bin/chroot
-    - ln -s busybox /out/bin/env
-    - ln -s busybox /out/bin/ls
-    - ln -s busybox /out/bin/cat
+      cp "$busybox_path" /out/rootfs/bin/busybox
+    - ln -s busybox /out/rootfs/bin/sh
+    - ln -s busybox /out/rootfs/bin/chroot
+    - ln -s busybox /out/rootfs/bin/env
+    - ln -s busybox /out/rootfs/bin/ls
+    - ln -s busybox /out/rootfs/bin/cat
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
@@ -62,7 +62,7 @@ import:
     to: /usr/bin/nvidia-validator
     before: setup
   - image: {{ .ModuleNamePrefix }}gpu-validator-utils
-    add: /out/bin/
+    add: /out/rootfs/
     to: /
     before: setup
 imageSpec:
