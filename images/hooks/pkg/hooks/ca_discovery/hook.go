@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	commonCASecretSnapshot = "gpu-control-plane-root-ca"
-	commonCASecretFilter   = `{
+	rootCASecretSnapshot = "gpu-control-plane-root-ca"
+	rootCASecretFilter   = `{
 		"crt": .data."tls.crt",
 		"key": .data."tls.key"
 	}`
@@ -39,24 +39,24 @@ type caSecret struct {
 	Key []byte `json:"key"`
 }
 
-var _ = registry.RegisterFunc(configModuleCommonCA, handleModuleCommonCA)
+var _ = registry.RegisterFunc(moduleCommonCAConfig, handleModuleCommonCA)
 
-var configModuleCommonCA = &pkg.HookConfig{
+var moduleCommonCAConfig = &pkg.HookConfig{
 	OnBeforeHelm: &pkg.OrderedConfig{Order: 1},
 	Kubernetes: []pkg.KubernetesConfig{
 		{
-			Name:                         commonCASecretSnapshot,
+			Name:                         rootCASecretSnapshot,
 			APIVersion:                   "v1",
 			Kind:                         "Secret",
-			JqFilter:                     commonCASecretFilter,
+			JqFilter:                     rootCASecretFilter,
 			ExecuteHookOnSynchronization: ptr.To(false),
-			NameSelector: &pkg.NameSelector{
-				MatchNames: []string{settings.RootCASecretName},
-			},
 			NamespaceSelector: &pkg.NamespaceSelector{
 				NameSelector: &pkg.NameSelector{
 					MatchNames: []string{settings.ModuleNamespace},
 				},
+			},
+			NameSelector: &pkg.NameSelector{
+				MatchNames: []string{settings.RootCASecretName},
 			},
 		},
 	},
@@ -64,7 +64,7 @@ var configModuleCommonCA = &pkg.HookConfig{
 }
 
 func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
-	snapshots := input.Snapshots.Get(commonCASecretSnapshot)
+	snapshots := input.Snapshots.Get(rootCASecretSnapshot)
 	if len(snapshots) == 0 {
 		input.Logger.Info("[ModuleCommonCA] No pre-existing GPU Control Plane CA secret; TLS hook will generate it if necessary.")
 		return nil
@@ -75,20 +75,12 @@ func handleModuleCommonCA(_ context.Context, input *pkg.HookInput) error {
 		return fmt.Errorf("unmarshal CA secret: %w", err)
 	}
 
-	values := map[string][]byte{}
-	if len(secret.Crt) > 0 {
-		values["crt"] = secret.Crt
-	}
-	if len(secret.Key) > 0 {
-		values["key"] = secret.Key
-	}
-
-	if len(values) == 0 {
+	if len(secret.Crt) == 0 && len(secret.Key) == 0 {
 		input.Values.Remove(settings.InternalRootCAPath)
 		return nil
 	}
 
-	input.Values.Set(settings.InternalRootCAPath, values)
+	input.Values.Set(settings.InternalRootCAPath, secret)
 
 	return nil
 }

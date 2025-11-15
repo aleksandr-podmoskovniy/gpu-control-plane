@@ -1,0 +1,17 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $rootCA := dig "internal" "rootCA" dict .Values.gpuControlPlane }}
+{{- if $rootCA.crt }}
+{{- $ca := printf "%s" $rootCA.crt | b64dec }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gpuControlPlane.rootCASecretName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.moduleName" .))) | nindent 2 }}
+data:
+  ca-bundle: |
+{{- $ca | nindent 4 }}
+{{- end }}
+{{- end }}

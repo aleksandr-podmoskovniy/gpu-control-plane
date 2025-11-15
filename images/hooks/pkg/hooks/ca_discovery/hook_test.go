@@ -105,7 +105,7 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 	}
 
 	input, patches := newInput(t, map[string][]pkg.Snapshot{
-		commonCASecretSnapshot: {
+		rootCASecretSnapshot: {
 			jsonSnapshot{value: secret},
 		},
 	})
@@ -134,7 +134,7 @@ func TestHandleModuleCommonCAUpdatesValues(t *testing.T) {
 
 func TestHandleModuleCommonCAPropagatesErrors(t *testing.T) {
 	input, _ := newInput(t, map[string][]pkg.Snapshot{
-		commonCASecretSnapshot: {
+		rootCASecretSnapshot: {
 			jsonSnapshot{err: errors.New("boom")},
 		},
 	})
@@ -156,7 +156,7 @@ func TestHandleModuleCommonCARemovesValuesWhenSecretEmpty(t *testing.T) {
 	}
 
 	input, patches := newInputWithValues(t, map[string][]pkg.Snapshot{
-		commonCASecretSnapshot: {
+		rootCASecretSnapshot: {
 			jsonSnapshot{value: caSecret{}},
 		},
 	}, initial)
