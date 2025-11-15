@@ -46,6 +46,8 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: COMPONENT
               value: driver
             - name: WITH_WAIT
@@ -121,6 +123,8 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: COMPONENT
               value: toolkit
             - name: NVIDIA_VISIBLE_DEVICES
@@ -137,6 +141,8 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: COMPONENT
               value: cuda
             - name: WITH_WAIT
@@ -167,6 +173,8 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: COMPONENT
               value: plugin
             - name: WITH_WAIT
@@ -205,6 +213,12 @@ spec:
             preStop:
               exec:
                 command: ["/bin/sh", "-c", "rm -f /run/nvidia/validations/*-ready"]
+          env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          env:
+            - name: PATH
+              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           volumeMounts:
             - name: run-nvidia-validations
               mountPath: /run/nvidia/validations
