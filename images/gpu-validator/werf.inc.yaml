@@ -63,7 +63,7 @@ import:
     before: setup
   - image: {{ .ModuleNamePrefix }}gpu-validator-utils
     add: /out/bin/
-    to: /bin/
+    to: /
     before: setup
 imageSpec:
   config:
