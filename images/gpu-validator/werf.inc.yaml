@@ -120,7 +120,7 @@ shell:
         exit 1
       fi
       cp "${busybox_path}" /out/bin/busybox
-      for link in sh tar ls cat env; do
+      for link in sh tar ls cat env rm touch chroot; do
         ln -sf busybox "/out/bin/${link}"
       done
 ---
