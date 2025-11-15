@@ -34,7 +34,19 @@ shell:
   install:
     - apk add --no-cache busybox-static
     - mkdir -p /out/bin
-    - cp /bin/busybox-static /out/bin/busybox
+    - |
+      busybox_path=""
+      for candidate in /bin/busybox-static /bin/busybox; do
+        if [ -x "$candidate" ]; then
+          busybox_path="$candidate"
+          break
+        fi
+      done
+      if [ -z "$busybox_path" ]; then
+        echo "busybox binary not found" >&2
+        exit 1
+      fi
+      cp "$busybox_path" /out/bin/busybox
     - ln -s busybox /out/bin/sh
     - ln -s busybox /out/bin/chroot
     - ln -s busybox /out/bin/env
