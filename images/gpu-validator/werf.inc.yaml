@@ -27,6 +27,20 @@ shell:
     - cd /src/gpu-operator/validator
     - go build -trimpath -ldflags="-s -w" -o /out/nvidia-validator
 ---
+image: {{ .ModuleNamePrefix }}gpu-validator-utils
+final: false
+fromImage: builder/alpine
+shell:
+  install:
+    - apk add --no-cache busybox-static
+    - mkdir -p /out/bin
+    - cp /bin/busybox-static /out/bin/busybox
+    - ln -s busybox /out/bin/sh
+    - ln -s busybox /out/bin/chroot
+    - ln -s busybox /out/bin/env
+    - ln -s busybox /out/bin/ls
+    - ln -s busybox /out/bin/cat
+---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
 fromImage: {{ .ModuleNamePrefix }}distroless
@@ -35,13 +49,9 @@ import:
     add: /out/nvidia-validator
     to: /usr/bin/nvidia-validator
     before: setup
-  - image: builder/alpine
-    add: /bin/busybox
-    to: /bin/busybox
-    before: setup
-  - image: builder/alpine
-    add: /bin/busybox
-    to: /bin/sh
+  - image: {{ .ModuleNamePrefix }}gpu-validator-utils
+    add: /out/bin/
+    to: /bin/
     before: setup
 imageSpec:
   config:
