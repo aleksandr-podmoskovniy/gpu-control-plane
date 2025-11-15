@@ -27,31 +27,77 @@ shell:
     - cd /src/gpu-operator/validator
     - go build -trimpath -ldflags="-s -w" -o /out/nvidia-validator
 ---
-image: {{ .ModuleNamePrefix }}gpu-validator-utils
+image: {{ .ModuleNamePrefix }}gpu-validator-runtime-artifact
 final: false
-fromImage: builder/alpine
+fromImage: builder/alt
 shell:
+  beforeInstall:
+  {{- include "alt packages proxy" . | nindent 2 }}
+  - apt-get update
+  - apt-get install -y glibc libstdc++6 libgcc1 libgomp1 libssl3 libnsl1 openssl
+  {{- include "alt packages clean" . | nindent 2 }}
   install:
-    - apk add --no-cache busybox-static
-    - mkdir -p /out/rootfs/bin
     - |
-      busybox_path=""
-      for candidate in /bin/busybox-static /bin/busybox; do
-        if [ -x "$candidate" ]; then
-          busybox_path="$candidate"
-          break
+      set -euo pipefail
+      mkdir -p /out/lib/x86_64-linux-gnu \
+               /out/lib64 \
+               /out/usr/lib/x86_64-linux-gnu \
+               /out/usr/lib \
+               /out/etc
+
+      copy_lib() {
+        local name="$1"
+        for dir in /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu /lib64 /usr/lib64; do
+          if [ -e "${dir}/${name}" ]; then
+            cp -a "${dir}/${name}" /out/lib/x86_64-linux-gnu/
+            return
+          fi
+        done
+        echo "missing library: ${name}" >&2
+        exit 1
+      }
+
+      for lib in \
+        libBrokenLocale.so.1 \
+        libanl.so.1 \
+        libc.so.6 \
+        libc_malloc_debug.so.0 \
+        libdl.so.2 \
+        libgcc_s.so.1 \
+        libm.so.6 \
+        libmvec.so.1 \
+        libnsl.so.1 \
+        libnss_compat.so.2 \
+        libnss_dns.so.2 \
+        libnss_files.so.2 \
+        libnss_hesiod.so.2 \
+        libpthread.so.0 \
+        libresolv.so.2 \
+        librt.so.1 \
+        libthread_db.so.1 \
+        libutil.so.1; do
+        copy_lib "${lib}"
+      done
+
+      cp -a /lib64/ld-linux-x86-64.so.2 /out/lib64/
+
+      cp -a /usr/lib64/libstdc++.so.6* /out/usr/lib/x86_64-linux-gnu/
+      cp -a /usr/lib64/libgomp.so.1* /out/usr/lib/x86_64-linux-gnu/
+      cp -a /usr/lib64/libcrypto.so.3 /out/usr/lib/x86_64-linux-gnu/
+      cp -a /usr/lib64/libssl.so.3 /out/usr/lib/x86_64-linux-gnu/
+
+      for dir in engines-3 ossl-modules gconv; do
+        if [ -d "/usr/lib64/${dir}" ]; then
+          cp -a "/usr/lib64/${dir}" /out/usr/lib/x86_64-linux-gnu/
+        elif [ -d "/usr/lib/${dir}" ]; then
+          cp -a "/usr/lib/${dir}" /out/usr/lib/x86_64-linux-gnu/
+        else
+          echo "skip optional directory: ${dir}" >&2
         fi
       done
-      if [ -z "$busybox_path" ]; then
-        echo "busybox binary not found" >&2
-        exit 1
-      fi
-      cp "$busybox_path" /out/rootfs/bin/busybox
-    - ln -s busybox /out/rootfs/bin/sh
-    - ln -s busybox /out/rootfs/bin/chroot
-    - ln -s busybox /out/rootfs/bin/env
-    - ln -s busybox /out/rootfs/bin/ls
-    - ln -s busybox /out/rootfs/bin/cat
+
+      cp -a /usr/lib/os-release /out/usr/lib/
+      cp -a /etc/ld.so.conf.d /out/etc/
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
@@ -61,8 +107,8 @@ import:
     add: /out/nvidia-validator
     to: /usr/bin/nvidia-validator
     before: setup
-  - image: {{ .ModuleNamePrefix }}gpu-validator-utils
-    add: /out/rootfs/
+  - image: {{ .ModuleNamePrefix }}gpu-validator-runtime-artifact
+    add: /out/
     to: /
     before: setup
 imageSpec:
