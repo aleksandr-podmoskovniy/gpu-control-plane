@@ -16,7 +16,6 @@ package tls_certificates_metrics_proxy
 
 import (
 	"fmt"
-	"strings"
 
 	tlscertificate "github.com/deckhouse/module-sdk/common-hooks/tls-certificate"
 	"github.com/deckhouse/module-sdk/pkg"
@@ -47,19 +46,6 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 		metrics := input.Values.Get(settings.InternalMetricsPath)
 		if !metrics.Exists() || !metrics.IsObject() {
 			return false
-		}
-
-		if globalCA := input.Values.Get(settings.GlobalKubeRBACProxyCAPath); globalCA.Exists() && globalCA.IsObject() {
-			caData := map[string][]byte{}
-			if crt := strings.TrimSpace(globalCA.Get("cert").Str); crt != "" {
-				caData["crt"] = []byte(crt)
-			}
-			if key := strings.TrimSpace(globalCA.Get("key").Str); key != "" {
-				caData["key"] = []byte(key)
-			}
-			if len(caData) > 0 {
-				input.Values.Set(settings.InternalRootCAPath, caData)
-			}
 		}
 
 		cert := metrics.Get("cert")

@@ -28,7 +28,5 @@ const (
 	InternalRootCAPath            = internalRoot + ".rootCA"
 	InternalCustomCertificatePath = internalRoot + ".customCertificateData"
 	InternalBootstrapStatePath    = internalRoot + ".bootstrap"
-	GlobalKubeRBACProxyCAPath     = "global.internal.modules.kubeRBACProxyCA"
-
-	HTTPSConfigPath = ConfigRoot + ".https"
+	HTTPSConfigPath               = ConfigRoot + ".https"
 )
