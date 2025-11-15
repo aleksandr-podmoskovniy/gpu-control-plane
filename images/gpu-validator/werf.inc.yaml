@@ -99,6 +99,31 @@ shell:
       cp -a /usr/lib/os-release /out/usr/lib/
       cp -a /etc/ld.so.conf.d /out/etc/
 ---
+image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
+final: false
+fromImage: builder/alpine
+shell:
+  install:
+    - |
+      set -euo pipefail
+      apk add --no-cache busybox-static
+      mkdir -p /out/bin
+      busybox_path=""
+      for candidate in /bin/busybox-static /bin/busybox.static /bin/busybox; do
+        if [ -x "${candidate}" ]; then
+          busybox_path="${candidate}"
+          break
+        fi
+      done
+      if [ -z "${busybox_path}" ]; then
+        echo "busybox binary not found" >&2
+        exit 1
+      fi
+      cp "${busybox_path}" /out/bin/busybox
+      for link in sh tar ls cat env; do
+        ln -sf busybox "/out/bin/${link}"
+      done
+---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
 fromImage: {{ .ModuleNamePrefix }}distroless
@@ -110,6 +135,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-runtime-artifact
     add: /out/
     to: /
+    before: setup
+  - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
+    add: /out/bin/
+    to: /bin
     before: setup
 imageSpec:
   config:
