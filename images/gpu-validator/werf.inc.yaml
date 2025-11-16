@@ -26,8 +26,9 @@ shell:
     - mkdir -p /out
     - cd /src/gpu-operator/validator
     - |
-      validator_commit=$(git rev-parse --short HEAD)
-      go build -trimpath -ldflags="-s -w -X main.version={{ $validatorVersion }} -X main.commit=${validator_commit}" -o /out/nvidia-validator
+      version_pkg="github.com/NVIDIA/gpu-operator/internal/info"
+      validator_commit=$(git rev-parse HEAD)
+      go build -trimpath -ldflags="-s -w -X ${version_pkg}.version={{ $validatorVersion }} -X ${version_pkg}.gitCommit=${validator_commit}" -o /out/nvidia-validator
     - mkdir -p /out/manifests
     - cp /src/gpu-operator/validator/*-workload-validation.yaml /out/manifests/
 ---
