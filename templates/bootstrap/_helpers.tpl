@@ -3,7 +3,11 @@
 {{- define "gpuControlPlane.bootstrap.componentName" -}}
 {{- $ctx := index . 0 -}}
 {{- $component := index . 1 -}}
+{{- if eq $component "validator" -}}
+{{- printf "nvidia-operator-validator" -}}
+{{- else -}}
 {{- printf "%s-%s" (include "gpuControlPlane.moduleName" $ctx) $component -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "gpuControlPlane.bootstrap.moduleLabels" -}}

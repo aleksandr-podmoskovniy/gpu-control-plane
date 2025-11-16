@@ -48,6 +48,9 @@ var managedComponents = []Component{
 
 // AppName returns the value stored in the pod label `app` for the component.
 func AppName(component Component) string {
+	if component == ComponentValidator {
+		return "nvidia-operator-validator"
+	}
 	return fmt.Sprintf("%s-%s", componentPrefix, component)
 }
 

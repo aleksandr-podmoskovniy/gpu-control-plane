@@ -18,7 +18,7 @@ import "testing"
 
 func TestAppNameFormatting(t *testing.T) {
 	got := AppName(ComponentValidator)
-	if got != "gpu-control-plane-validator" {
+	if got != "nvidia-operator-validator" {
 		t.Fatalf("unexpected app name: %s", got)
 	}
 }
