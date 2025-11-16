@@ -1,5 +1,4 @@
 {{ $validatorVersion := "v25.3.4" }}
-{{ $cudaSamplesVersion := "v12.4" }}
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator-artifact
 final: false
@@ -32,6 +31,8 @@ shell:
       go build -trimpath -ldflags="-s -w -X ${version_pkg}.version={{ $validatorVersion }} -X ${version_pkg}.gitCommit=${validator_commit}" -o /out/nvidia-validator
     - mkdir -p /out/manifests
     - cp /src/gpu-operator/validator/*-workload-validation.yaml /out/manifests/
+    - mkdir -p /out/validator
+    - cp /src/gpu-operator/validator/versions.mk /out/validator/versions.mk
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator-runtime-artifact
 final: false
@@ -137,22 +138,22 @@ fromImage: {{ .ModuleNamePrefix }}builder-cuda
 secrets:
   - id: SOURCE_REPO
     value: {{ .SOURCE_REPO }}
+import:
+  - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
+    add: /out/validator/versions.mk
+    to: /versions/versions.mk
+    before: install
 shell:
-  beforeInstall:
-    - |
-      set -euo pipefail
-      apt-get update
-      apt-get install -y --no-install-recommends \
-        cuda-nvcc-12-8 \
-        build-essential \
-        ca-certificates \
-        git
-      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
   install:
     - |
       set -euo pipefail
       export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
-      git clone --depth 1 --branch {{ $cudaSamplesVersion }} ${SOURCE_REPO}/NVIDIA/cuda-samples.git /src/cuda-samples
+      cuda_samples_version=$(awk -F '=' '/CUDA_SAMPLES_VERSION/ {gsub(/[ \t]/,\"\",$2); print $2}' /versions/versions.mk)
+      if [ -z "${cuda_samples_version}" ]; then
+        echo "failed to detect CUDA_SAMPLES_VERSION, fallback to 11.7.1" >&2
+        cuda_samples_version="11.7.1"
+      fi
+      git clone --depth 1 --branch v${cuda_samples_version} ${SOURCE_REPO}/NVIDIA/cuda-samples.git /src/cuda-samples
       cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
       make
       mkdir -p /out
