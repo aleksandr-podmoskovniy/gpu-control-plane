@@ -25,7 +25,11 @@ shell:
     - git clone --depth 1 --branch {{ $validatorVersion }} ${SOURCE_REPO}/NVIDIA/gpu-operator.git /src/gpu-operator
     - mkdir -p /out
     - cd /src/gpu-operator/validator
-    - go build -trimpath -ldflags="-s -w" -o /out/nvidia-validator
+    - |
+      validator_commit=$(git rev-parse --short HEAD)
+      go build -trimpath -ldflags="-s -w -X main.version={{ $validatorVersion }} -X main.commit=${validator_commit}" -o /out/nvidia-validator
+    - mkdir -p /out/manifests
+    - cp /src/gpu-operator/validator/*-workload-validation.yaml /out/manifests/
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator-runtime-artifact
 final: false
@@ -144,6 +148,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
     add: /out/usr/bin/
     to: /usr/bin
+    before: setup
+  - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
+    add: /out/manifests/
+    to: /var/nvidia/manifests
     before: setup
 imageSpec:
   config:
