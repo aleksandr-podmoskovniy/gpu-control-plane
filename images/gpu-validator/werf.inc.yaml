@@ -107,7 +107,7 @@ shell:
     - |
       set -euo pipefail
       apk add --no-cache busybox-static
-      mkdir -p /out/bin
+      mkdir -p /out/bin /out/usr/bin
       busybox_path=""
       for candidate in /bin/busybox-static /bin/busybox.static /bin/busybox; do
         if [ -x "${candidate}" ]; then
@@ -122,6 +122,7 @@ shell:
       cp "${busybox_path}" /out/bin/busybox
       for link in sh tar ls cat env rm touch chroot; do
         ln -sf busybox "/out/bin/${link}"
+        ln -sf /bin/busybox "/out/usr/bin/${link}"
       done
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
@@ -139,6 +140,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
     add: /out/bin/
     to: /bin
+    before: setup
+  - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
+    add: /out/usr/bin/
+    to: /usr/bin
     before: setup
 imageSpec:
   config:
