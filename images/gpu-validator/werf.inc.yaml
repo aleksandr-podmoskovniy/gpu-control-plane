@@ -130,6 +130,26 @@ shell:
         ln -sf /bin/busybox "/out/usr/bin/${link}"
       done
 ---
+image: {{ .ModuleNamePrefix }}gpu-validator-vectoradd-artifact
+final: false
+fromImage: {{ .ModuleNamePrefix }}builder-cuda
+git:
+  - add: /images/gpu-validator/vectorAdd
+    to: /src/vectorAdd
+    stageDependencies:
+      install:
+        - "**/*"
+shell:
+  install:
+    - |
+      set -euo pipefail
+      apt-get update
+      apt-get install -y --no-install-recommends cuda-nvcc-12-8
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+      mkdir -p /out
+      cd /src/vectorAdd
+      nvcc -arch=sm_60 vectorAdd.cu -o /out/vectorAdd
+---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
 fromImage: {{ .ModuleNamePrefix }}distroless
@@ -149,6 +169,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
     add: /out/usr/bin/
     to: /usr/bin
+    before: setup
+  - image: {{ .ModuleNamePrefix }}gpu-validator-vectoradd-artifact
+    add: /out/vectorAdd
+    to: /usr/bin/vectorAdd
     before: setup
   - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
     add: /out/manifests/
