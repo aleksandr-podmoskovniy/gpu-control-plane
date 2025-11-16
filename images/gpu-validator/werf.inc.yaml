@@ -1,4 +1,5 @@
 {{ $validatorVersion := "v25.3.4" }}
+{{ $cudaSamplesVersion := "v12.4" }}
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator-artifact
 final: false
@@ -130,6 +131,33 @@ shell:
         ln -sf /bin/busybox "/out/usr/bin/${link}"
       done
 ---
+image: {{ .ModuleNamePrefix }}gpu-validator-vectoradd-artifact
+final: false
+fromImage: {{ .ModuleNamePrefix }}builder-cuda
+secrets:
+  - id: SOURCE_REPO
+    value: {{ .SOURCE_REPO }}
+shell:
+  beforeInstall:
+    - |
+      set -euo pipefail
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        cuda-nvcc-12-8 \
+        build-essential \
+        ca-certificates \
+        git
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+  install:
+    - |
+      set -euo pipefail
+      export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
+      git clone --depth 1 --branch {{ $cudaSamplesVersion }} ${SOURCE_REPO}/NVIDIA/cuda-samples.git /src/cuda-samples
+      cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
+      make
+      mkdir -p /out
+      cp vectorAdd /out/vectorAdd
+---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
 fromImage: {{ .ModuleNamePrefix }}distroless
@@ -149,6 +177,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gpu-validator-busybox-artifact
     add: /out/usr/bin/
     to: /usr/bin
+    before: setup
+  - image: {{ .ModuleNamePrefix }}gpu-validator-vectoradd-artifact
+    add: /out/vectorAdd
+    to: /usr/bin/vectorAdd
     before: setup
   - image: {{ .ModuleNamePrefix }}gpu-validator-artifact
     add: /out/manifests/
