@@ -82,7 +82,7 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-KUBECONFORM_IMAGE=ghcr.io/yannh/kubeconform:latest
+KUBECONFORM_IMAGE=ghcr.io/yannh/kubeconform:v0.7.0
 USE_DOCKER=false
 
 _kubeconform() {
