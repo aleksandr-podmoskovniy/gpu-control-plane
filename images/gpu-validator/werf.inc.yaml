@@ -148,6 +148,7 @@ shell:
     - |
       set -euxo pipefail
       export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
+      export PATH=/usr/local/cuda/bin:/usr/local/cuda-12.8/bin:$PATH
       # Используем фиксированный тег cuda-samples v12.8 (консистентно с upstream).
       cuda_samples_version="12.8"
       repo="${SOURCE_REPO}/NVIDIA/cuda-samples.git"
