@@ -96,11 +96,6 @@ import:
   add: /src/etc/*
   to: /etc/dcgm-exporter
   before: setup
-- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
-  add: /
-  includePaths:
-    - lib64
-  before: setup
 - image: libs/glibc
   add: /
   to: /
