@@ -148,11 +148,8 @@ shell:
     - |
       set -euo pipefail
       export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
-      cuda_samples_version="$(grep -E 'CUDA_SAMPLES_VERSION' /versions/versions.mk | tail -n1 | cut -d '=' -f2 | tr -d '[:space:]')"
-      if [ -z "${cuda_samples_version}" ]; then
-        echo "failed to detect CUDA_SAMPLES_VERSION, fallback to 11.7.1" >&2
-        cuda_samples_version="11.7.1"
-      fi
+      # Используем фиксированный тег cuda-samples v12.8 (консистентно с upstream).
+      cuda_samples_version="12.8"
       git clone --depth 1 --branch "v${cuda_samples_version}" ${SOURCE_REPO}/NVIDIA/cuda-samples.git /src/cuda-samples
       cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
       make
