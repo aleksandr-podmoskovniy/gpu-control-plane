@@ -155,9 +155,8 @@ shell:
       git ls-remote "${repo}" "refs/tags/v${cuda_samples_version}"
       git clone --depth 1 --branch "v${cuda_samples_version}" "${repo}" /src/cuda-samples
       cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
-      make
       mkdir -p /out
-      cp vectorAdd /out/vectorAdd
+      nvcc vectorAdd.cu -o /out/vectorAdd
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
