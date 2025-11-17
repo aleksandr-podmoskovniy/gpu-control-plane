@@ -194,3 +194,5 @@ imageSpec:
     entrypoint: ["/usr/bin/nvidia-validator"]
     env:
       PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    labels:
+      gpu-control-plane.build-revision: "{{ .Chart.Version }}-{{ now | date "20060102T150405" }}"
