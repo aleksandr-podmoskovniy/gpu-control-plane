@@ -160,10 +160,11 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 		t.Fatalf("expected phase Ready, got %s", inventory.Status.Bootstrap.Phase)
 	}
 	components := inventory.Status.Bootstrap.Components
-	if len(components) != 3 {
+	if len(components) != 4 {
 		t.Fatalf("expected GPU workloads enabled, got %+v", components)
 	}
 	for _, component := range []meta.Component{
+		meta.ComponentValidator,
 		meta.ComponentGPUFeatureDiscovery,
 		meta.ComponentDCGM,
 		meta.ComponentDCGMExporter,
@@ -171,9 +172,6 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 		if !components[string(component)] {
 			t.Fatalf("component %s not enabled in status: %+v", component, components)
 		}
-	}
-	if components[string(meta.ComponentValidator)] {
-		t.Fatalf("validator should be disabled when no devices require validation")
 	}
 	if inventory.Status.Bootstrap.PendingDevices != nil {
 		t.Fatalf("expected no pending devices, got %+v", inventory.Status.Bootstrap.PendingDevices)

@@ -315,9 +315,12 @@ func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNod
 func (h *WorkloadStatusHandler) updateComponentEnablement(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase, validatorRequired bool) {
 	devicesPresent := hardwarePresent(inventory)
 	enabled := bootstrapcomponents.EnabledComponents(phase, devicesPresent)
-	if validatorRequired {
+	// Keep validator DaemonSet running on GPU nodes even after initial validation
+	// to match upstream behaviour and avoid tearing down follow-up workloads.
+	if devicesPresent && phase != v1alpha1.GPUNodeBootstrapPhaseDisabled {
 		enabled[meta.ComponentValidator] = true
-	} else {
+	}
+	if !devicesPresent {
 		delete(enabled, meta.ComponentValidator)
 	}
 
