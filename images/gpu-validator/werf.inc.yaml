@@ -146,11 +146,14 @@ import:
 shell:
   install:
     - |
-      set -euo pipefail
+      set -euxo pipefail
       export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
       # Используем фиксированный тег cuda-samples v12.8 (консистентно с upstream).
       cuda_samples_version="12.8"
-      git clone --depth 1 --branch "v${cuda_samples_version}" ${SOURCE_REPO}/NVIDIA/cuda-samples.git /src/cuda-samples
+      repo="${SOURCE_REPO}/NVIDIA/cuda-samples.git"
+      echo "Cloning cuda-samples tag v${cuda_samples_version} from ${repo}"
+      git ls-remote "${repo}" "refs/tags/v${cuda_samples_version}"
+      git clone --depth 1 --branch "v${cuda_samples_version}" "${repo}" /src/cuda-samples
       cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
       make
       mkdir -p /out
