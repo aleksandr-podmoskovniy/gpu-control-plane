@@ -28,10 +28,22 @@ shell:
     set -e
     mkdir -p /pkg/compat/lib /pkg/compat/lib64
     for lib in libc.so.6 libresolv.so.2 libpthread.so.0 librt.so.1 libdl.so.2 libm.so.6; do
-      cp -L "/usr/lib/x86_64-linux-gnu/${lib}" /pkg/compat/lib/
-    done
-    cp -L "$(gcc -print-file-name=libgcc_s.so.1)" /pkg/compat/lib/
-    cp -L /lib64/ld-linux-x86-64.so.2 /pkg/compat/lib64/
+    cp -L "/usr/lib/x86_64-linux-gnu/${lib}" /pkg/compat/lib/
+  done
+  cp -L "$(gcc -print-file-name=libgcc_s.so.1)" /pkg/compat/lib/
+  cp -L /lib64/ld-linux-x86-64.so.2 /pkg/compat/lib64/
+---
+image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
+final: false
+fromImage: {{ .ModuleNamePrefix }}{{ .ImageName }}-package
+shell:
+  install:
+  - |
+    set -euo pipefail
+    mkdir -p /out/usr /out/lib /out/lib64
+    cp -a /pkg/usr/* /out/usr/
+    cp -a /pkg/compat/lib/* /out/lib/
+    cp -a /pkg/compat/lib64/* /out/lib64/ || true
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 fromImage: {{ .ModuleNamePrefix }}distroless
