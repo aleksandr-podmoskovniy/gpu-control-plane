@@ -27,12 +27,14 @@ import:
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src
   before: install
-- image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
-  add: /out/
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg
   to: /
   includePaths:
   - usr/*
   - lib
+  - compat/lib
+  - compat/lib64
   before: setup
 mount:
   - fromPath: "~/go-pkg-cache"
@@ -83,12 +85,14 @@ import:
   - dcgm-exporter
   - dcgm-exporter-entrypoint.sh
   before: setup
-- image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
-  add: /out/
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg
   to: /
   includePaths:
   - usr/*
   - lib
+  - compat/lib
+  - compat/lib64
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src/etc/*
