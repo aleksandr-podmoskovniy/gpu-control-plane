@@ -53,6 +53,7 @@ shell:
   - cp docker/dcgm-exporter-entrypoint.sh /dcgm-exporter-entrypoint.sh
   - sed -i "s/env bash/bash/" /dcgm-exporter-entrypoint.sh
   - sed -E -i "s#DCGM_EXPORTER=.+#DCGM_EXPORTER=/usr/bin/dcgm-exporter#" /dcgm-exporter-entrypoint.sh
+  - sed -E -i "s#setcap 'cap_sys_admin=\\+ep' \\$DCGM_EXPORTER#command -v setcap >/dev/null 2>\\&1 \\&\\& setcap 'cap_sys_admin=+ep' $DCGM_EXPORTER#" /dcgm-exporter-entrypoint.sh
   - chmod 700 /dcgm-exporter /dcgm-exporter-entrypoint.sh
   - |
     mkdir -p /ldconf
@@ -89,6 +90,14 @@ import:
   includePaths:
   - lib
   - lib64
+  before: setup
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg/compat/lib
+  to: /usr/lib
+  before: setup
+- image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+  add: /pkg/compat/lib64
+  to: /lib64
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src/etc/*
