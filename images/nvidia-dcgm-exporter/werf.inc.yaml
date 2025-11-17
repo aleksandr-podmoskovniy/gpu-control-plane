@@ -90,15 +90,17 @@ import:
   add: /pkg
   to: /
   includePaths:
-  - usr/lib
-  - usr/lib64
-  - usr/bin
-  - compat/lib
-  - compat/lib64
+  - usr/*
+  - lib
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
   add: /src/etc/*
   to: /etc/dcgm-exporter
+  before: setup
+- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
+  add: /
+  includePaths:
+    - lib64
   before: setup
 - image: libs/glibc
   add: /

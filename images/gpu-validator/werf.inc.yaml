@@ -91,11 +91,11 @@ shell:
       cp -a /usr/lib64/libstdc++.so.6* /out/usr/lib/x86_64-linux-gnu/
       cp -a /usr/lib64/libgomp.so.1* /out/usr/lib/x86_64-linux-gnu/
       cp -a /usr/lib64/libcrypto.so.3 /out/usr/lib/x86_64-linux-gnu/
-      cp -a /usr/lib64/libssl.so.3 /out/usr/lib/x86_64-linux-gnu/
+      cp -a /usr.lib64/libssl.so.3 /out/usr/lib/x86_64-linux-gnu/
 
       for dir in engines-3 ossl-modules gconv; do
         if [ -d "/usr/lib64/${dir}" ]; then
-          cp -a "/usr/lib64/${dir}" /out/usr/lib/x86_64-linux-gnu/
+          cp -a "/usr.lib64/${dir}" /out/usr/lib/x86_64-linux-gnu/
         elif [ -d "/usr/lib/${dir}" ]; then
           cp -a "/usr/lib/${dir}" /out/usr/lib/x86_64-linux-gnu/
         else
@@ -149,7 +149,6 @@ shell:
       set -euxo pipefail
       export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
       export PATH=/usr/local/cuda/bin:/usr/local/cuda-12.8/bin:$PATH
-      # Используем фиксированный тег cuda-samples v12.8 (консистентно с upstream).
       cuda_samples_version="12.8"
       repo="${SOURCE_REPO}/NVIDIA/cuda-samples.git"
       echo "Cloning cuda-samples tag v${cuda_samples_version} from ${repo}"
