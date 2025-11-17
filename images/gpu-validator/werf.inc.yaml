@@ -157,7 +157,7 @@ shell:
       git clone --depth 1 --branch "v${cuda_samples_version}" "${repo}" /src/cuda-samples
       cd /src/cuda-samples/Samples/0_Introduction/vectorAdd
       mkdir -p /out
-      nvcc -I ../../Common/inc vectorAdd.cu -o /out/vectorAdd
+      nvcc -I ../../Common vectorAdd.cu -o /out/vectorAdd
 ---
 image: {{ .ModuleNamePrefix }}gpu-validator
 final: true
