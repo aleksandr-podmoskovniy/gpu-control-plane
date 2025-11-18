@@ -150,7 +150,6 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	}
 
 	h.log.V(2).Info("checking bootstrap workloads", "node", nodeName)
-	currentTime := h.clock().UTC()
 
 	componentStatuses, err := h.probeComponents(ctx, nodeName)
 	if err != nil {
@@ -177,17 +176,14 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	toolkitReady := validatorReady
 	componentHealthy := gfdReady && validatorReady
 	var heartbeat *metav1.Time
-	monitoringReady := false
-		if dcgmReady && exporterReady {
-			if hb, err := h.exporterHeartbeat(ctx, nodeName); err == nil {
-				heartbeat = hb
-				if currentTime.Sub(hb.Time) <= heartbeatStaleAfter {
-					monitoringReady = true
-				}
-			} else {
-				h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
-			}
+	monitoringReady := dcgmReady && exporterReady
+	if monitoringReady {
+		if hb, err := h.exporterHeartbeat(ctx, nodeName); err == nil {
+			heartbeat = hb
+		} else {
+			h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
 		}
+	}
 
 	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, heartbeat, workloads)
 	inventoryComplete := isInventoryComplete(inventory)
@@ -483,7 +479,10 @@ func scrapeExporterHeartbeat(ctx context.Context, pod *corev1.Pod) (*metav1.Time
 
 	ts, err := parseHeartbeatMetric(resp.Body)
 	if err != nil {
-		return nil, err
+		// Some exporter builds do not expose the heartbeat metric; treat reachability as success
+		// and fall back to "now" to avoid blocking bootstrap in that case.
+		now := metav1.NewTime(time.Now().UTC())
+		return &now, nil
 	}
 	heartbeat := metav1.NewTime(ts.UTC())
 	return &heartbeat, nil

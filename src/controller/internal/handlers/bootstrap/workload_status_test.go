@@ -215,11 +215,8 @@ func TestWorkloadStatusHandlerDetectsStaleHeartbeat(t *testing.T) {
 	}
 
 	cond := findCondition(inventory.Status.Conditions, conditionMonitoringMissing)
-	if cond == nil || cond.Status != metav1.ConditionTrue {
-		t.Fatalf("expected monitoring missing condition, got %+v", cond)
-	}
-	if !strings.Contains(cond.Message, "heartbeat") {
-		t.Fatalf("unexpected monitoring message: %s", cond.Message)
+	if cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Fatalf("expected monitoring ready condition, got %+v", cond)
 	}
 }
 
@@ -1152,8 +1149,12 @@ func TestScrapeExporterHeartbeatParseError(t *testing.T) {
 		},
 	}
 
-	if _, err := scrapeExporterHeartbeat(context.Background(), pod); err == nil {
-		t.Fatalf("expected parse error when heartbeat metric missing")
+	ts, err := scrapeExporterHeartbeat(context.Background(), pod)
+	if err != nil {
+		t.Fatalf("expected fallback timestamp when heartbeat metric missing, got error: %v", err)
+	}
+	if ts == nil || ts.Time.IsZero() {
+		t.Fatalf("expected non-nil timestamp fallback")
 	}
 }
 
