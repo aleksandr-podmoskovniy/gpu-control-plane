@@ -207,12 +207,12 @@ spec:
         - name: watchdog
           image: {{ $image }}
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "echo all validations are successful; exec sleep infinity"]
+          command: ["/bin/busybox", "sh", "-c", "echo all validations are successful; exec /bin/busybox sleep infinity"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "rm -f /run/nvidia/validations/*-ready"]
+                command: ["/bin/busybox", "sh", "-c", "rm -f /run/nvidia/validations/*-ready"]
           env:
             - name: PATH
               value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
