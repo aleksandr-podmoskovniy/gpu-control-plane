@@ -95,6 +95,12 @@ import:
   - getcap
   - setcap
   before: setup
+- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
+  add: /lib/x86_64-linux-gnu
+  to: /lib/x86_64-linux-gnu
+  includePaths:
+  - libcap.so.2*
+  before: setup
 - image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
   add: /out/
   to: /
