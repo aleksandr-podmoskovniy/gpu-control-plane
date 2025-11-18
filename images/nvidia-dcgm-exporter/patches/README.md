@@ -6,4 +6,4 @@ Bump libraries versions to resolve CVE
 
 ### 001-dcp-metrics.patch
 
-Enables additional ECC, retired pages, and NVLink counters in `dcp-metrics-included.csv` while leaving all PROF\_\* metrics commented out (profiling modules often unavailable in our environment). PCIe counters remain upstream defaults.
+Enables additional ECC, retired pages, and NVLink counters in `dcp-metrics-included.csv` while keeping all PROF\_\* metrics commented out.
