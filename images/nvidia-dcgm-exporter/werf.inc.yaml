@@ -65,6 +65,9 @@ shell:
     mkdir -p /ldconf/ld.so.conf.d
     echo "/usr/lib/x86_64-linux-gnu" > /ldconf/ld.so.conf.d/x86_64-linux-gnu.conf
   - cp /bin/bash /bash
+  - |
+    mkdir -p /out/lib/x86_64-linux-gnu
+    cp /lib/x86_64-linux-gnu/libcap.so.2* /out/lib/x86_64-linux-gnu/
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 fromImage: {{ .ModuleNamePrefix }}distroless
@@ -96,7 +99,7 @@ import:
   - setcap
   before: setup
 - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
-  add: /lib/x86_64-linux-gnu
+  add: /out/lib/x86_64-linux-gnu
   to: /lib/x86_64-linux-gnu
   includePaths:
   - libcap.so.2*
