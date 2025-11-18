@@ -41,11 +41,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -266,6 +264,7 @@ type Reconciler struct {
 	store                    *config.ModuleConfigStore
 	fallbackManaged          ManagedNodesPolicy
 	fallbackApproval         DeviceApprovalPolicy
+	fallbackMonitoring       bool
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.InventoryHandler) (*Reconciler, error) {
@@ -295,6 +294,7 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 		store:                    store,
 		fallbackManaged:          managed,
 		fallbackApproval:         approval,
+		fallbackMonitoring:       state.Settings.Monitoring.ServiceMonitor,
 	}
 	rec.setResyncPeriod(cfg.ResyncPeriod)
 	rec.applyInventoryResync(state)
@@ -330,6 +330,8 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 	r.scheme = deps.scheme
 	r.recorder = deps.recorder
 
+	predicates := r.nodePredicates()
+
 	if err := deps.indexer.IndexField(ctx, &v1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
 		device, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok {
@@ -350,30 +352,9 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		CacheSyncTimeout:        cacheSyncTimeoutDuration,
 	}
 
-	nodePredicates := predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			node, ok := e.Object.(*corev1.Node)
-			if !ok {
-				return false
-			}
-			return nodeHasGPUHardwareLabels(node.GetLabels())
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldNode, _ := e.ObjectOld.(*corev1.Node)
-			newNode, _ := e.ObjectNew.(*corev1.Node)
-			return nodeHasGPUHardwareLabels(nodeLabels(oldNode)) || nodeHasGPUHardwareLabels(nodeLabels(newNode))
-		},
-		DeleteFunc: func(event.DeleteEvent) bool {
-			return true
-		},
-		GenericFunc: func(event.GenericEvent) bool {
-			return false
-		},
-	}
-
 	builder := deps.builder.
 		Named(controllerName).
-		For(&corev1.Node{}, builder.WithPredicates(nodePredicates)).
+		For(&corev1.Node{}, builder.WithPredicates(predicates)).
 		Owns(&v1alpha1.GPUDevice{}).
 		Owns(&v1alpha1.GPUNodeInventory{}).
 		WatchesRawSource(deps.nodeFeatureSource).
@@ -496,8 +477,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	reconciledDevices := make([]*v1alpha1.GPUDevice, 0, len(snapshotList))
 	aggregate := contracts.Result{}
 
+	var telemetry nodeTelemetry
+	if len(snapshotList) > 0 && r.monitoringEnabled() {
+		if t, err := r.collectNodeTelemetry(ctx, node.Name); err == nil {
+			telemetry = t
+		} else {
+			log.V(1).Info("dcgm telemetry unavailable", "node", node.Name, "error", err)
+		}
+	}
+
 	for _, snapshot := range snapshotList {
-		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy)
+		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, telemetry)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -576,6 +566,17 @@ func (r *Reconciler) getResyncPeriod() time.Duration {
 	return r.resyncPeriod
 }
 
+func (r *Reconciler) monitoringEnabled() bool {
+	if r.store != nil {
+		state := r.store.Current()
+		return state.Settings.Monitoring.ServiceMonitor
+	}
+	if r.fallbackMonitoring {
+		return true
+	}
+	return moduleconfigpkg.DefaultMonitoringService
+}
+
 func (r *Reconciler) findNodeFeature(ctx context.Context, nodeName string) (*nfdv1alpha1.NodeFeature, error) {
 	feature := &nfdv1alpha1.NodeFeature{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, feature); err == nil {
@@ -611,7 +612,7 @@ func chooseNodeFeature(items []nfdv1alpha1.NodeFeature, nodeName string) *nfdv1a
 	return selected
 }
 
-func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*v1alpha1.GPUDevice, contracts.Result, error) {
+func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, telemetry nodeTelemetry) (*v1alpha1.GPUDevice, contracts.Result, error) {
 	deviceName := buildDeviceName(node.Name, snapshot)
 	device := &v1alpha1.GPUDevice{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
@@ -646,10 +647,43 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	}
 	if device.Status.Hardware.PCI.Vendor != snapshot.Vendor ||
 		device.Status.Hardware.PCI.Device != snapshot.Device ||
-		device.Status.Hardware.PCI.Class != snapshot.Class {
+		device.Status.Hardware.PCI.Class != snapshot.Class ||
+		device.Status.Hardware.PCI.Address != snapshot.PCIAddress {
 		device.Status.Hardware.PCI.Vendor = snapshot.Vendor
 		device.Status.Hardware.PCI.Device = snapshot.Device
 		device.Status.Hardware.PCI.Class = snapshot.Class
+		device.Status.Hardware.PCI.Address = snapshot.PCIAddress
+	}
+	if !int32PtrEqual(device.Status.Hardware.NUMANode, snapshot.NUMANode) {
+		device.Status.Hardware.NUMANode = snapshot.NUMANode
+	}
+	if !int32PtrEqual(device.Status.Hardware.PowerLimitMilliWatt, snapshot.PowerLimitMW) {
+		device.Status.Hardware.PowerLimitMilliWatt = snapshot.PowerLimitMW
+	}
+	if !int32PtrEqual(device.Status.Hardware.SMCount, snapshot.SMCount) {
+		device.Status.Hardware.SMCount = snapshot.SMCount
+	}
+	if !int32PtrEqual(device.Status.Hardware.MemoryBandwidthMiB, snapshot.MemBandwidth) {
+		device.Status.Hardware.MemoryBandwidthMiB = snapshot.MemBandwidth
+	}
+	desiredPCIE := v1alpha1.PCIELink{Generation: snapshot.PCIEGen, Width: snapshot.PCIELinkWid}
+	if !pcieEqual(device.Status.Hardware.PCIE, desiredPCIE) {
+		device.Status.Hardware.PCIE = desiredPCIE
+	}
+	if device.Status.Hardware.Board != snapshot.Board {
+		device.Status.Hardware.Board = snapshot.Board
+	}
+	if device.Status.Hardware.Family != snapshot.Family {
+		device.Status.Hardware.Family = snapshot.Family
+	}
+	if device.Status.Hardware.Serial != snapshot.Serial {
+		device.Status.Hardware.Serial = snapshot.Serial
+	}
+	if device.Status.Hardware.PState != snapshot.PState {
+		device.Status.Hardware.PState = snapshot.PState
+	}
+	if device.Status.Hardware.DisplayMode != snapshot.DisplayMode {
+		device.Status.Hardware.DisplayMode = snapshot.DisplayMode
 	}
 	if device.Status.Hardware.Product != snapshot.Product {
 		device.Status.Hardware.Product = snapshot.Product
@@ -671,6 +705,8 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	if device.Status.AutoAttach != autoAttach {
 		device.Status.AutoAttach = autoAttach
 	}
+
+	applyTelemetry(device, snapshot, telemetry)
 
 	result, err := r.invokeHandlers(ctx, device)
 	if err != nil {
@@ -714,6 +750,17 @@ func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapsh
 	device.Status.Hardware.PCI.Vendor = snapshot.Vendor
 	device.Status.Hardware.PCI.Device = snapshot.Device
 	device.Status.Hardware.PCI.Class = snapshot.Class
+	device.Status.Hardware.PCI.Address = snapshot.PCIAddress
+	device.Status.Hardware.NUMANode = snapshot.NUMANode
+	device.Status.Hardware.PowerLimitMilliWatt = snapshot.PowerLimitMW
+	device.Status.Hardware.SMCount = snapshot.SMCount
+	device.Status.Hardware.MemoryBandwidthMiB = snapshot.MemBandwidth
+	device.Status.Hardware.PCIE = v1alpha1.PCIELink{Generation: snapshot.PCIEGen, Width: snapshot.PCIELinkWid}
+	device.Status.Hardware.Board = snapshot.Board
+	device.Status.Hardware.Family = snapshot.Family
+	device.Status.Hardware.Serial = snapshot.Serial
+	device.Status.Hardware.PState = snapshot.PState
+	device.Status.Hardware.DisplayMode = snapshot.DisplayMode
 	device.Status.Hardware.Product = snapshot.Product
 	device.Status.Hardware.MemoryMiB = snapshot.MemoryMiB
 	device.Status.Hardware.ComputeCapability = capabilityFromSnapshot(snapshot)
@@ -849,20 +896,60 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 		snap, ok := snapshotByIndex[index]
 
 		nodeDevice := v1alpha1.GPUNodeDevice{
-			InventoryID: device.Status.InventoryID,
-			Product:     device.Status.Hardware.Product,
-			PCI:         device.Status.Hardware.PCI,
-			MemoryMiB:   device.Status.Hardware.MemoryMiB,
-			MIG:         device.Status.Hardware.MIG,
-			ComputeCap:  device.Status.Hardware.ComputeCapability,
-			Precision:   device.Status.Hardware.Precision,
-			State:       device.Status.State,
-			AutoAttach:  device.Status.AutoAttach,
-			Health:      device.Status.Health,
+			InventoryID:         device.Status.InventoryID,
+			Product:             device.Status.Hardware.Product,
+			PCI:                 device.Status.Hardware.PCI,
+			NUMANode:            device.Status.Hardware.NUMANode,
+			PowerLimitMilliWatt: device.Status.Hardware.PowerLimitMilliWatt,
+			SMCount:             device.Status.Hardware.SMCount,
+			MemoryBandwidthMiB:  device.Status.Hardware.MemoryBandwidthMiB,
+			PCIE:                device.Status.Hardware.PCIE,
+			Board:               device.Status.Hardware.Board,
+			Family:              device.Status.Hardware.Family,
+			Serial:              device.Status.Hardware.Serial,
+			PState:              device.Status.Hardware.PState,
+			DisplayMode:         device.Status.Hardware.DisplayMode,
+			MemoryMiB:           device.Status.Hardware.MemoryMiB,
+			MIG:                 device.Status.Hardware.MIG,
+			ComputeCap:          device.Status.Hardware.ComputeCapability,
+			Precision:           device.Status.Hardware.Precision,
+			State:               device.Status.State,
+			AutoAttach:          device.Status.AutoAttach,
+			Health:              device.Status.Health,
 		}
 		if ok {
 			if nodeDevice.Product == "" {
 				nodeDevice.Product = snap.Product
+			}
+			if nodeDevice.NUMANode == nil {
+				nodeDevice.NUMANode = snap.NUMANode
+			}
+			if nodeDevice.PowerLimitMilliWatt == nil {
+				nodeDevice.PowerLimitMilliWatt = snap.PowerLimitMW
+			}
+			if nodeDevice.SMCount == nil {
+				nodeDevice.SMCount = snap.SMCount
+			}
+			if nodeDevice.MemoryBandwidthMiB == nil {
+				nodeDevice.MemoryBandwidthMiB = snap.MemBandwidth
+			}
+			if nodeDevice.PCIE.Generation == nil && nodeDevice.PCIE.Width == nil {
+				nodeDevice.PCIE = snapToPCIe(snap)
+			}
+			if nodeDevice.Board == "" {
+				nodeDevice.Board = snap.Board
+			}
+			if nodeDevice.Family == "" {
+				nodeDevice.Family = snap.Family
+			}
+			if nodeDevice.Serial == "" {
+				nodeDevice.Serial = snap.Serial
+			}
+			if nodeDevice.PState == "" {
+				nodeDevice.PState = snap.PState
+			}
+			if nodeDevice.DisplayMode == "" {
+				nodeDevice.DisplayMode = snap.DisplayMode
 			}
 			if nodeDevice.MemoryMiB == 0 {
 				nodeDevice.MemoryMiB = snap.MemoryMiB
@@ -1083,6 +1170,13 @@ func capabilityFromSnapshot(snapshot deviceSnapshot) *v1alpha1.GPUComputeCapabil
 	return &v1alpha1.GPUComputeCapability{Major: snapshot.ComputeMajor, Minor: snapshot.ComputeMinor}
 }
 
+func snapToPCIe(snapshot deviceSnapshot) v1alpha1.PCIELink {
+	return v1alpha1.PCIELink{
+		Generation: snapshot.PCIEGen,
+		Width:      snapshot.PCIELinkWid,
+	}
+}
+
 func nodeLabels(node *corev1.Node) map[string]string {
 	if node == nil {
 		return nil
@@ -1099,26 +1193,19 @@ func hasGPUDeviceLabels(labels map[string]string) bool {
 		return false
 	}
 	for key := range labels {
-		if strings.HasPrefix(key, deviceLabelPrefix) {
+		if strings.HasPrefix(key, deviceLabelPrefix) || strings.HasPrefix(key, migProfileLabelPrefix) {
 			return true
 		}
 	}
-	switch {
-	case labels[gfdProductLabel] != "":
+	if labels[gfdProductLabel] != "" ||
+		labels[gfdMemoryLabel] != "" ||
+		labels[gfdMigCapableLabel] != "" ||
+		labels[gfdMigAltCapableLabel] != "" ||
+		labels[gfdMigStrategyLabel] != "" ||
+		labels[gfdMigAltStrategy] != "" {
 		return true
-	case labels[gfdMemoryLabel] != "":
-		return true
-	case labels[gfdMigCapableLabel] != "":
-		return true
-	case labels[gfdMigAltCapableLabel] != "":
-		return true
-	case labels[gfdMigStrategyLabel] != "":
-		return true
-	case labels[gfdMigAltStrategy] != "":
-		return true
-	default:
-		return false
 	}
+	return false
 }
 
 func computeCapabilityEqual(left, right *v1alpha1.GPUComputeCapability) bool {
@@ -1129,6 +1216,20 @@ func computeCapabilityEqual(left, right *v1alpha1.GPUComputeCapability) bool {
 		return false
 	}
 	return left.Major == right.Major && left.Minor == right.Minor
+}
+
+func int32PtrEqual(left, right *int32) bool {
+	if left == nil && right == nil {
+		return true
+	}
+	if left == nil || right == nil {
+		return false
+	}
+	return *left == *right
+}
+
+func pcieEqual(left, right v1alpha1.PCIELink) bool {
+	return int32PtrEqual(left.Generation, right.Generation) && int32PtrEqual(left.Width, right.Width)
 }
 
 func stringSlicesEqual(a, b []string) bool {

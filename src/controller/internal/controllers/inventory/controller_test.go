@@ -18,6 +18,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	bootstrapmeta "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
@@ -109,6 +113,42 @@ func (f *failingListClient) List(context.Context, client.ObjectList, ...client.L
 	return f.err
 }
 
+type failingGetListClient struct {
+	client.Client
+	getErr         error
+	listErr        error
+	nodeFeatureErr error
+}
+
+func (f *failingGetListClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	switch obj.(type) {
+	case *nfdv1alpha1.NodeFeature:
+		if f.nodeFeatureErr != nil {
+			return f.nodeFeatureErr
+		}
+	}
+	if f.getErr != nil {
+		return f.getErr
+	}
+	return f.Client.Get(ctx, key, obj, opts...)
+}
+
+func (f *failingGetListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	if f.listErr != nil {
+		return f.listErr
+	}
+	return nil
+}
+
+type requeueHandler struct {
+	result contracts.Result
+}
+
+func (h requeueHandler) Name() string { return "requeue-handler" }
+func (h requeueHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (contracts.Result, error) {
+	return h.result, nil
+}
+
 type dummyCache struct{}
 
 func (dummyCache) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
@@ -140,6 +180,27 @@ func (dummyCache) WaitForCacheSync(context.Context) bool {
 }
 
 func (dummyCache) IndexField(context.Context, client.Object, string, client.IndexerFunc) error {
+	return nil
+}
+
+type fakeCache struct{}
+
+func (fakeCache) RemoveInformer(context.Context, client.Object) error                  { return nil }
+func (fakeCache) RemoveInformerForKind(context.Context, schema.GroupVersionKind) error { return nil }
+
+func (fakeCache) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return nil
+}
+func (fakeCache) List(context.Context, client.ObjectList, ...client.ListOption) error { return nil }
+func (fakeCache) GetInformer(context.Context, client.Object, ...cache.InformerGetOption) (cache.Informer, error) {
+	return nil, nil
+}
+func (fakeCache) GetInformerForKind(context.Context, schema.GroupVersionKind, ...cache.InformerGetOption) (cache.Informer, error) {
+	return nil, nil
+}
+func (fakeCache) Start(context.Context) error           { return nil }
+func (fakeCache) WaitForCacheSync(context.Context) bool { return true }
+func (fakeCache) IndexField(context.Context, client.Object, string, client.IndexerFunc) error {
 	return nil
 }
 
@@ -950,6 +1011,113 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 	}
 }
 
+func TestReconcileTelemetryErrorDoesNotFail(t *testing.T) {
+	module := defaultModuleSettings()
+	scheme := newTestScheme(t)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-telemetry",
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+
+	baseClient := newTestClient(scheme, node)
+	client := &delegatingClient{
+		Client: baseClient,
+		list: func(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*corev1.PodList); ok {
+				return errors.New("pods list failed")
+			}
+			return baseClient.List(ctx, list, opts...)
+		},
+	}
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
+	if err != nil {
+		t.Fatalf("unexpected reconciler error: %v", err)
+	}
+	reconciler.client = client
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+	reconciler.store = nil
+	reconciler.fallbackMonitoring = true
+
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("expected reconcile to succeed even when telemetry unavailable: %v", err)
+	}
+}
+
+func TestReconcileCollectsTelemetryWhenAvailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "dcgm_exporter_last_update_time_seconds 100")
+		fmt.Fprintln(w, "DCGM_FI_DEV_GPU_TEMP{gpu=\"0\"} 50")
+	}))
+	defer server.Close()
+
+	host, portStr, _ := strings.Cut(server.Listener.Addr().String(), ":")
+	port, _ := strconv.Atoi(portStr)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-telemetry-ok",
+			Labels: map[string]string{
+				"gpu.deckhouse.io/device.00.vendor": "10de",
+				"gpu.deckhouse.io/device.00.device": "1db5",
+				"gpu.deckhouse.io/device.00.class":  "0302",
+			},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "dcgm-exporter-ok",
+			Namespace: bootstrapmeta.WorkloadsNamespace,
+			Labels:    map[string]string{"app": bootstrapmeta.AppName(bootstrapmeta.ComponentDCGMExporter)},
+		},
+		Spec: corev1.PodSpec{
+			NodeName: node.Name,
+			Containers: []corev1.Container{{
+				Name:  "dcgm-exporter",
+				Ports: []corev1.ContainerPort{{ContainerPort: int32(port)}},
+			}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			PodIP: host,
+			Conditions: []corev1.PodCondition{{
+				Type:   corev1.PodReady,
+				Status: corev1.ConditionTrue,
+			}},
+		},
+	}
+
+	module := defaultModuleSettings()
+	scheme := newTestScheme(t)
+	baseClient := newTestClient(scheme, node, pod)
+
+	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
+	if err != nil {
+		t.Fatalf("unexpected reconciler error: %v", err)
+	}
+	reconciler.client = baseClient
+	reconciler.scheme = scheme
+	reconciler.recorder = record.NewFakeRecorder(32)
+	reconciler.store = nil
+	reconciler.fallbackMonitoring = true
+
+	origClient := telemetryHTTPClient
+	telemetryHTTPClient = server.Client()
+	defer func() { telemetryHTTPClient = origClient }()
+
+	if _, err := reconciler.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("expected reconcile to succeed: %v", err)
+	}
+}
+
 func TestReconcileDeviceUpdatesMetadata(t *testing.T) {
 	scheme := newTestScheme(t)
 	node := &corev1.Node{
@@ -1023,7 +1191,7 @@ func TestReconcileDeviceOwnerReferenceError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err == nil {
 		t.Fatalf("expected error due to missing scheme registration")
 	}
@@ -1063,7 +1231,7 @@ func TestReconcileDeviceGetError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if !errors.Is(err, getErr) {
 		t.Fatalf("expected device get error, got %v", err)
 	}
@@ -1105,7 +1273,7 @@ func TestReconcileDeviceMetadataPatchError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -1138,7 +1306,7 @@ func TestReconcileDeviceCreateError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -1170,7 +1338,7 @@ func TestCreateDeviceStatusConflictTriggersRequeue(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	device, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	device, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -1238,7 +1406,7 @@ func TestReconcileDeviceNoStatusPatchWhenUnchanged(t *testing.T) {
 		ComputeMajor: 8,
 		ComputeMinor: 0,
 	}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -2608,6 +2776,15 @@ func TestRequeueAllNodes(t *testing.T) {
 			t.Fatalf("unexpected request %#v", req)
 		}
 	}
+
+	withEmpty := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-empty"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: ""},
+	}
+	reconciler = &Reconciler{client: newTestClient(scheme, deviceA, deviceB, withEmpty)}
+	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 2 {
+		t.Fatalf("expected empty node to be skipped, got %v", reqs)
+	}
 }
 
 func TestRequeueAllNodesHandlesError(t *testing.T) {
@@ -2618,6 +2795,30 @@ func TestRequeueAllNodesHandlesError(t *testing.T) {
 
 	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
 		t.Fatalf("expected empty result on error, got %#v", reqs)
+	}
+}
+
+func TestRequeueAllNodesEmptyList(t *testing.T) {
+	scheme := newTestScheme(t)
+	reconciler := &Reconciler{client: newTestClient(scheme)}
+	reqs := reconciler.requeueAllNodes(context.Background())
+	if len(reqs) != 0 {
+		t.Fatalf("expected no requests for empty device list, got %v", reqs)
+	}
+
+	reconciler.log = testr.New(t)
+	reconciler.client = &failingListClient{err: errors.New("list err")}
+	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
+		t.Fatalf("expected error branch to return empty slice, got %v", reqs)
+	}
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-no-node"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: ""},
+	}
+	reconciler = &Reconciler{client: newTestClient(scheme, device)}
+	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
+		t.Fatalf("expected devices without nodeName to be skipped, got %v", reqs)
 	}
 }
 
@@ -2823,6 +3024,236 @@ func TestSetupWithDependenciesHandlesBuilderError(t *testing.T) {
 	}
 }
 
+func TestSetupWithDependenciesModuleWatcher(t *testing.T) {
+	scheme := newTestScheme(t)
+	builder := &fakeControllerBuilder{}
+	rec := &Reconciler{
+		cfg: config.ControllerConfig{Workers: 1},
+	}
+	var watcherCalled bool
+	rec.moduleWatcherFactory = func(c cache.Cache, b controllerBuilder) controllerBuilder {
+		if c == nil {
+			t.Fatalf("expected cache to be passed")
+		}
+		watcherCalled = true
+		return b
+	}
+
+	deps := setupDependencies{
+		client:            newTestClient(scheme),
+		scheme:            scheme,
+		recorder:          record.NewFakeRecorder(1),
+		indexer:           &fakeFieldIndexer{},
+		nodeFeatureSource: &fakeSyncingSource{},
+		builder:           builder,
+		cache:             &fakeCache{},
+	}
+
+	if err := rec.setupWithDependencies(context.Background(), deps); err != nil {
+		t.Fatalf("setupWithDependencies returned error: %v", err)
+	}
+	if !watcherCalled {
+		t.Fatalf("expected module watcher factory to be invoked")
+	}
+}
+
+func TestReconcileDeviceSetsPCIAddress(t *testing.T) {
+	scheme := newTestScheme(t)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-addr",
+			UID:  types.UID("uid-addr"),
+		},
+	}
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.client = newTestClient(scheme, node)
+	rec.scheme = scheme
+	rec.recorder = record.NewFakeRecorder(4)
+
+	snapshot := deviceSnapshot{
+		Index:      "0",
+		Vendor:     "10de",
+		Device:     "1db5",
+		Class:      "0300",
+		PCIAddress: "0000:17:00.0",
+		Product:    "NVIDIA-TEST",
+		MemoryMiB:  1024,
+	}
+	device, _, err := rec.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, rec.fallbackApproval, nodeTelemetry{})
+	if err != nil {
+		t.Fatalf("reconcileDevice returned error: %v", err)
+	}
+	if device.Status.Hardware.PCI.Address != snapshot.PCIAddress {
+		t.Fatalf("expected pci address %s, got %s", snapshot.PCIAddress, device.Status.Hardware.PCI.Address)
+	}
+}
+
+func TestReconcileNodeNotFoundCleansUp(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.client = newTestClient(newTestScheme(t))
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(16)
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "absent-node"}}); err != nil {
+		t.Fatalf("expected cleanup path to succeed, got %v", err)
+	}
+}
+
+func TestReconcileGetNodeError(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.client = &failingGetListClient{getErr: errors.New("get node error")}
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "node"}}); err == nil {
+		t.Fatalf("expected reconcile to return get error")
+	}
+}
+
+func TestReconcileListError(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(16)
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-listerr"}}
+	rec.client = &failingGetListClient{
+		Client:  newTestClient(rec.scheme, node),
+		listErr: errors.New("list error"),
+	}
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err == nil {
+		t.Fatalf("expected reconcile to return list error")
+	}
+}
+
+func TestReconcileDeletesOrphanDevice(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	scheme := newTestScheme(t)
+	rec.scheme = scheme
+	rec.recorder = record.NewFakeRecorder(64)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-orphan", Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de", "gpu.deckhouse.io/device.00.device": "1db5", "gpu.deckhouse.io/device.00.class": "0300"}}}
+	orphan := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "orphan"},
+		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-orphan"},
+	}
+	rec.client = newTestClient(scheme, node, orphan)
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	dev := &v1alpha1.GPUDevice{}
+	err = rec.client.Get(context.Background(), types.NamespacedName{Name: "orphan"}, dev)
+	if err == nil {
+		t.Fatalf("expected orphan device to be deleted")
+	}
+}
+
+func TestReconcileAggregatesRequeue(t *testing.T) {
+	scheme := newTestScheme(t)
+	handlerResult := contracts.Result{Requeue: true, RequeueAfter: time.Second}
+	handler := requeueHandler{result: handlerResult}
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), []contracts.InventoryHandler{handler})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = scheme
+	rec.recorder = record.NewFakeRecorder(16)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-requeue", Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de", "gpu.deckhouse.io/device.00.device": "1db5", "gpu.deckhouse.io/device.00.class": "0300"}}}
+	rec.client = newTestClient(scheme, node)
+
+	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if !res.Requeue || res.RequeueAfter != time.Second {
+		t.Fatalf("expected requeue result, got %+v", res)
+	}
+}
+
+func TestReconcileNodeFeatureError(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(1)
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-nferr"}}
+	rec.client = &failingGetListClient{
+		Client:         newTestClient(rec.scheme, node),
+		nodeFeatureErr: errors.New("nf error"),
+	}
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err == nil {
+		t.Fatalf("expected reconcile to return nodefeature error")
+	}
+}
+
+func TestReconcileMonitoringDisabledSkipsTelemetry(t *testing.T) {
+	settings := defaultModuleSettings()
+	settings.Monitoring.ServiceMonitor = false
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(settings), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(8)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-no-mon", Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de", "gpu.deckhouse.io/device.00.device": "1db5", "gpu.deckhouse.io/device.00.class": "0300"}}}
+	rec.client = newTestClient(rec.scheme, node)
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+}
+
+func TestReconcileNoDevices(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(4)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-empty"}}
+	rec.client = newTestClient(rec.scheme, node)
+
+	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+	if res.Requeue || res.RequeueAfter != 0 {
+		t.Fatalf("unexpected requeue for empty devices: %+v", res)
+	}
+}
+
+func TestReconcileFindNodeFeatureError(t *testing.T) {
+	rec, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec.scheme = newTestScheme(t)
+	rec.recorder = record.NewFakeRecorder(8)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "nf-error"}}
+	rec.client = &failingGetListClient{
+		Client:         newTestClient(rec.scheme, node),
+		nodeFeatureErr: errors.New("nf get error"),
+	}
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}}); err == nil {
+		t.Fatalf("expected reconcile to fail when NodeFeature lookup fails")
+	}
+}
+
 func TestSetupWithDependenciesIndexesNodeName(t *testing.T) {
 	scheme := newTestScheme(t)
 	indexer := &capturingFieldIndexer{}
@@ -3015,7 +3446,7 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, _, err = reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -3098,7 +3529,7 @@ func TestReconcileDeviceSkipsStatusPatchWhenUnchanged(t *testing.T) {
 		Precision:    []string{"fp32"},
 	}
 
-	_, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	_, result, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -3330,7 +3761,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true, reconciler.fallbackApproval)
+	}, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err == nil || !strings.Contains(err.Error(), "device refetch failure") {
 		t.Fatalf("expected refetch failure, got %v", err)
 	}
@@ -3378,7 +3809,7 @@ func TestReconcileDeviceStatusPatchError(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true, reconciler.fallbackApproval)
+	}, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err == nil || !strings.Contains(err.Error(), "status patch failure") {
 		t.Fatalf("expected status patch failure, got %v", err)
 	}
@@ -3420,7 +3851,7 @@ func TestCreateDeviceStatusUpdateError(t *testing.T) {
 		Class:     "0302",
 		Product:   "NVIDIA TEST",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true, reconciler.fallbackApproval)
+	}, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err == nil || !strings.Contains(err.Error(), "status update failure") {
 		t.Fatalf("expected status update failure, got %v", err)
 	}
@@ -3487,7 +3918,7 @@ func TestReconcileDeviceUpdatesProductPrecisionAndAutoAttach(t *testing.T) {
 		ComputeMinor: 0,
 	}
 
-	updated, _, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval)
+	updated, _, err := reconciler.reconcileDevice(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -3542,7 +3973,7 @@ func TestReconcileDeviceHandlerError(t *testing.T) {
 		Class:     "0302",
 		Product:   "GPU",
 		MemoryMiB: 1024,
-	}, map[string]string{}, true, reconciler.fallbackApproval)
+	}, map[string]string{}, true, reconciler.fallbackApproval, nodeTelemetry{})
 	if err == nil || !strings.Contains(err.Error(), "handler failure") {
 		t.Fatalf("expected handler failure, got %v", err)
 	}

@@ -112,6 +112,26 @@ type GPUDeviceHardware struct {
 	Product string `json:"product,omitempty"`
 	// PCI contains vendor/device/class identifiers describing the PCI function.
 	PCI PCIAddress `json:"pci,omitempty"`
+	// NUMANode is the NUMA node id associated with the device, if any.
+	NUMANode *int32 `json:"numaNode,omitempty"`
+	// PowerLimitMilliWatt is the enforced power limit.
+	PowerLimitMilliWatt *int32 `json:"powerLimitMilliWatt,omitempty"`
+	// SMCount is the number of streaming multiprocessors.
+	SMCount *int32 `json:"smCount,omitempty"`
+	// MemoryBandwidthMiB is the memory bandwidth in MiB/s.
+	MemoryBandwidthMiB *int32 `json:"memoryBandwidthMiB,omitempty"`
+	// PCIE reflects PCIe generation and link width.
+	PCIE PCIELink `json:"pcie,omitempty"`
+	// Board is the board identifier/model.
+	Board string `json:"board,omitempty"`
+	// Family is the GPU family name.
+	Family string `json:"family,omitempty"`
+	// Serial is the GPU serial number if reported.
+	Serial string `json:"serial,omitempty"`
+	// PState is the current performance state.
+	PState string `json:"pstate,omitempty"`
+	// DisplayMode indicates whether display is enabled.
+	DisplayMode string `json:"displayMode,omitempty"`
 	// MemoryMiB is the total memory size of the device in MiB.
 	MemoryMiB int32 `json:"memoryMiB,omitempty"`
 	// ComputeCapability holds CUDA compute capability reported for the device.
@@ -129,6 +149,16 @@ type PCIAddress struct {
 	Device string `json:"device,omitempty"`
 	// Class is the PCI class code in hexadecimal.
 	Class string `json:"class,omitempty"`
+	// Address is the full PCI address (domain:bus:slot.func).
+	Address string `json:"address,omitempty"`
+}
+
+// PCIELink captures PCIe link characteristics.
+type PCIELink struct {
+	// Generation is the PCIe generation (e.g. 3,4,5).
+	Generation *int32 `json:"generation,omitempty"`
+	// Width is the negotiated link width (e.g. 16).
+	Width *int32 `json:"width,omitempty"`
 }
 
 type GPUComputeCapability struct {
@@ -266,6 +296,26 @@ type GPUNodeDevice struct {
 	Product string `json:"product,omitempty"`
 	// PCI describes vendor/device/class identifiers for the PCI function.
 	PCI PCIAddress `json:"pci,omitempty"`
+	// NUMANode is the NUMA node id associated with the device.
+	NUMANode *int32 `json:"numaNode,omitempty"`
+	// PowerLimitMilliWatt is the enforced power limit.
+	PowerLimitMilliWatt *int32 `json:"powerLimitMilliWatt,omitempty"`
+	// SMCount is the number of streaming multiprocessors.
+	SMCount *int32 `json:"smCount,omitempty"`
+	// MemoryBandwidthMiB is the memory bandwidth in MiB/s.
+	MemoryBandwidthMiB *int32 `json:"memoryBandwidthMiB,omitempty"`
+	// PCIE holds PCIe link characteristics.
+	PCIE PCIELink `json:"pcie,omitempty"`
+	// Board is the board identifier/model.
+	Board string `json:"board,omitempty"`
+	// Family is the GPU family name.
+	Family string `json:"family,omitempty"`
+	// Serial is the GPU serial number if reported.
+	Serial string `json:"serial,omitempty"`
+	// PState is the current performance state.
+	PState string `json:"pstate,omitempty"`
+	// DisplayMode indicates whether display is enabled.
+	DisplayMode string `json:"displayMode,omitempty"`
 	// MemoryMiB is device memory capacity in MiB.
 	MemoryMiB int32 `json:"memoryMiB,omitempty"`
 	// MIG summarises MIG capabilities for this device.

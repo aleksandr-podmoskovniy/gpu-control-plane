@@ -73,12 +73,24 @@ type deviceSnapshot struct {
 	Vendor       string
 	Device       string
 	Class        string
+	PCIAddress   string
 	Product      string
 	MemoryMiB    int32
 	ComputeMajor int32
 	ComputeMinor int32
 	UUID         string
 	Precision    []string
+	NUMANode     *int32
+	PowerLimitMW *int32
+	SMCount      *int32
+	MemBandwidth *int32
+	PCIEGen      *int32
+	PCIELinkWid  *int32
+	Board        string
+	Family       string
+	Serial       string
+	PState       string
+	DisplayMode  string
 	MIG          v1alpha1.GPUMIGConfig
 }
 
@@ -101,6 +113,39 @@ func buildNodeSnapshot(node *corev1.Node, feature *nfdv1alpha1.NodeFeature, poli
 	for i := range devices {
 		if devices[i].Product == "" {
 			devices[i].Product = defaults.Product
+		}
+		if devices[i].NUMANode == nil && defaults.NUMANode != nil {
+			devices[i].NUMANode = defaults.NUMANode
+		}
+		if devices[i].PowerLimitMW == nil && defaults.PowerLimitMW != nil {
+			devices[i].PowerLimitMW = defaults.PowerLimitMW
+		}
+		if devices[i].SMCount == nil && defaults.SMCount != nil {
+			devices[i].SMCount = defaults.SMCount
+		}
+		if devices[i].MemBandwidth == nil && defaults.MemBandwidth != nil {
+			devices[i].MemBandwidth = defaults.MemBandwidth
+		}
+		if devices[i].PCIEGen == nil && defaults.PCIEGen != nil {
+			devices[i].PCIEGen = defaults.PCIEGen
+		}
+		if devices[i].PCIELinkWid == nil && defaults.PCIELinkWid != nil {
+			devices[i].PCIELinkWid = defaults.PCIELinkWid
+		}
+		if devices[i].Board == "" {
+			devices[i].Board = defaults.Board
+		}
+		if devices[i].Family == "" {
+			devices[i].Family = defaults.Family
+		}
+		if devices[i].Serial == "" {
+			devices[i].Serial = defaults.Serial
+		}
+		if devices[i].PState == "" {
+			devices[i].PState = defaults.PState
+		}
+		if devices[i].DisplayMode == "" {
+			devices[i].DisplayMode = defaults.DisplayMode
 		}
 		if devices[i].MemoryMiB == 0 {
 			devices[i].MemoryMiB = defaults.MemoryMiB
@@ -192,6 +237,17 @@ func parseHardwareDefaults(labels map[string]string) deviceSnapshot {
 		MemoryMiB:    parseMemoryMiB(labels[gfdMemoryLabel]),
 		ComputeMajor: parseInt32(labels[gfdComputeMajorLabel]),
 		ComputeMinor: parseInt32(labels[gfdComputeMinorLabel]),
+		NUMANode:     parseOptionalInt32(labels["nvidia.com/gpu.numa.node"]),
+		PowerLimitMW: parseOptionalInt32(labels["nvidia.com/gpu.power.limit"]),
+		SMCount:      parseOptionalInt32(labels["nvidia.com/gpu.sm.count"]),
+		MemBandwidth: parseOptionalInt32(labels["nvidia.com/gpu.memory.bandwidth"]),
+		PCIEGen:      parseOptionalInt32(labels["nvidia.com/gpu.pcie.gen"]),
+		PCIELinkWid:  parseOptionalInt32(labels["nvidia.com/gpu.pcie.link.width"]),
+		Board:        strings.TrimSpace(labels["nvidia.com/gpu.board"]),
+		Family:       strings.TrimSpace(labels["nvidia.com/gpu.family"]),
+		Serial:       strings.TrimSpace(labels["nvidia.com/gpu.serial"]),
+		PState:       strings.TrimSpace(labels["nvidia.com/gpu.pstate"]),
+		DisplayMode:  strings.TrimSpace(labels["nvidia.com/gpu.display_mode"]),
 		MIG:          parseMIGConfig(labels),
 	}
 
@@ -273,6 +329,9 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 		if uuid := strings.TrimSpace(inst.Attributes["uuid"]); uuid != "" {
 			devices[i].UUID = uuid
 		}
+		if addr := strings.TrimSpace(inst.Attributes["pci.address"]); addr != "" {
+			devices[i].PCIAddress = addr
+		}
 		if mem := parseMemoryMiB(inst.Attributes["memory.total"]); mem > 0 {
 			devices[i].MemoryMiB = mem
 		}
@@ -284,6 +343,39 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 		}
 		if product := strings.TrimSpace(inst.Attributes["product"]); product != "" && devices[i].Product == "" {
 			devices[i].Product = product
+		}
+		if numa := parseOptionalInt32(inst.Attributes["numa.node"]); numa != nil {
+			devices[i].NUMANode = numa
+		}
+		if limit := parseOptionalInt32(inst.Attributes["power.limit"]); limit != nil {
+			devices[i].PowerLimitMW = limit
+		}
+		if sm := parseOptionalInt32(inst.Attributes["sm.count"]); sm != nil {
+			devices[i].SMCount = sm
+		}
+		if bw := parseOptionalInt32(inst.Attributes["memory.bandwidth"]); bw != nil {
+			devices[i].MemBandwidth = bw
+		}
+		if gen := parseOptionalInt32(inst.Attributes["pcie.gen"]); gen != nil {
+			devices[i].PCIEGen = gen
+		}
+		if width := parseOptionalInt32(inst.Attributes["pcie.link.width"]); width != nil {
+			devices[i].PCIELinkWid = width
+		}
+		if board := strings.TrimSpace(inst.Attributes["board"]); board != "" && devices[i].Board == "" {
+			devices[i].Board = board
+		}
+		if family := strings.TrimSpace(inst.Attributes["family"]); family != "" && devices[i].Family == "" {
+			devices[i].Family = family
+		}
+		if serial := strings.TrimSpace(inst.Attributes["serial"]); serial != "" && devices[i].Serial == "" {
+			devices[i].Serial = serial
+		}
+		if pstate := strings.TrimSpace(inst.Attributes["pstate"]); pstate != "" && devices[i].PState == "" {
+			devices[i].PState = pstate
+		}
+		if display := strings.TrimSpace(inst.Attributes["display_mode"]); display != "" && devices[i].DisplayMode == "" {
+			devices[i].DisplayMode = display
 		}
 
 		precisions := extractPrecision(inst.Attributes)
@@ -424,6 +516,15 @@ func parseInt32(value string) int32 {
 		}
 	}
 	return int32(number)
+}
+
+func parseOptionalInt32(value string) *int32 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	parsed := parseInt32(value)
+	return &parsed
 }
 
 func extractLeadingDigits(value string) string {

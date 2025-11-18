@@ -5,7 +5,6 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
-    heritage: deckhouse
     module: gpu-control-plane
   name: gpunodeinventories.gpu.deckhouse.io
 spec:
@@ -262,6 +261,9 @@ spec:
                           description: AutoAttach flags whether automatic assignment
                             is enabled for the device.
                           type: boolean
+                        board:
+                          description: Board is the board identifier/model.
+                          type: string
                         computeCapability:
                           description: ComputeCap is the reported CUDA compute capability.
                           properties:
@@ -276,6 +278,12 @@ spec:
                               format: int32
                               type: integer
                           type: object
+                        displayMode:
+                          description: DisplayMode indicates whether display is enabled.
+                          type: string
+                        family:
+                          description: Family is the GPU family name.
+                          type: string
                         health:
                           description: Health provides per-device telemetry snapshot.
                           properties:
@@ -305,6 +313,11 @@ spec:
                           description: InventoryID mirrors GPUDevice.status.inventoryID
                             for quick lookup.
                           type: string
+                        memoryBandwidthMiB:
+                          description: MemoryBandwidthMiB is the memory bandwidth
+                            in MiB/s.
+                          format: int32
+                          type: integer
                         memoryMiB:
                           description: MemoryMiB is device memory capacity in MiB.
                           format: int32
@@ -398,10 +411,18 @@ spec:
                                 type: object
                               type: array
                           type: object
+                        numaNode:
+                          description: NUMANode is the NUMA node id associated with
+                            the device.
+                          format: int32
+                          type: integer
                         pci:
                           description: PCI describes vendor/device/class identifiers
                             for the PCI function.
                           properties:
+                            address:
+                              description: Address is the full PCI address (domain:bus:slot.func).
+                              type: string
                             class:
                               description: Class is the PCI class code in hexadecimal.
                               type: string
@@ -413,6 +434,24 @@ spec:
                                 (e.g. 10de).
                               type: string
                           type: object
+                        pcie:
+                          description: PCIE holds PCIe link characteristics.
+                          properties:
+                            generation:
+                              description: Generation is the PCIe generation (e.g.
+                                3,4,5).
+                              format: int32
+                              type: integer
+                            width:
+                              description: Width is the negotiated link width (e.g.
+                                16).
+                              format: int32
+                              type: integer
+                          type: object
+                        powerLimitMilliWatt:
+                          description: PowerLimitMilliWatt is the enforced power limit.
+                          format: int32
+                          type: integer
                         precision:
                           description: Precision lists math precisions supported by
                             the device.
@@ -428,10 +467,20 @@ spec:
                           description: Product is the GPU model available on this
                             node.
                           type: string
+                        pstate:
+                          description: PState is the current performance state.
+                          type: string
                         reason:
                           description: Reason stores human readable reason why the
                             device is pending/unassigned.
                           type: string
+                        serial:
+                          description: Serial is the GPU serial number if reported.
+                          type: string
+                        smCount:
+                          description: SMCount is the number of streaming multiprocessors.
+                          format: int32
+                          type: integer
                         state:
                           description: State mirrors GPUDevice.state for convenience.
                           enum:

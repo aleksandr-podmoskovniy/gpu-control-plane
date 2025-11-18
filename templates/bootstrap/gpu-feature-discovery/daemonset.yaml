@@ -51,6 +51,8 @@ spec:
               value: {{ $sleepInterval | quote }}
             - name: GFD_FAIL_ON_INIT_ERROR
               value: {{ ternary "true" "false" $failOnInit | quote }}
+            - name: USE_NODE_FEATURE_API
+              value: "true"
             - name: NVIDIA_MIG_MONITOR_DEVICES
               value: {{ $migMonitor | quote }}
             - name: LD_LIBRARY_PATH
