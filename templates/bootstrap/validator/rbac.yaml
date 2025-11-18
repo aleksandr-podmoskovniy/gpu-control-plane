@@ -3,6 +3,7 @@
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") (eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true") }}
 {{- $namespace := include "gpuControlPlane.namespace" . }}
 {{- $serviceAccount := include "gpuControlPlane.bootstrap.componentName" (list . $component) }}
+{{- $clusterRoleName := printf "%s-%s" (include "gpuControlPlane.moduleName" .) $component }}
 {{- $labels := dict "app" $serviceAccount "component" "validator" }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -36,7 +37,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ $serviceAccount }}
+  name: {{ $clusterRoleName }}
   {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "validator") | nindent 2 }}
 rules:
   - apiGroups: [""]
@@ -46,12 +47,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ $serviceAccount }}
+  name: {{ $clusterRoleName }}
   {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "validator") | nindent 2 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ $serviceAccount }}
+  name: {{ $clusterRoleName }}
 subjects:
   - kind: ServiceAccount
     name: {{ $serviceAccount }}
