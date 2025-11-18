@@ -207,7 +207,7 @@ spec:
         - name: watchdog
           image: {{ $image }}
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c", "echo all validations are successful; while true; do sleep 86400; done"]
+          command: ["/bin/sh", "-c", "echo all validations are successful; exec sleep infinity"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           lifecycle:
             preStop:

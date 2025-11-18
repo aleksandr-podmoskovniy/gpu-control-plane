@@ -43,6 +43,10 @@ secrets:
   value: {{ .GOPROXY }}
 shell:
   install:
+  - export DEBIAN_FRONTEND=noninteractive
+  - apt-get update
+  - apt-get install --assume-yes --no-install-recommends libcap2-bin
+  - rm -rf /var/lib/apt/lists/*
   - export GOPATH=/go
   - export PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
   - export GIT_COMMIT=$(cat /src/.GIT_HASH)
