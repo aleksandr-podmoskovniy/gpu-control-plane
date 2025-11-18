@@ -185,7 +185,13 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 				monitoringReady = true
 			}
 		} else {
-			h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
+			if strings.Contains(err.Error(), "heartbeat metric not found") {
+				// Exporter responds but doesn't publish heartbeat metric; treat as ready to avoid blocking bootstrap.
+				h.log.V(2).Info("dcgm exporter heartbeat metric missing; assuming monitoring ready", "node", nodeName)
+				monitoringReady = true
+			} else {
+				h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
+			}
 		}
 	}
 

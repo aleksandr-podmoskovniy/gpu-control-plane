@@ -88,6 +88,13 @@ import:
   - dcgm-exporter
   - dcgm-exporter-entrypoint.sh
   before: setup
+- image: {{ .ModuleNamePrefix }}{{ .ImageName }}-build-artifact
+  add: /sbin
+  to: /sbin
+  includePaths:
+  - getcap
+  - setcap
+  before: setup
 - image: {{ .ModuleNamePrefix }}nvidia-dcgm-build-artifact
   add: /out/
   to: /
