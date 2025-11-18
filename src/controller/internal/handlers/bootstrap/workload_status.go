@@ -178,22 +178,16 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	componentHealthy := gfdReady && validatorReady
 	var heartbeat *metav1.Time
 	monitoringReady := false
-	if dcgmReady && exporterReady {
-		if hb, err := h.exporterHeartbeat(ctx, nodeName); err == nil {
-			heartbeat = hb
-			if currentTime.Sub(hb.Time) <= heartbeatStaleAfter {
-				monitoringReady = true
-			}
-		} else {
-			if strings.Contains(err.Error(), "heartbeat metric not found") {
-				// Exporter responds but doesn't publish heartbeat metric; treat as ready to avoid blocking bootstrap.
-				h.log.V(2).Info("dcgm exporter heartbeat metric missing; assuming monitoring ready", "node", nodeName)
-				monitoringReady = true
+		if dcgmReady && exporterReady {
+			if hb, err := h.exporterHeartbeat(ctx, nodeName); err == nil {
+				heartbeat = hb
+				if currentTime.Sub(hb.Time) <= heartbeatStaleAfter {
+					monitoringReady = true
+				}
 			} else {
 				h.log.V(2).Info("dcgm exporter heartbeat unavailable", "node", nodeName, "error", err)
 			}
 		}
-	}
 
 	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, heartbeat, workloads)
 	inventoryComplete := isInventoryComplete(inventory)
