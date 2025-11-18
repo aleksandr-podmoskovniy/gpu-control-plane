@@ -76,12 +76,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          securityContext:
-            privileged: true
-            runAsNonRoot: false
-            runAsUser: 0
-            capabilities:
-              add: ["SYS_ADMIN"]
+          {{- include "helm_lib_module_container_security_context_privileged" . | nindent 10 }}
           resources:
             requests:
               {{- include "helm_lib_module_ephemeral_storage_only_logs" . | nindent 14 }}
