@@ -19,7 +19,7 @@ spec:
                 managed:
                   description: Признак того, что карта управляется контроллерами Deckhouse.
                 state:
-                  description: Текущее состояние жизненного цикла (Discovered, ReadyForPooling, PendingAssignment, NoPoolMatched, Assigned, Reserved, InUse, Faulted; значение `Unassigned` сохраняется для обратной совместимости).
+                  description: Текущее состояние жизненного цикла (Discovered, Validating, Ready, PendingAssignment, Assigned, Reserved, InUse, Faulted).
                 autoAttach:
                   description: Автоматически ли можно привязывать карту к пулам без ручного подтверждения.
                 poolRef:
@@ -91,6 +91,16 @@ spec:
                       description: Суммарное количество ошибок ECC.
                     lastUpdated:
                       description: Время последнего обновления телеметрии.
+                    lastHealthyTime:
+                      description: Время последнего «здорового» heartbeat без ошибок.
+                    consecutiveHealthy:
+                      description: Количество подряд идущих успешных heartbeat'ов.
+                    lastError:
+                      description: Текст последней зарегистрированной ошибки по устройству.
+                    lastErrorReason:
+                      description: Категория последней ошибки (XID, ECC и т.п.).
+                    lastErrorTime:
+                      description: Время, когда ошибка была зафиксирована.
                     metrics:
                       description: Произвольные ключи/значения с дополнительными показателями от драйвера.
                 conditions:

@@ -40,9 +40,13 @@ type nodeTelemetry struct {
 }
 
 type telemetryPoint struct {
-	temperatureC *int32
-	eccTotal     *int64
-	lastUpdated  time.Time
+	temperatureC          *int32
+	eccTotal              *int64
+	xidCode               *int64
+	powerViolations       *int64
+	thermalViolations     *int64
+	reliabilityViolations *int64
+	lastUpdated           time.Time
 }
 
 func (t nodeTelemetry) find(snapshot deviceSnapshot) (telemetryPoint, bool) {
@@ -78,6 +82,15 @@ func (t nodeTelemetry) find(snapshot deviceSnapshot) (telemetryPoint, bool) {
 }
 
 var telemetryHTTPClient = &http.Client{Timeout: 3 * time.Second}
+
+const (
+	deviceHealthRecoveryThreshold = 3
+
+	metricKeyXIDCode               = "dcgm_xid_code"
+	metricKeyPowerViolations       = "dcgm_power_violation"
+	metricKeyThermalViolations     = "dcgm_thermal_violation"
+	metricKeyReliabilityViolations = "dcgm_reliability_violation"
+)
 
 func (r *Reconciler) collectNodeTelemetry(ctx context.Context, node string) (nodeTelemetry, error) {
 	result := nodeTelemetry{
@@ -179,6 +192,26 @@ func parseExporterMetrics(reader io.Reader) (nodeTelemetry, error) {
 			storeTelemetry(telemetry, labels, func(tp *telemetryPoint) {
 				tp.eccTotal = &v
 			})
+		case "DCGM_FI_DEV_XID_ERRORS":
+			v := int64(value)
+			storeTelemetry(telemetry, labels, func(tp *telemetryPoint) {
+				tp.xidCode = &v
+			})
+		case "DCGM_FI_DEV_POWER_VIOLATION":
+			v := int64(value)
+			storeTelemetry(telemetry, labels, func(tp *telemetryPoint) {
+				tp.powerViolations = &v
+			})
+		case "DCGM_FI_DEV_THERMAL_VIOLATION":
+			v := int64(value)
+			storeTelemetry(telemetry, labels, func(tp *telemetryPoint) {
+				tp.thermalViolations = &v
+			})
+		case "DCGM_FI_DEV_RELIABILITY_VIOLATION":
+			v := int64(value)
+			storeTelemetry(telemetry, labels, func(tp *telemetryPoint) {
+				tp.reliabilityViolations = &v
+			})
 		}
 	}
 
@@ -260,15 +293,127 @@ func applyTelemetry(device *v1alpha1.GPUDevice, snapshot deviceSnapshot, telemet
 	if !ok {
 		return
 	}
+	health := &device.Status.Health
+	initialSample := health.LastUpdatedTime == nil
 	if tp.temperatureC != nil {
-		device.Status.Health.TemperatureC = *tp.temperatureC
+		health.TemperatureC = *tp.temperatureC
 	}
-	if tp.eccTotal != nil {
-		device.Status.Health.ECCErrorsTotal = *tp.eccTotal
+
+	var faultReason, faultMessage string
+	faultTime := tp.lastUpdated
+
+	if tp.xidCode != nil {
+		if *tp.xidCode != 0 {
+			code := strconv.FormatInt(*tp.xidCode, 10)
+			prev := ""
+			if health.Metrics != nil {
+				prev = health.Metrics[metricKeyXIDCode]
+			}
+			if health.Metrics == nil {
+				health.Metrics = make(map[string]string)
+			}
+			health.Metrics[metricKeyXIDCode] = code
+			if prev != code {
+				faultReason = "XIDError"
+				faultMessage = fmt.Sprintf("DCGM reported XID error code %d", *tp.xidCode)
+			}
+		} else if health.Metrics != nil {
+			delete(health.Metrics, metricKeyXIDCode)
+		}
 	}
+
+	if faultReason == "" && tp.eccTotal != nil {
+		if !initialSample && *tp.eccTotal > health.ECCErrorsTotal {
+			faultReason = "ECCDoubleBitError"
+			faultMessage = fmt.Sprintf("ECC double-bit errors increased to %d", *tp.eccTotal)
+		}
+		health.ECCErrorsTotal = *tp.eccTotal
+	}
+
+	if faultReason == "" && updateMonotonicMetric(health, metricKeyPowerViolations, tp.powerViolations, initialSample) {
+		faultReason = "PowerViolation"
+		faultMessage = "DCGM reported power limit violation"
+	}
+	if faultReason == "" && updateMonotonicMetric(health, metricKeyThermalViolations, tp.thermalViolations, initialSample) {
+		faultReason = "ThermalViolation"
+		faultMessage = "DCGM reported thermal violation"
+	}
+	if faultReason == "" && updateMonotonicMetric(health, metricKeyReliabilityViolations, tp.reliabilityViolations, initialSample) {
+		faultReason = "ReliabilityViolation"
+		faultMessage = "DCGM reported reliability violation"
+	}
+
+	if faultReason != "" {
+		trackDeviceFault(health, faultReason, faultMessage, faultTime)
+	} else {
+		markDeviceHealthy(health, tp.lastUpdated)
+	}
+
 	if !tp.lastUpdated.IsZero() {
 		ts := metav1.NewTime(tp.lastUpdated.UTC())
-		device.Status.Health.LastUpdatedTime = &ts
+		health.LastUpdatedTime = &ts
+	}
+}
+
+func updateMonotonicMetric(health *v1alpha1.GPUDeviceHealth, key string, value *int64, initial bool) bool {
+	if value == nil {
+		if health.Metrics != nil {
+			delete(health.Metrics, key)
+		}
+		return false
+	}
+	if initial {
+		setHealthMetricInt(health, key, *value)
+		return false
+	}
+	prev := getHealthMetricInt(health, key)
+	setHealthMetricInt(health, key, *value)
+	return *value > prev
+}
+
+func getHealthMetricInt(health *v1alpha1.GPUDeviceHealth, key string) int64 {
+	if health.Metrics == nil {
+		return 0
+	}
+	if val, ok := health.Metrics[key]; ok {
+		if parsed, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func setHealthMetricInt(health *v1alpha1.GPUDeviceHealth, key string, value int64) {
+	if health.Metrics == nil {
+		health.Metrics = make(map[string]string)
+	}
+	health.Metrics[key] = strconv.FormatInt(value, 10)
+}
+
+func trackDeviceFault(health *v1alpha1.GPUDeviceHealth, reason, message string, ts time.Time) {
+	health.LastErrorReason = reason
+	health.LastError = message
+	health.ConsecutiveHealthy = 0
+	if !ts.IsZero() {
+		t := metav1.NewTime(ts.UTC())
+		health.LastErrorTime = &t
+	} else {
+		health.LastErrorTime = nil
+	}
+}
+
+func markDeviceHealthy(health *v1alpha1.GPUDeviceHealth, ts time.Time) {
+	if health.ConsecutiveHealthy < deviceHealthRecoveryThreshold {
+		health.ConsecutiveHealthy++
+	}
+	if !ts.IsZero() {
+		t := metav1.NewTime(ts.UTC())
+		health.LastHealthyTime = &t
+	}
+	if health.LastError != "" && health.ConsecutiveHealthy >= deviceHealthRecoveryThreshold {
+		health.LastError = ""
+		health.LastErrorReason = ""
+		health.LastErrorTime = nil
 	}
 }
 

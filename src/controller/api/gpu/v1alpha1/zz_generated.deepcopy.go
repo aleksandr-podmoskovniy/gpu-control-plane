@@ -95,6 +95,14 @@ func (in *GPUDeviceHealth) DeepCopyInto(out *GPUDeviceHealth) {
 		in, out := &in.LastUpdatedTime, &out.LastUpdatedTime
 		*out = (*in).DeepCopy()
 	}
+	if in.LastHealthyTime != nil {
+		in, out := &in.LastHealthyTime, &out.LastHealthyTime
+		*out = (*in).DeepCopy()
+	}
+	if in.LastErrorTime != nil {
+		in, out := &in.LastErrorTime, &out.LastErrorTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Metrics != nil {
 		in, out := &in.Metrics, &out.Metrics
 		*out = make(map[string]string, len(*in))

@@ -78,6 +78,8 @@ const (
 	defaultResyncPeriod = 30 * time.Second
 
 	nodeFeatureNodeNameLabel = "nfd.node.kubernetes.io/node-name"
+	deviceIgnoreAnnotation   = "gpu.deckhouse.io/ignore"
+	deviceIgnoreLabel        = "gpu.deckhouse.io/ignore"
 )
 
 var (
@@ -111,15 +113,13 @@ var (
 
 	knownDeviceStates = []v1alpha1.GPUDeviceState{
 		v1alpha1.GPUDeviceStateDiscovered,
-		v1alpha1.GPUDeviceStateReadyForPooling,
+		v1alpha1.GPUDeviceStateValidating,
+		v1alpha1.GPUDeviceStateReady,
 		v1alpha1.GPUDeviceStatePendingAssignment,
-		v1alpha1.GPUDeviceStateNoPoolMatched,
 		v1alpha1.GPUDeviceStateAssigned,
 		v1alpha1.GPUDeviceStateReserved,
 		v1alpha1.GPUDeviceStateInUse,
 		v1alpha1.GPUDeviceStateFaulted,
-		// legacy value kept for metrics cleanup while migrating away from the old enum.
-		v1alpha1.GPUDeviceStateUnassigned,
 	}
 )
 
@@ -396,7 +396,7 @@ func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
 func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, cache cache.Cache) controllerBuilder {
 	moduleConfig := &unstructured.Unstructured{}
 	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
-	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*unstructured.Unstructured](r.mapModuleConfig)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(r.mapModuleConfig)
 	return builder.WatchesRawSource(source.Kind(cache, moduleConfig, handlerFunc))
 }
 
@@ -478,7 +478,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	aggregate := contracts.Result{}
 
 	var telemetry nodeTelemetry
-	if len(snapshotList) > 0 && r.monitoringEnabled() {
+	if len(snapshotList) > 0 {
 		if t, err := r.collectNodeTelemetry(ctx, node.Name); err == nil {
 			telemetry = t
 		} else {
@@ -913,7 +913,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 			MIG:                 device.Status.Hardware.MIG,
 			ComputeCap:          device.Status.Hardware.ComputeCapability,
 			Precision:           device.Status.Hardware.Precision,
-			State:               device.Status.State,
+			State:               normalizeDeviceState(device.Status.State),
 			AutoAttach:          device.Status.AutoAttach,
 			Health:              device.Status.Health,
 		}
@@ -973,6 +973,7 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 
 	statusBefore := inventory.DeepCopy()
 	inventory.Status.Hardware = hardware
+	inventory.Status.Devices = summarizeDeviceStates(devices)
 	inventory.Status.Driver.Version = snapshot.Driver.Version
 	inventory.Status.Driver.CUDAVersion = snapshot.Driver.CUDAVersion
 	inventory.Status.Driver.ToolkitReady = snapshot.Driver.ToolkitInstalled || snapshot.Driver.ToolkitReady
@@ -1154,13 +1155,52 @@ func updateDeviceStateMetrics(nodeName string, devices []*v1alpha1.GPUDevice) {
 	}
 }
 
-func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState {
-	switch state {
-	case "", v1alpha1.GPUDeviceStateUnassigned:
-		return v1alpha1.GPUDeviceStateDiscovered
-	default:
-		return state
+func summarizeDeviceStates(devices []*v1alpha1.GPUDevice) v1alpha1.GPUNodeDeviceSummary {
+	var summary v1alpha1.GPUNodeDeviceSummary
+	for _, device := range devices {
+		summary.Total++
+		if isDeviceIgnored(device) {
+			summary.Ignored++
+			continue
+		}
+		switch normalizeDeviceState(device.Status.State) {
+		case v1alpha1.GPUDeviceStateReady:
+			summary.Ready++
+		case v1alpha1.GPUDeviceStatePendingAssignment:
+			summary.PendingAssignment++
+		case v1alpha1.GPUDeviceStateAssigned:
+			summary.Assigned++
+		case v1alpha1.GPUDeviceStateReserved:
+			summary.Reserved++
+		case v1alpha1.GPUDeviceStateInUse:
+			summary.InUse++
+		case v1alpha1.GPUDeviceStateFaulted:
+			summary.Faulted++
+		case v1alpha1.GPUDeviceStateValidating, v1alpha1.GPUDeviceStateDiscovered:
+			summary.Validating++
+		}
 	}
+	return summary
+}
+
+func isDeviceIgnored(device *v1alpha1.GPUDevice) bool {
+	if device == nil {
+		return false
+	}
+	if value := device.Annotations[deviceIgnoreAnnotation]; value == "true" {
+		return true
+	}
+	if value := device.Labels[deviceIgnoreLabel]; value == "true" {
+		return true
+	}
+	return false
+}
+
+func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState {
+	if state == "" {
+		return v1alpha1.GPUDeviceStateDiscovered
+	}
+	return state
 }
 
 func capabilityFromSnapshot(snapshot deviceSnapshot) *v1alpha1.GPUComputeCapability {

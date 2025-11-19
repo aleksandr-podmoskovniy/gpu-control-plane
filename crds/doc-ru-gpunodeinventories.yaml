@@ -41,13 +41,32 @@ spec:
                           precision:
                             description: Поддерживаемые типы точности вычислений.
                           state:
-                            description: Текущее состояние карты (`Discovered`, `ReadyForPooling`, `PendingAssignment`, `NoPoolMatched`, `Assigned`, `Reserved`, `InUse`, `Faulted`; значение `Unassigned` оставлено для обратной совместимости).
+                            description: Текущее состояние карты (`Discovered`, `Validating`, `Ready`, `PendingAssignment`, `Assigned`, `Reserved`, `InUse`, `Faulted`).
                           autoAttach:
                             description: Включена ли автоматическая привязка карты к пулам.
                           reason:
                             description: Причина ожидания/непривязки устройства.
                           health:
                             description: Телеметрия DCGM для карты.
+                            properties:
+                              temperatureC:
+                                description: Температура GPU в градусах Цельсия.
+                              eccErrorsTotal:
+                                description: Суммарное количество ошибок ECC.
+                              lastUpdated:
+                                description: Время последнего обновления телеметрии.
+                              lastHealthyTime:
+                                description: Время последнего успешного heartbeat без ошибок.
+                              consecutiveHealthy:
+                                description: Сколько подряд heartbeat'ов прошли без ошибок.
+                              lastError:
+                                description: Текст последней зарегистрированной ошибки.
+                              lastErrorReason:
+                                description: Категория последней ошибки (XID, ECC и т.п.).
+                              lastErrorTime:
+                                description: Когда ошибка была обнаружена.
+                              metrics:
+                                description: Дополнительные показатели от драйвера/детектора.
                 driver:
                   description: Версии драйвера и CUDA toolkits, установленные на узле.
                   properties:
@@ -64,6 +83,10 @@ spec:
                       description: Запущен и отвечает ли DCGM Exporter.
                     lastHeartbeat:
                       description: Время последнего успешного heartbeat от мониторинга.
+                    consecutiveHeartbeats:
+                      description: Количество подряд полученных heartbeat'ов от DCGM Exporter.
+                    consecutiveFailures:
+                      description: Количество подряд неудачных проверок мониторинга.
                 bootstrap:
                   description: Результаты проверки узла bootstrap-контроллером.
                   properties:
@@ -103,3 +126,26 @@ spec:
                       description: Пулы, ожидающие подтверждения или автоматического назначения.
                 conditions:
                   description: Список агрегированных условий готовности узла.
+                devices:
+                  description: Сводка состояний устройств на узле (готовы, ожидают,
+                    закреплены за пулом, зарезервированы, используются, на валидации,
+                    неисправны или проигнорированы).
+                  properties:
+                    total:
+                      description: Общее количество GPU-устройств на узле.
+                    ready:
+                      description: Карты, прошедшие инфраструктурную подготовку и готовые к выдаче.
+                    pendingAssignment:
+                      description: Карты, ожидающие подтверждения/назначения пулом.
+                    assigned:
+                      description: Карты, закреплённые за пулом и готовые к использованию.
+                    reserved:
+                      description: Карты во временном резерве (под запуск пода).
+                    inUse:
+                      description: Карты, которые используются текущими подами.
+                    validating:
+                      description: Карты, находящиеся в процессе валидации.
+                    faulted:
+                      description: Карты, переведённые в Faulted из-за проблем с железом или инфраструктурой.
+                    ignored:
+                      description: Карты, временно исключённые оператором (`gpu.deckhouse.io/ignore=true`).

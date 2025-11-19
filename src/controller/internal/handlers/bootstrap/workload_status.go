@@ -40,31 +40,36 @@ import (
 )
 
 const (
-	conditionReadyForPooling    = "ReadyForPooling"
-	conditionDriverMissing      = "DriverMissing"
-	conditionToolkitMissing     = "ToolkitMissing"
-	conditionMonitoringMissing  = "MonitoringMissing"
-	conditionGFDReady           = "GFDReady"
-	conditionManagedDisabled    = "ManagedDisabled"
-	conditionInventoryComplete  = "InventoryComplete"
-	reasonAllChecksPassed       = "AllChecksPassed"
-	reasonNoDevices             = "NoDevices"
-	reasonNodeDisabled          = "NodeDisabled"
-	reasonDriverNotDetected     = "DriverNotDetected"
-	reasonDriverDetected        = "DriverDetected"
-	reasonToolkitNotReady       = "ToolkitNotReady"
-	reasonToolkitReady          = "ToolkitReady"
-	reasonComponentPending      = "ComponentPending"
-	reasonMonitoringUnhealthy   = "MonitoringUnhealthy"
-	reasonMonitoringHealthy     = "MonitoringHealthy"
-	reasonComponentHealthy      = "ComponentHealthy"
-	reasonInventoryPending      = "InventoryPending"
-	reasonDevicesPending        = "DevicesPending"
-	defaultNotReadyRequeueDelay = 15 * time.Second
-	defaultReadyRequeueDelay    = time.Minute
-	maxValidatorAttempts        = 5
-	validatorRetryInterval      = time.Minute
-	heartbeatStaleAfter         = 2 * time.Minute
+	conditionReadyForPooling     = "ReadyForPooling"
+	conditionDriverMissing       = "DriverMissing"
+	conditionToolkitMissing      = "ToolkitMissing"
+	conditionMonitoringMissing   = "MonitoringMissing"
+	conditionGFDReady            = "GFDReady"
+	conditionManagedDisabled     = "ManagedDisabled"
+	conditionInventoryComplete   = "InventoryComplete"
+	conditionInfraDegraded       = "InfraDegraded"
+	conditionDegradedWorkloads   = "DegradedWorkloads"
+	reasonAllChecksPassed        = "AllChecksPassed"
+	reasonNoDevices              = "NoDevices"
+	reasonNodeDisabled           = "NodeDisabled"
+	reasonDriverNotDetected      = "DriverNotDetected"
+	reasonDriverDetected         = "DriverDetected"
+	reasonToolkitNotReady        = "ToolkitNotReady"
+	reasonToolkitReady           = "ToolkitReady"
+	reasonComponentPending       = "ComponentPending"
+	reasonMonitoringUnhealthy    = "MonitoringUnhealthy"
+	reasonMonitoringHealthy      = "MonitoringHealthy"
+	reasonComponentHealthy       = "ComponentHealthy"
+	reasonInventoryPending       = "InventoryPending"
+	reasonDevicesPending         = "DevicesPending"
+	reasonDevicesFaulted         = "DevicesFaulted"
+	reasonInfraDegraded          = "InfrastructureDegraded"
+	defaultNotReadyRequeueDelay  = 15 * time.Second
+	defaultReadyRequeueDelay     = time.Minute
+	maxValidatorAttempts         = 5
+	validatorRetryInterval       = time.Minute
+	infraReadyHeartbeatThreshold = 3
+	monitoringFailureThreshold   = 3
 )
 
 var (
@@ -185,7 +190,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 		}
 	}
 
-	h.updateBootstrapStatus(inventory, gfdReady, toolkitReady, monitoringReady, heartbeat, workloads)
+	h.updateBootstrapStatus(inventory, gfdReady, driverReady, toolkitReady, monitoringReady, heartbeat, workloads)
 	inventoryComplete := isInventoryComplete(inventory)
 	phase := determineBootstrapPhase(inventory, inventoryComplete, validatorReady, gfdReady, monitoringReady, needsValidation)
 	h.setBootstrapPhase(inventory, phase)
@@ -199,9 +204,27 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	conditionsChanged = setCondition(inventory, conditionGFDReady, componentHealthy, boolReason(componentHealthy, reasonComponentHealthy, reasonComponentPending), h.componentMessage(componentHealthy, gfdStatus, validatorStatus)) || conditionsChanged
 	conditionsChanged = setCondition(inventory, conditionDriverMissing, !driverReady, boolReason(driverReady, reasonDriverDetected, reasonDriverNotDetected), driverMessage(driverReady, validatorStatus)) || conditionsChanged
 	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady, validatorStatus)) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, !monitoringReady, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMessage(monitoringReady, dcgmStatus, exporterStatus)) || conditionsChanged
 
-	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringReady, pendingDevices, throttledPending)
+	monitoringMissing := h.isMonitoringMissing(inventory, monitoringReady)
+	monitoringHealthy := inventory.Status.Monitoring.ConsecutiveHeartbeats >= infraReadyHeartbeatThreshold && !monitoringMissing
+	monitoringMsg := monitoringMessage(!monitoringMissing, !monitoringHealthy && !monitoringMissing, dcgmStatus, exporterStatus)
+	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, monitoringMissing, boolReason(!monitoringMissing, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMsg) || conditionsChanged
+
+	infraDegraded := !driverReady || !toolkitReady || monitoringMissing
+	degradedWorkloads := infraDegraded && (inventory.Status.Devices.Assigned+inventory.Status.Devices.Reserved+inventory.Status.Devices.InUse) > 0
+	infraMessage := "Infrastructure components are healthy"
+	if infraDegraded {
+		infraMessage = "Driver/toolkit or monitoring components require attention"
+	}
+	conditionsChanged = setCondition(inventory, conditionInfraDegraded, infraDegraded, reasonInfraDegraded, infraMessage) || conditionsChanged
+	if degradedWorkloads {
+		infraMessage = "Workloads are running while infrastructure is degraded"
+	} else if infraDegraded {
+		infraMessage = "Infrastructure degraded; workloads not running on node"
+	}
+	conditionsChanged = setCondition(inventory, conditionDegradedWorkloads, degradedWorkloads, reasonInfraDegraded, infraMessage) || conditionsChanged
+
+	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringHealthy, pendingDevices, throttledPending)
 	conditionsChanged = setCondition(inventory, conditionReadyForPooling, nodeReady, readyReason, readyMessage) || conditionsChanged
 
 	if !nodeReady {
@@ -279,7 +302,7 @@ func (h *WorkloadStatusHandler) isPodReadyOnNode(ctx context.Context, app, node 
 	return false, pendingMsg, nil
 }
 
-func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, toolkitReady, monitoringReady bool, heartbeat *metav1.Time, workloads []v1alpha1.GPUNodeBootstrapWorkloadStatus) {
+func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNodeInventory, gfdReady, driverReady, toolkitReady, monitoringReady bool, heartbeat *metav1.Time, workloads []v1alpha1.GPUNodeBootstrapWorkloadStatus) {
 	if inventory.Status.Bootstrap.GFDReady != gfdReady {
 		inventory.Status.Bootstrap.GFDReady = gfdReady
 	}
@@ -301,11 +324,48 @@ func (h *WorkloadStatusHandler) updateBootstrapStatus(inventory *v1alpha1.GPUNod
 		hb := *heartbeat
 		inventory.Status.Monitoring.LastHeartbeat = &hb
 	}
+	h.updateMonitoringCounters(inventory, driverReady, toolkitReady, monitoringReady, heartbeat)
 	if len(workloads) > 0 {
 		inventory.Status.Bootstrap.Workloads = workloads
 	} else {
 		inventory.Status.Bootstrap.Workloads = nil
 	}
+}
+
+func (h *WorkloadStatusHandler) updateMonitoringCounters(inventory *v1alpha1.GPUNodeInventory, driverReady, toolkitReady, monitoringReady bool, heartbeat *metav1.Time) {
+	stats := &inventory.Status.Monitoring
+
+	if monitoringReady && heartbeat != nil && driverReady && toolkitReady {
+		if stats.ConsecutiveHeartbeats < infraReadyHeartbeatThreshold {
+			stats.ConsecutiveHeartbeats++
+		}
+		stats.ConsecutiveFailures = 0
+		return
+	}
+
+	// reset success streak whenever prerequisites are not met
+	stats.ConsecutiveHeartbeats = 0
+
+	if !monitoringReady || heartbeat == nil {
+		if stats.ConsecutiveFailures < monitoringFailureThreshold {
+			stats.ConsecutiveFailures++
+		}
+	} else {
+		stats.ConsecutiveFailures = 0
+	}
+}
+
+func (h *WorkloadStatusHandler) isMonitoringMissing(inventory *v1alpha1.GPUNodeInventory, monitoringReady bool) bool {
+	if inventory.Status.Monitoring.ConsecutiveFailures >= monitoringFailureThreshold {
+		return true
+	}
+	if inventory.Status.Monitoring.ConsecutiveHeartbeats >= infraReadyHeartbeatThreshold {
+		return false
+	}
+	if cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionMonitoringMissing); cond != nil {
+		return cond.Status == metav1.ConditionTrue
+	}
+	return !monitoringReady
 }
 
 func (h *WorkloadStatusHandler) updateComponentEnablement(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase, validatorRequired bool) {
@@ -390,9 +450,6 @@ func (h *WorkloadStatusHandler) reconcileValidationAttempts(inventory *v1alpha1.
 	active := make([]string, 0, len(pending))
 	for _, id := range pending {
 		state := tracker[id]
-		if state == nil {
-			continue
-		}
 		if state.Attempts >= maxValidatorAttempts {
 			throttled = append(throttled, id)
 		} else {
@@ -537,7 +594,7 @@ func (h *WorkloadStatusHandler) setBootstrapPhase(inventory *v1alpha1.GPUNodeInv
 	}
 }
 
-func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringReady bool, pendingDevices int, throttled []string) (bool, string, string) {
+func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUNodeInventory, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringHealthy bool, pendingDevices int, throttled []string) (bool, string, string) {
 	if !hardwarePresent(inventory) {
 		return false, reasonNoDevices, "GPU devices are not detected on the node"
 	}
@@ -557,8 +614,10 @@ func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUN
 		return false, reasonToolkitNotReady, "CUDA toolkit installation is not finished"
 	case !componentReady:
 		return false, reasonComponentPending, "Bootstrap workloads are still initialising"
-	case !monitoringReady:
-		return false, reasonMonitoringUnhealthy, "GPU monitoring stack is not ready"
+	case !monitoringHealthy:
+		return false, reasonMonitoringUnhealthy, "DCGM exporter is waiting for stable heartbeat measurements"
+	case inventory.Status.Devices.Faulted > 0:
+		return false, reasonDevicesFaulted, fmt.Sprintf("%d device(s) are faulted", inventory.Status.Devices.Faulted)
 	default:
 		return true, reasonAllChecksPassed, "All bootstrap checks passed"
 	}
@@ -631,8 +690,11 @@ func toolkitMessage(ok bool, validator componentStatus) string {
 	return "Toolkit validation is still running"
 }
 
-func monitoringMessage(ok bool, dcgm, exporter componentStatus) string {
+func monitoringMessage(ok bool, stabilizing bool, dcgm, exporter componentStatus) string {
 	if ok {
+		if stabilizing {
+			return "DCGM exporter is ready; waiting for stable heartbeat"
+		}
 		return "DCGM exporter is ready"
 	}
 	if !dcgm.Ready {
@@ -760,9 +822,8 @@ func pendingDeviceIDs(inventory *v1alpha1.GPUNodeInventory) []string {
 
 func deviceStateNeedsValidation(state v1alpha1.GPUDeviceState) bool {
 	switch state {
-	case v1alpha1.GPUDeviceStateReadyForPooling,
+	case v1alpha1.GPUDeviceStateReady,
 		v1alpha1.GPUDeviceStatePendingAssignment,
-		v1alpha1.GPUDeviceStateNoPoolMatched,
 		v1alpha1.GPUDeviceStateAssigned,
 		v1alpha1.GPUDeviceStateReserved,
 		v1alpha1.GPUDeviceStateInUse:

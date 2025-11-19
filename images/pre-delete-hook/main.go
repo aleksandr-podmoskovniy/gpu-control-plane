@@ -151,14 +151,14 @@ func (p *PreDeleteHook) deleteResource(ctx context.Context, res Resource) {
 	)
 }
 
-func (p *PreDeleteHook) handleDeleteError(err error, res Resource) bool {
+func (p *PreDeleteHook) handleDeleteError(err error, res Resource) {
 	if errors.IsNotFound(err) {
 		slog.Info("Resource already absent",
 			slog.String("gvr", res.gvrString()),
 			slog.String("namespace", res.Namespace),
 			slog.String("name", res.Name),
 		)
-		return true
+		return
 	}
 
 	slog.Error("Failed to delete resource",
@@ -167,7 +167,6 @@ func (p *PreDeleteHook) handleDeleteError(err error, res Resource) bool {
 		slog.String("namespace", res.Namespace),
 		slog.String("name", res.Name),
 	)
-	return true
 }
 
 func (p *PreDeleteHook) waitForRemoval(ctx context.Context, client dynamic.ResourceInterface, res Resource) bool {
@@ -260,7 +259,7 @@ func main() {
 	hook, err := newPreDeleteHook()
 	if err != nil {
 		slog.Error("Pre-delete hook initialisation failed", slog.Any("err", err))
-		exitFunc(0)
+		exitFunc(1)
 		return
 	}
 

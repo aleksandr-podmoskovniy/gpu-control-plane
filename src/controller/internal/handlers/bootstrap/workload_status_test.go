@@ -36,6 +36,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -127,9 +128,13 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 		Status: metav1.ConditionTrue,
 	}}
 
-	res, err := handler.HandleNode(context.Background(), inventory)
-	if err != nil {
-		t.Fatalf("handler returned error: %v", err)
+	var res contracts.Result
+	var err error
+	for i := 0; i < infraReadyHeartbeatThreshold; i++ {
+		res, err = handler.HandleNode(context.Background(), inventory)
+		if err != nil {
+			t.Fatalf("handler returned error: %v", err)
+		}
 	}
 	if res.RequeueAfter != defaultReadyRequeueDelay {
 		t.Fatalf("unexpected requeueAfter: %s", res.RequeueAfter)
@@ -178,6 +183,89 @@ func TestWorkloadStatusHandlerSetsReadyCondition(t *testing.T) {
 	}
 	if inventory.Status.Bootstrap.ValidatorRequired {
 		t.Fatalf("validator should not be required when node ready")
+	}
+}
+
+func TestWorkloadStatusHandlerHandlesNodeWithoutHardware(t *testing.T) {
+	scheme := newScheme(t)
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	handler.SetClient(fake.NewClientBuilder().WithScheme(scheme).Build())
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker-b"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: false},
+			Conditions: []metav1.Condition{{
+				Type:   conditionInventoryComplete,
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}
+
+	res, err := handler.HandleNode(context.Background(), inventory)
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if res.RequeueAfter != defaultNotReadyRequeueDelay {
+		t.Fatalf("expected fast requeue for nodes without hardware, got %s", res.RequeueAfter)
+	}
+	cond := findCondition(inventory.Status.Conditions, conditionReadyForPooling)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != reasonNoDevices {
+		t.Fatalf("expected ReadyForPooling=false with reason NoDevices, got %+v", cond)
+	}
+}
+
+func TestWorkloadStatusHandlerMarksDegradedWorkloads(t *testing.T) {
+	scheme := newScheme(t)
+	node := "worker-degraded"
+	gfd := readyPod("gfd", appGPUFeatureDiscovery, node)
+	dcgm := readyPod("dcgm", appDCGM, node)
+	exporter := readyPod("exporter", appDCGMExporter, node)
+	exporter.Status.PodIP = "127.0.0.2"
+
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	handler.SetClient(fake.NewClientBuilder().WithScheme(scheme).
+		WithRuntimeObjects(gfd, dcgm, exporter).Build())
+	handler.fetchHeartbeat = func(context.Context, *corev1.Pod) (*metav1.Time, error) {
+		ts := metav1.NewTime(time.Unix(1800, 0))
+		return &ts, nil
+	}
+	handler.clock = func() time.Time { return time.Unix(1800, 0) }
+
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: node},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  v1alpha1.GPUNodeDeviceSummary{InUse: 1},
+			Conditions: []metav1.Condition{{
+				Type:   conditionInventoryComplete,
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}
+
+	res, err := handler.HandleNode(context.Background(), inventory)
+	if err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if res.RequeueAfter != defaultNotReadyRequeueDelay {
+		t.Fatalf("expected not-ready requeue, got %s", res.RequeueAfter)
+	}
+
+	driverCond := findCondition(inventory.Status.Conditions, conditionDriverMissing)
+	if driverCond == nil || driverCond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected DriverMissing=true, got %+v", driverCond)
+	}
+	infraCond := findCondition(inventory.Status.Conditions, conditionInfraDegraded)
+	if infraCond == nil || infraCond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected InfraDegraded=true, got %+v", infraCond)
+	}
+	degradedCond := findCondition(inventory.Status.Conditions, conditionDegradedWorkloads)
+	if degradedCond == nil || degradedCond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected DegradedWorkloads=true, got %+v", degradedCond)
+	}
+	readyCond := findCondition(inventory.Status.Conditions, conditionReadyForPooling)
+	if readyCond == nil || readyCond.Reason != reasonDriverNotDetected {
+		t.Fatalf("expected ReadyForPooling blocked by driver, got %+v", readyCond)
 	}
 }
 
@@ -375,7 +463,7 @@ func TestWorkloadStatusHandlerKeepsWorkloadsDuringRevalidation(t *testing.T) {
 			Hardware: v1alpha1.GPUNodeHardware{
 				Present: true,
 				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "gpu-ready", State: v1alpha1.GPUDeviceStateReadyForPooling},
+					{InventoryID: "gpu-ready", State: v1alpha1.GPUDeviceStateReady},
 					{InventoryID: "gpu-new", State: v1alpha1.GPUDeviceStateDiscovered},
 				},
 			},
@@ -603,17 +691,20 @@ func TestIsPodReadyOnNodeReportsPendingMessage(t *testing.T) {
 }
 
 func TestMonitoringMessageVariants(t *testing.T) {
-	if msg := monitoringMessage(true, componentStatus{}, componentStatus{}); !strings.Contains(msg, "ready") {
+	if msg := monitoringMessage(true, false, componentStatus{}, componentStatus{}); !strings.Contains(msg, "ready") {
 		t.Fatalf("unexpected ready message: %s", msg)
 	}
-	if msg := monitoringMessage(false, componentStatus{Ready: false, Message: "hostengine pending"}, componentStatus{}); !strings.Contains(msg, "hostengine pending") {
+	if msg := monitoringMessage(false, false, componentStatus{Ready: false, Message: "hostengine pending"}, componentStatus{}); !strings.Contains(msg, "hostengine pending") {
 		t.Fatalf("unexpected dcgm message: %s", msg)
 	}
-	if msg := monitoringMessage(false, componentStatus{Ready: true}, componentStatus{Ready: false, Message: "exporter pending"}); !strings.Contains(msg, "exporter pending") {
+	if msg := monitoringMessage(false, false, componentStatus{Ready: true}, componentStatus{Ready: false, Message: "exporter pending"}); !strings.Contains(msg, "exporter pending") {
 		t.Fatalf("unexpected exporter message: %s", msg)
 	}
-	if msg := monitoringMessage(false, componentStatus{Ready: true}, componentStatus{Ready: true}); !strings.Contains(msg, "heartbeat") {
+	if msg := monitoringMessage(false, false, componentStatus{Ready: true}, componentStatus{Ready: true}); !strings.Contains(msg, "heartbeat") {
 		t.Fatalf("unexpected fallback message: %s", msg)
+	}
+	if msg := monitoringMessage(true, true, componentStatus{}, componentStatus{}); !strings.Contains(msg, "waiting for stable heartbeat") {
+		t.Fatalf("unexpected stabilising message: %s", msg)
 	}
 }
 
@@ -701,6 +792,13 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 	check(true, true, false, true, reasonComponentPending)
 	check(true, true, true, false, reasonMonitoringUnhealthy)
 
+	// Faulted devices block readiness.
+	withFaulted := makeInventory()
+	withFaulted.Status.Devices.Faulted = 1
+	if ready, reason, _ := handler.evaluateReadyForPooling(withFaulted, true, true, true, true, true, 0, nil); ready || reason != reasonDevicesFaulted {
+		t.Fatalf("expected %s when devices faulted, got ready=%t reason=%s", reasonDevicesFaulted, ready, reason)
+	}
+
 	// Happy path.
 	if ready, reason, _ := handler.evaluateReadyForPooling(makeInventory(), true, true, true, true, true, 0, nil); !ready || reason != reasonAllChecksPassed {
 		t.Fatalf("expected ReadyForPooling, got ready=%t reason=%s", ready, reason)
@@ -711,7 +809,7 @@ func TestUpdateBootstrapStatusCopiesHeartbeat(t *testing.T) {
 	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
 	inventory := &v1alpha1.GPUNodeInventory{}
 	ts := metav1.NewTime(time.Unix(4242, 0))
-	handler.updateBootstrapStatus(inventory, true, true, true, &ts, []v1alpha1.GPUNodeBootstrapWorkloadStatus{{Name: "validator"}})
+	handler.updateBootstrapStatus(inventory, true, true, true, true, &ts, []v1alpha1.GPUNodeBootstrapWorkloadStatus{{Name: "validator"}})
 
 	if inventory.Status.Monitoring.LastHeartbeat == nil {
 		t.Fatalf("expected heartbeat to be recorded")
@@ -853,6 +951,33 @@ func TestReconcileValidationAttemptsTracksWhenValidatorNotReady(t *testing.T) {
 	}
 }
 
+func TestReconcileValidationAttemptsSkipsRetryUntilInterval(t *testing.T) {
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	now := time.Unix(1_000_000, 0)
+	handler.clock = func() time.Time { return now }
+	lastFailure := metav1.NewTime(now.Add(-validatorRetryInterval / 2))
+	inventory := &v1alpha1.GPUNodeInventory{
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
+				Validations: []v1alpha1.GPUNodeValidationState{{
+					InventoryID: "gpu-r",
+					Attempts:    1,
+					LastFailure: &lastFailure,
+				}},
+			},
+		},
+	}
+
+	active, throttled := handler.reconcileValidationAttempts(inventory, []string{"gpu-r"}, true)
+	if len(throttled) != 0 || len(active) != 1 || active[0] != "gpu-r" {
+		t.Fatalf("expected gpu-r active with no throttling, got active=%v throttled=%v", active, throttled)
+	}
+	state := inventory.Status.Bootstrap.Validations[0]
+	if state.Attempts != 1 {
+		t.Fatalf("expected attempts unchanged until retry interval, got %d", state.Attempts)
+	}
+}
+
 func TestFlattenValidationStatesEmpty(t *testing.T) {
 	if out := flattenValidationStates(nil); out != nil {
 		t.Fatalf("expected nil for empty map, got %v", out)
@@ -977,7 +1102,7 @@ func TestUpdateBootstrapStatusClearsStaleHeartbeat(t *testing.T) {
 		},
 	}
 
-	handler.updateBootstrapStatus(inventory, true, true, false, nil, nil)
+	handler.updateBootstrapStatus(inventory, true, true, true, false, nil, nil)
 	if inventory.Status.Monitoring.LastHeartbeat != nil {
 		t.Fatalf("expected heartbeat cleared when monitoring not ready")
 	}
@@ -1256,7 +1381,7 @@ func TestUpdateBootstrapStatusClearsWorkloads(t *testing.T) {
 	inventory.Status.Bootstrap.Workloads = []v1alpha1.GPUNodeBootstrapWorkloadStatus{{Name: "validator", Healthy: true}}
 	before := inventory.Status.Bootstrap.Workloads
 	handler.clock = func() time.Time { return time.Unix(0, 0) }
-	handler.updateBootstrapStatus(inventory, true, true, true, nil, nil)
+	handler.updateBootstrapStatus(inventory, true, true, true, true, nil, nil)
 	if inventory.Status.Bootstrap.Workloads != nil {
 		t.Fatalf("expected workloads cleared, got %#v", inventory.Status.Bootstrap.Workloads)
 	}

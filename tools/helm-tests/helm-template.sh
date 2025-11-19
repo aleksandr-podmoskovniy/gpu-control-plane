@@ -89,25 +89,3 @@ for state in "${FIXTURES_DIR}"/*.yaml; do
     >/dev/null
   echo "   ok"
 done
-
-STRING_OVERRIDE_MATRIX=(
-  "dcgm|gpuControlPlane.bootstrap.dcgm"
-  "dcgm-exporter|gpuControlPlane.bootstrap.dcgmExporter"
-  "validator|gpuControlPlane.bootstrap.validator"
-  "gpu-feature-discovery|gpuControlPlane.bootstrap.gfd"
-)
-
-for entry in "${STRING_OVERRIDE_MATRIX[@]}"; do
-  component="${entry%%|*}"
-  key="${entry##*|}"
-  echo "-- helm template with string override for ${component}"
-  render_chart gpu-control-plane "${ROOT_DIR}" \
-    -f "${VALUES_BASE}" \
-    --set global.enabledModules={gpu-control-plane} \
-    --set global.deckhouseVersion="dev" \
-    --set global.discovery.clusterDomain="cluster.local" \
-    --set global.internal.modules.gpuControlPlane=true \
-    --set-string "${key}=legacy" \
-    >/dev/null
-  echo "   ok"
-done

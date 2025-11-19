@@ -297,6 +297,24 @@ spec:
                                 refreshed.
                               format: date-time
                               type: string
+                            lastHealthyTime:
+                              description: LastHealthyTime stores the timestamp of the last heartbeat without faults.
+                              format: date-time
+                              type: string
+                            consecutiveHealthy:
+                              description: ConsecutiveHealthy reports the number of sequential healthy heartbeats.
+                              format: int32
+                              type: integer
+                            lastError:
+                              description: LastError contains the latest fault message detected for the device.
+                              type: string
+                            lastErrorReason:
+                              description: LastErrorReason categorises the latest fault (XID, ECC, etc.).
+                              type: string
+                            lastErrorTime:
+                              description: LastErrorTime records when the latest fault was observed.
+                              format: date-time
+                              type: string
                             metrics:
                               additionalProperties:
                                 type: string
@@ -485,14 +503,13 @@ spec:
                           description: State mirrors GPUDevice.state for convenience.
                           enum:
                           - Discovered
-                          - ReadyForPooling
+                          - Validating
+                          - Ready
                           - PendingAssignment
-                          - NoPoolMatched
                           - Assigned
                           - Reserved
                           - InUse
                           - Faulted
-                          - Unassigned
                           type: string
                         uuid:
                           description: UUID is the GPU UUID obtained from NVML/DCGM.
@@ -504,6 +521,38 @@ spec:
                       are present on the node.
                     type: boolean
                 type: object
+              devices:
+                description: Devices summarises the device lifecycle states on the
+                  node.
+                properties:
+                  assigned:
+                    format: int32
+                    type: integer
+                  faulted:
+                    format: int32
+                    type: integer
+                  ignored:
+                    format: int32
+                    type: integer
+                  inUse:
+                    format: int32
+                    type: integer
+                  pendingAssignment:
+                    format: int32
+                    type: integer
+                  ready:
+                    format: int32
+                    type: integer
+                  reserved:
+                    format: int32
+                    type: integer
+                  total:
+                    format: int32
+                    type: integer
+                  validating:
+                    format: int32
+                    type: integer
+                type: object
               monitoring:
                 description: Monitoring indicates health of GFD/DCGM exporters.
                 properties:
@@ -511,6 +560,15 @@ spec:
                     description: DCGMReady shows whether DCGM exporter is running
                       and responsive.
                     type: boolean
+                  consecutiveHeartbeats:
+                    description: ConsecutiveHeartbeats counts sequential successful
+                      heartbeats from DCGM exporter.
+                    format: int32
+                    type: integer
+                  consecutiveFailures:
+                    description: ConsecutiveFailures counts sequential failed monitoring checks.
+                    format: int32
+                    type: integer
                   lastHeartbeat:
                     description: LastHeartbeat records the timestamp of the last successful
                       monitoring heartbeat.

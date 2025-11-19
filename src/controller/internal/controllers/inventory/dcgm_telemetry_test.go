@@ -16,6 +16,8 @@ package inventory
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -62,6 +64,63 @@ dcgm_exporter_last_update_time_seconds 1700000000
 	}
 	if device.Status.Health.LastUpdatedTime == nil || !device.Status.Health.LastUpdatedTime.Time.Equal(expectedTS) {
 		t.Fatalf("device timestamp not applied: %v", device.Status.Health.LastUpdatedTime)
+	}
+	if device.Status.Health.LastError != "" {
+		t.Fatalf("did not expect initial health error, got %s", device.Status.Health.LastError)
+	}
+
+	// Next sample increases ECC counter and should trigger a fault.
+	input = `
+DCGM_FI_DEV_ECC_DBE_AGG_TOTAL{gpu="0"} 5
+dcgm_exporter_last_update_time_seconds 1700000010
+`
+	tlm, err := parseExporterMetrics(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseExporterMetrics returned error: %v", err)
+	}
+	applyTelemetry(device, snapshot, tlm)
+	if device.Status.Health.LastErrorReason != "ECCDoubleBitError" {
+		t.Fatalf("expected ECC fault, got reason=%s message=%s", device.Status.Health.LastErrorReason, device.Status.Health.LastError)
+	}
+	if device.Status.Health.ConsecutiveHealthy != 0 {
+		t.Fatalf("expected healthy counter reset on fault, got %d", device.Status.Health.ConsecutiveHealthy)
+	}
+
+	// Provide healthy samples to clear the fault.
+	for i := 0; i < deviceHealthRecoveryThreshold; i++ {
+		input = fmt.Sprintf("DCGM_FI_DEV_ECC_DBE_AGG_TOTAL{gpu=\"0\"} 5\ndcgm_exporter_last_update_time_seconds %d\n", 1700000020+i)
+		healthy, err := parseExporterMetrics(strings.NewReader(input))
+		if err != nil {
+			t.Fatalf("parseExporterMetrics returned error: %v", err)
+		}
+		applyTelemetry(device, snapshot, healthy)
+	}
+	if device.Status.Health.LastError != "" {
+		t.Fatalf("expected health error cleared after stable period, got %s", device.Status.Health.LastError)
+	}
+
+	// XID errors should immediately trigger a new fault.
+	input = `
+DCGM_FI_DEV_XID_ERRORS{uuid="GPU-AAA"} 31
+dcgm_exporter_last_update_time_seconds 1700000100
+`
+	xidTelemetry, err := parseExporterMetrics(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseExporterMetrics returned error: %v", err)
+	}
+	applyTelemetry(device, snapshot, xidTelemetry)
+	if device.Status.Health.LastErrorReason != "XIDError" {
+		t.Fatalf("expected XID fault, got reason=%s message=%s", device.Status.Health.LastErrorReason, device.Status.Health.LastError)
+	}
+
+	// If there is no telemetry or DCGM disabled, health stays as-is.
+	prev := device.Status.Health
+	applyTelemetry(device, deviceSnapshot{Index: "missing"}, nodeTelemetry{})
+	if device.Status.Health.LastErrorReason != prev.LastErrorReason ||
+		device.Status.Health.LastError != prev.LastError ||
+		device.Status.Health.ConsecutiveHealthy != prev.ConsecutiveHealthy ||
+		!reflect.DeepEqual(device.Status.Health.Metrics, prev.Metrics) {
+		t.Fatalf("expected health untouched without telemetry, got %+v", device.Status.Health)
 	}
 
 	telemetry = nodeTelemetry{byIndex: map[string]telemetryPoint{}, byUUID: map[string]telemetryPoint{}}

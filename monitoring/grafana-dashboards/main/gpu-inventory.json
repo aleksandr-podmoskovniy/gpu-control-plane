@@ -226,7 +226,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(gpu_inventory_devices_state{state=\"ReadyForPooling\"})",
+          "expr": "sum(gpu_inventory_devices_state{state=\"Ready\"})",
           "instant": true,
           "legendFormat": "",
           "range": false,

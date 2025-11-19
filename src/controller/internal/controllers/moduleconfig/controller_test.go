@@ -138,7 +138,7 @@ func newContext() context.Context {
 	return ctrllog.IntoContext(context.Background(), logr.Discard())
 }
 
-func newModuleConfigScheme(t *testing.T) *runtime.Scheme {
+func newModuleConfigScheme() *runtime.Scheme {
 	scheme := runtime.NewScheme()
 	scheme.AddKnownTypeWithName(ModuleConfigGVK, &unstructured.Unstructured{})
 	listGVK := schema.GroupVersionKind{Group: ModuleConfigGVK.Group, Version: ModuleConfigGVK.Version, Kind: ModuleConfigGVK.Kind + "List"}
@@ -179,7 +179,7 @@ func TestRuntimeControllerBuilderDelegates(t *testing.T) {
 }
 
 func TestBuilderControllerAdapterDelegates(t *testing.T) {
-	scheme := newModuleConfigScheme(t)
+	scheme := newModuleConfigScheme()
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 	mgr := newFakeManager(client, scheme)
 
@@ -232,7 +232,7 @@ func TestReconcileReturnsGetError(t *testing.T) {
 
 func TestReconcileReturnsParseError(t *testing.T) {
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
-	scheme := newModuleConfigScheme(t)
+	scheme := newModuleConfigScheme()
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	obj := &unstructured.Unstructured{Object: map[string]any{
@@ -284,7 +284,7 @@ func TestExtractStateSettingsDecodeError(t *testing.T) {
 }
 
 func TestSetupWithManagerConfiguresBuilder(t *testing.T) {
-	scheme := newModuleConfigScheme(t)
+	scheme := newModuleConfigScheme()
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 	mgr := newFakeManager(client, scheme)
 	builderStub := &fakeBuilder{}
@@ -321,7 +321,7 @@ func TestSetupWithManagerConfiguresBuilder(t *testing.T) {
 
 func TestReconcileStoresDefaultsWhenMissing(t *testing.T) {
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
-	scheme := newModuleConfigScheme(t)
+	scheme := newModuleConfigScheme()
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	reconciler, err := New(logr.Discard(), store)
@@ -343,7 +343,7 @@ func TestReconcileStoresDefaultsWhenMissing(t *testing.T) {
 
 func TestReconcileUpdatesStore(t *testing.T) {
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
-	scheme := newModuleConfigScheme(t)
+	scheme := newModuleConfigScheme()
 
 	obj := &unstructured.Unstructured{}
 	obj.Object = map[string]any{

@@ -67,7 +67,9 @@ limitations under the License.
 
   - Включает модуль, заполняет минимальный `ModuleConfig`; все обнаруженные узлы считаются управляемыми, если их явно не отключить.
   - Проектирует и сопровождает `GPUPool`: задаёт `deviceSelector`, режим выделения (`Exclusive/MIG/TimeSlice`), политики `deviceAssignment`, проверяет работу auto-attach.
-  - Добавляет новые GPU-узлы: достаточно дождаться `ReadyForPooling`; при необходимости исключить узел - задаёт `gpu.deckhouse.io/enabled=false`.
+
+- Добавляет новые GPU-узлы: достаточно дождаться `phase=Ready` и карт в состоянии `Ready`; при необходимости исключить узел - задаёт `gpu.deckhouse.io/enabled=false`.
+
   - Перераспределяет карты: анализирует `GPUNodeInventory.status.pools.pending[]`/`assigned[]` и события `GPUNodeWithoutPool`, при необходимости обновляет `deviceSelector` или создаёт новые пулы.
   - Выводит узлы из эксплуатации: переводит пул/узел в `Maintenance`, устанавливает `gpu.deckhouse.io/enabled=false`, дожидается освобождения workloads, остановки DaemonSet’ов и очистки ресурсов.
   - Обновляет драйверы/toolkit: реагирует на `DriverMissing`, координирует обновления, подтверждает возвращение узлов в пулы.
@@ -380,17 +382,17 @@ bootstrap и gpupool.
 - Для каждого PCI-устройства с vendor=0x10de создаётся `GPUDevice`. У ресурса
   нет `spec`; ключевые поля находятся в `status`:
 
-  | Поле                 | Содержимое                                                                                                                           | Комментарий                                                                                                           |
-  | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-  | `status.nodeName`    | Узел, на котором найдена карта                                                                                                       | Используется при подборе пула                                                                                         |
-  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                                                                     |
-  | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                                                            |
-  | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG                                         |
-  | `status.state`       | `Discovered` / `ReadyForPooling` / `PendingAssignment` / `NoPoolMatched` / `Assigned` / `Reserved` / `InUse` / `Faulted`             | Отражает текущее состояние устройства (подготовка, ожидание пула, подтверждён, зарезервирован, под нагрузкой, авария) |
-  | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                                                                      |
-  | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                                                            |
-  | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`                                                   |
-  | `status.health.*`    | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени                                                              | Используется мониторингом и контроллерами для диагностики                                                             |
+  | Поле                 | Содержимое                                                                                                                           | Комментарий                                                                                                                                     |
+  | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `status.nodeName`    | Узел, на котором найдена карта                                                                                                       | Используется при подборе пула                                                                                                                   |
+  | `status.inventoryID` | Уникальный идентификатор `<node>/<pci>`                                                                                              | Совпадает с записями в `GPUNodeInventory` и пулах                                                                                               |
+  | `status.product`     | Человекочитаемое название GPU                                                                                                        | На основе лейблов `nvidia.com/gpu.product`                                                                                                      |
+  | `status.hardware.*`  | Аппаратные характеристики: `memoryMiB`, `computeCapability`, поддерживаемые `precision`, NUMA/NVLink, `profilesSupported`, `types[]` | Нужны admission и `gpupool-controller` для проверки совместимости и учёта MIG                                                                   |
+  | `status.state`       | `Discovered` / `Validating` / `Ready` / `PendingAssignment` / `Assigned` / `Reserved` / `InUse` / `Faulted`                          | Отражает текущее состояние устройства (обнаружено, проверяется, готово к выдаче, ожидает решения пула, выдано/зарезервировано/в работе, авария) |
+  | `status.autoAttach`  | Флаг автоматического подключения к пулу                                                                                              | Управляется политиками `GPUPool`                                                                                                                |
+  | `status.poolRef`     | Ссылка на пул и публикуемый ресурс                                                                                                   | Заполняется при назначении                                                                                                                      |
+  | `status.managed`     | Признак управления модулем                                                                                                           | `false`, если узел отключён меткой `gpu.deckhouse.io/enabled=false`                                                                             |
+  | `status.health.*`    | Телеметрия DCGM (температура, ECC, Xid, throttling) с отметками времени                                                              | Используется мониторингом и контроллерами для диагностики                                                                                       |
 
   При исчезновении карты ресурс удаляется вместе с финалайзером; ручное
   редактирование не поддерживается.
@@ -402,15 +404,44 @@ bootstrap и gpupool.
   на подготовку автоматически.
 - `GPUNodeInventory` хранит агрегированное состояние узла:
 
-| Поле                                          | Содержимое                                                                                 | Комментарий                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `status.hw.present`                           | Есть ли на узле поддерживаемые GPU                                                         | Используется bootstrap'ом и мониторингом                                                 |
-| `status.hw.devices[]`                         | Список устройств с зеркалированием ключевых атрибутов `GPUDevice`                          | Позволяет быстро увидеть состав узла                                                     |
-| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit                                                                | Bootstrap обновляет при проверке совместимости                                           |
-| `status.bootstrap.phase`                      | `Disabled`, `Validating`, `ValidatingFailed`, `GFD`, `Monitoring`, `Ready`                 | Фаза подготовки узла; на неё ориентируются bootstrap и gpupool                           |
-| `status.pools.assigned[]`                     | Список подтверждённых пулов: `{poolName, resource, since}`                                 | Заполняется `gpupool-controller`, используется admission и мониторинг                    |
-| `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                               | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
-| `status.conditions`                           | `ManagedDisabled`, `InventoryComplete`, `ReadyForPooling` и сигналы от других контроллеров | Отражает готовность и проблемы узла                                                      |
+| Поле                                          | Содержимое                                                                                                                                                         | Комментарий                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `status.hw.present`                           | Есть ли на узле поддерживаемые GPU                                                                                                                                 | Используется bootstrap'ом и мониторингом                                                 |
+| `status.hw.devices[]`                         | Список устройств с зеркалированием ключевых атрибутов `GPUDevice`                                                                                                  | Позволяет быстро увидеть состав узла                                                     |
+| `status.devices`                              | Сводка состояний (`total`, `ready`, `pendingAssignment`, `assigned`, `reserved`, `inUse`, `validating`, `faulted`, `ignored`)                                      | Операторы сразу видят расклад по картам и причину блокировки пула                        |
+| `status.driver.{version,cudaVersion,toolkit}` | Данные о драйвере и toolkit                                                                                                                                        | Bootstrap обновляет при проверке совместимости                                           |
+| `status.bootstrap.phase`                      | `Disabled`, `Validating`, `ValidatingFailed`, `GFD`, `Monitoring`, `Ready`                                                                                         | Фаза подготовки узла; на неё ориентируются bootstrap и gpupool                           |
+| `status.pools.assigned[]`                     | Список подтверждённых пулов: `{poolName, resource, since}`                                                                                                         | Заполняется `gpupool-controller`, используется admission и мониторинг                    |
+| `status.pools.pending[]`                      | Подсказки `{poolName, autoApproved, reason}`                                                                                                                       | Используется UI для полуавтоматической выдачи; при чисто ручной работе может быть пустым |
+| `status.conditions`                           | `ManagedDisabled`, `InventoryComplete`, `ReadyForPooling`, `HasFaultedDevices`, `HasValidatingDevices`, `HasUnassignedReady`, `InfraDegraded`, `DegradedWorkloads` | Отражает готовность и проблемы узла                                                      |
+
+- `status.devices` вычисляется контроллером на каждом reconcile. Сводка хранит
+  общее количество карт и распределение по состояниям (`ready`, `pendingAssignment`,
+  `assigned`, `reserved`, `inUse`, `validating`, `faulted`, `ignored`). Эти
+  сведения используются дашбордами и UI для быстрой диагностики.
+
+##### Расчёт готовности узла
+
+- **InfraReady.** Узел считается инфраструктурно готовым, если:
+  1. `status.bootstrap.phase=Monitoring/Ready`.
+  2. Conditions `DriverMissing`, `ToolkitMissing`, `MonitoringMissing` = `False`
+     **стабильно** на протяжении `N` интервалов heartbeat DCGM (по умолчанию `N=3`).
+  3. Heartbeat `monitoring.lastHeartbeat` обновлялся в течение последних `2 * heartbeatPeriod`.
+- **ReadyForPooling=True**, только если `InfraReady=True` **и** `status.devices.faulted=0`.
+- **HasFaultedDevices=True**, если хотя бы одна карта имеет `state=Faulted` (без учёта
+  устройства, помеченного `gpu.deckhouse.io/ignore=true`).
+- **HasValidatingDevices=True**, если `status.devices.validating > 0`.
+- **HasUnassignedReady=True**, если есть карты в `state=Ready` или `PendingAssignment`.
+- **InfraDegraded=True**, если `InfraReady=False`. Если при этом есть карты в
+  `Assigned`/`Reserved`/`InUse`, дополнительно устанавливается `DegradedWorkloads=True`
+  (workload’ы продолжают работать, но площадка требует внимания).
+- Игнорирование неисправного устройства (`gpu.deckhouse.io/ignore=true`) сразу
+  уменьшает счётчик `faulted` и разблокирует `ReadyForPooling`, но карта остаётся
+  недоступной для пулов, пока оператор не снимет метку и не пройдёт повторную
+  валидацию.
+- Поддерживается сценарий с единым драйвером/тулкитом NVIDIA на узле. Если
+  потребуется несколько версий драйверов для разных карт на одном хосте, потребуется
+  изменение архитектуры (текущая модель это не покрывает).
 
 - Интервал фонового пересъёма узлов задаётся через
   `ModuleConfig.spec.settings.inventory.resyncPeriod` (формат `<число><s|m|h>`,
@@ -421,7 +452,6 @@ bootstrap и gpupool.
 - Причины (`reason`) в `pending[]` — фиксированный набор:
 
   - `AwaitingApproval` — карта/узел готов(ы), требуется решение оператора;
-  - `NoPoolMatched` — ни один `GPUPool` не подошёл по селекторам;
   - `OutOfSelector` — устройство исключено фильтром `spec.deviceSelector`;
   - `Declined` — оператор отклонил предложение (через UI).
     Добавлять произвольные значения не нужно: контроллер использует этот перечень для отображения в UI и формирования триггеров.
@@ -431,7 +461,7 @@ bootstrap и gpupool.
   `gpu.deckhouse.io/assignment=<pool>` (UI делает это автоматически), после чего
   запись перемещается в `assigned[]`. При `requireAnnotation=false` подтверждение
   не требуется: контроллер сам переводит устройство в `Assigned`.
-- Если карта не закреплена за пулом, она остаётся в состоянии `Unassigned` и
+- Если карта не закреплена за пулом, она остаётся в состоянии `PendingAssignment` и
   подсвечивается condition `UnassignedDevice`; событие `GPUNodeWithoutPool`
   напоминает оператору о простаивающих ресурсах.
 - Для диагностики контроллер публикует события `GPUDeviceDetected`,
@@ -467,7 +497,7 @@ flowchart LR
     Validating -->|DriverMissing/ToolkitMissing| Fail["Phase=ValidatingFailed"]
     GFDPhase -->|данные синхронизированы| Monitoring["Phase=Monitoring<br/>DCGM hostengine + exporter"]
     GFDPhase -->|ошибка GFD| Fail
-    Monitoring -->|мониторинг готов| ReadyPhase["Phase=Ready<br/>ReadyForPooling=true"]
+    Monitoring -->|мониторинг готов| ReadyPhase["Phase=Ready<br/>Devices=Ready"]
     Monitoring -->|DCGM/exporter fault| Fail
     Fail --> Validating
 ```
@@ -504,41 +534,49 @@ flowchart LR
    CrashLoop, рассинхрон лейблов) возвращают фазу в `ValidatingFailed` и
    отключают GFD до повторного прохождения проверки.
 4. **Phase=Monitoring.** После успешной синхронизации GFD включается DCGM
-   hostengine и (опционально) exporter/ServiceMonitor. Даже если глобальный
-   мониторинг DKP выключен, DCGM продолжает работать как источник телеметрии для
-   контроллеров; отключается он только при полном отсутствии драйвера. Готовность
-   отражается condition `MonitoringMissing`: контроллер отслеживает метрику
+   hostengine и exporter. Настройка ServiceMonitor (и публикация дашбордов) зависит
+   от глобального флага мониторинга DKP, но сам exporter всегда работает как источник
+   телеметрии для контроллеров; отключается он только при полном отсутствии драйвера.
+   Готовность отражается condition `MonitoringMissing`: контроллер отслеживает метрику
    `dcgm_exporter_last_update_time_seconds` для каждого узла и считает мониторинг
-   готовым только если heartbeat обновлялся за последние ~2 минуты. Per-pool `nvidia-device-plugin` и
+   готовым только если heartbeat обновлялся за последние ~2 минуты. Дополнительно
+   bootstrap ждёт `N` стабильных heartbeat (по умолчанию `N=3`), прежде чем объявить
+   `InfraReady=True`. Per-pool `nvidia-device-plugin` и
    `nvidia-mig-manager` не запускаются на этом этапе — за них отвечает
    `gpupool-controller`.
-5. **Phase=Ready.** Когда `DriverMissing/ToolkitMissing/MonitoringMissing` равны
-   `False`, bootstrap снимает блокировки: `GPUNodeInventory.status.bootstrap.phase`
-   становится `Ready`, devices получают `state=ReadyForPooling`, а gpupool может
-   переводить их в `PendingAssignment`. Контроллер синхронизирует `hardware`,
-   `autoAttach`, health-метрики и таймстемпы, чтобы CR оставался единственным
-   источником правды. Пока карта не закреплена за пулом, device-plugin на узел не
-   ставится, поэтому Pod не может использовать карту без подтверждения.
+5. **Phase=Ready.** Когда `DriverMissing/ToolkitMissing/MonitoringMissing=False`
+   и выдержан гистерезис heartbeat, bootstrap объявляет `InfraReady=True`. На этом
+   событии:
+   - все устройства в состояниях `Discovered`/`Validating` переводятся в `Ready`;
+   - устройства в `Faulted` остаются неисправными до тех пор, пока health не станет
+     чистым и они не пройдут повторную проверку;
+   - `ReadyForPooling` становится `True`, если нет ни одной Faulted карты.
+     Контроллер синхронизирует `hardware`, `autoAttach`, health-метрики и таймстемпы,
+     чтобы CR оставался единственным источником правды. Пока карта не закреплена за
+     пулом, device-plugin на узел не ставится, поэтому Pod не может использовать карту
+     без подтверждения.
 6. **Деградации и автоматическое выключение сервисов.** Bootstrap следит за
    событиями Pod/DaemonSet/ServiceMonitor. При проблемах он мгновенно меняет
    фазу на `ValidatingFailed`, ставит conditions, выключает GFD/DCGM для
-   конкретного узла (через аннотации/taint/values) и переводит устройства
-   обратно в `state=Faulted`. Обработчик `device-state-sync` помечает
-   `Faulted` только те карты, которые уже успели перейти в `ReadyForPooling`
-   (новые устройства остаются в `Discovered` до первой успешной проверки) и
-   автоматически возвращает их в `ReadyForPooling`, как только узел повторно
-   проходит pipeline. Как только валидатор снова подтверждает среду, фазы
-   проходят pipeline повторно и сервисы включаются автоматически. Это
-   покрывает сценарии удаления драйвера или toolkit: валидатор фиксирует
-   проблему, bootstrap сохраняет в CR причину и даёт операторам (или будущему
-   автоинсталлятору) сигнал для восстановления.
+   конкретного узла (через аннотации/taint/values). Все свободные устройства
+   (`state=Ready/PendingAssignment`) переходят в `Faulted` с причиной
+   `InfrastructureDegraded`. Карты в `Assigned/Reserved/InUse` сохраняют своё
+   состояние, но получают condition `DegradedWorkloads=True`, чтобы операторы
+   видели риск для текущих workload'ов. Как только валидатор снова подтверждает
+   среду и `InfraReady=True`, pipeline повторяется, свободные карты возвращаются
+   в `Ready`, а condition `DegradedWorkloads` снимается. Это покрывает сценарии
+   удаления драйвера или toolkit: валидатор фиксирует проблему, bootstrap
+   сохраняет в CR причину и даёт операторам (или будущему автоинсталлятору)
+   сигнал для восстановления.
 
 - Контроллер наблюдает `GPUNodeInventory.status.hardware.devices[].state`. Если на
-  узле появляется карта в `state=Discovered` (новое устройство) или `state=Faulted`
-  (деградация), фаза принудительно возвращается в `Validating`: валидатор вновь
-  разворачивается только на этой ноде, а GFD/DCGM временно отключаются. После
-  успешной проверки устройства переходят в `ReadyForPooling`, валидатор удаляется
-  до следующего появления "сырых" или проблемных карт.
+  узле появляется карта в `state=Discovered` (новое устройство), bootstrap возвращает
+  фазу в `Validating`, запускает валидатор и после первого успешного цикла переводит
+  карту в `Validating → Ready`. Адресные `Faulted` (DCGM/GFD/device-plugin) не рушат
+  фазу автоматически: bootstrap ждёт очистки health и `M` стабильных heartbeat,
+  после чего инициирует локальную ревалидацию и возвращает карту в `Ready`. Таким
+  образом, новые устройства и восстановленные карты проходят тот же pipeline, что и
+  изначальная подготовка, но без полного перезапуска остальных узлов.
 
 ##### Последовательность bootstrap
 
@@ -560,7 +598,7 @@ sequenceDiagram
     Boot->>State: Phase=Monitoring, включить dcgmEnabled
     Helm->>Node: Запуск DCGM hostengine + exporter
     Node-->>Boot: Телеметрия / Ready событие
-    Boot->>State: Phase=Ready, ReadyForPooling=true
+    Boot->>State: Phase=Ready, devices=Ready
     Inv-->>Pool: Появились кандидаты (pending[])
     Pool->>Node: Позже включает per-pool device-plugin/MIG при назначении
 ```
@@ -569,7 +607,7 @@ sequenceDiagram
 а `gpupool-controller` уже на их основе формирует `status.pools.pending[]` и
 переводит карты в `PendingAssignment`. Как только bootstrap снимает блокировки,
 gpupool обновляет pending/assigned и запускает per-pool device-plugin — в работу
-возвращаются только карты с `ReadyForPooling=true`.
+возвращаются только карты со `state=Ready`.
 
 ##### Управление конфигурацией bootstrap
 
@@ -623,13 +661,12 @@ stateDiagram-v2
     [*] --> Discovered
     Discovered --> ManagedDisabled: gpu.deckhouse.io/enabled=false (Inventory)
     ManagedDisabled --> Discovered: enabled=true (Inventory)
-    Discovered --> ReadyForPooling: bootstrap проверил драйвер/toolkit/DCGM
-    Discovered --> Faulted: Driver/Toolkit/Monitoring issue (Bootstrap)
-    Faulted --> ReadyForPooling: bootstrap починил драйвер/GFD/DCGM
-    ReadyForPooling --> PendingAssignment: gpupool добавил в pending[] (AwaitingApproval)
+    Discovered --> Validating: bootstrap запустил валидатор
+    Validating --> Ready: проверка драйвера/toolkit/DCGM прошла
+    Validating --> Faulted: Driver/Toolkit/Monitoring issue (Bootstrap)
+    Faulted --> Validating: bootstrap починил драйвер/GFD/DCGM
+    Ready --> PendingAssignment: gpupool добавил в pending[] (AwaitingApproval)
     PendingAssignment --> Assigned: аннотация или autoApprove (GPUPool)
-    PendingAssignment --> NoPoolMatched: нет пула по selector (GPUPool)
-    NoPoolMatched --> PendingAssignment: пул появился (GPUPool)
     Assigned --> Reserved: временная бронь для Pod'а (Admission)
     Reserved --> InUse: Pod стартовал (Admission)
     Reserved --> Assigned: TTL истёк / Pod не стартовал (GPUPool)
@@ -639,14 +676,14 @@ stateDiagram-v2
 ```
 
 - **Inventory** создаёт `GPUDevice`, отслеживает `gpu.deckhouse.io/enabled` и
-  выставляет `ManagedDisabled`, но не переводит карту в `ReadyForPooling`.
-- **Bootstrap** управляет переходами `Discovered ⇄ Faulted ⇄ ReadyForPooling`,
+  выставляет `ManagedDisabled`, но не переводит карту в `Ready`.
+- **Bootstrap** управляет переходами `Discovered ⇄ Validating ⇄ Ready` и `Faulted`,
   выставляя conditions `DriverMissing/ToolkitMissing/MonitoringMissing`.
   - Если проверка проходит сразу, карта идёт по «зелёной» ветке:
-    `Discovered → ReadyForPooling → PendingAssignment → Assigned`.
+    `Discovered → Validating → Ready → PendingAssignment → Assigned`.
 - Пока узел находится в фазах `Validating/GFD/Monitoring`, устройства остаются в состоянии `Discovered`. Мы переводим их в `Faulted` только когда узел перешёл в `ValidatingFailed` или деградировал из `Ready` (например, после падения мониторинга).
-- **GPUPool** берёт карты с `ReadyForPooling=true` и отвечает за condition
-  `UnassignedDevice`: `AwaitingApproval`, `NoPoolMatched`, `Faulted`. После
+- **GPUPool** берёт карты со `state=Ready` и отвечает за condition
+  `UnassignedDevice`: `AwaitingApproval` и `Faulted`. После
   утверждения карта становится `Assigned` (свободна, но принадлежит пулу). Если
   admission временно бронирует ресурс, `state=Reserved` — короткий цикл для
   предотвращения гонок; карта остаётся привязанной к пулу. После запуска Pod'а
@@ -654,10 +691,35 @@ stateDiagram-v2
 - **Admission/kube-scheduler** используют стандартные PriorityClass и preemption:
   мы не внедряем свой приоритет, а опираемся на базовый механизм Kubernetes.
 
+##### Здоровье устройств и переходы `Faulted`
+
+- **Источники сигналов.**
+  1. DCGM exporter: XID, ECC, температурные/питание/PCIe/MIG ошибки, violation’ы.
+  2. GFD + сайдкар detect-gpu: применение MIG профиль, прошивки, расхождения PCI/UUID.
+  3. События device-plugin/MIG-manager (CrashLoop, отсутствие устройств).
+- Реализация сигналов от detect-gpu и device-plugin запланирована отдельно; пока fault’ы формируются только из DCGM.
+- На первом этапе мы используем только метрическую часть DCGM: температуру, счётчики ECC и ошибки `XID`, а также накопительные счётчики power/thermal/reliability violations. Эти показатели попадают в `GPUDevice.status.health` и формируют причины Faulted; остальные DCGM-метрики остаются в Prometheus и не переносятся в CR. DCGM hostengine обязателен, но если exporter ещё не поднят или падает, `status.health` остаётся пустым — появления exporter ждёт bootstrap.
+- **Переходы в `Faulted`.**
+  - Любой адресный сигнал (DCGM/GFD/sidecar) помечает соответствующую карту `state=Faulted`
+    с `status.health.lastError`, `reason` и `lastTransitionTime`.
+  - Если `InfraReady=False`, все свободные `Ready`/`PendingAssignment` карты переходят в
+    `Faulted` с причиной `InfrastructureDegraded`. Занятые (`Assigned/Reserved/InUse`)
+    остаются в своих состояниях, но получают condition `InfrastructureDegraded`.
+- **Возврат из `Faulted`.** Каждая карта должна получить `M` подряд успешных heartbeat
+  (по умолчанию `M=3`), при которых:
+  1. `InfraReady=True`.
+  2. В health нет текущих ошибок по DCGM/sidecar.
+     После этого карта переводится в `Validating`, что инициирует повторную проверку,
+     и при первом успешном цикле возвращается в `Ready`.
+- Если exporter недоступен (pod ещё не развернулся, CrashLoop, heartbeat не приходит), контроллер не обновляет `GPUDevice.status.health` и не инициирует автоматические Faulted-переходы — оператор видит только condition `MonitoringMissing`.
+- **Стагнация health.** Если карта находится в `Faulted` дольше `faultedTimeout`
+  (по умолчанию 1 час) и heartbeat не обновляется, контроллер ставит condition
+  `StaleHealth=True` и требует ручного вмешательства.
+
 #### 4. GPUPool
 
 `GPUPool` описывает логический пул GPU-ресурсов и правила работы с отдельными картами.
-Пока карта находится в состоянии `ReadyForPooling` и не подтверждена пулом, на
+Пока карта находится в состоянии `Ready` и не подтверждена пулом, на
 узле работают только базовые DaemonSet'ы bootstrap (GFD/DCGM). Пер-пуловые
 `nvidia-device-plugin-*` и `nvidia-mig-manager-*` запускаются **только после**
 назначения карты, чтобы workloads не могли запросить ресурс до решения оператора.
@@ -718,12 +780,11 @@ stateDiagram-v2
 
 - **Подключение карт.** После bootstrap карты попадают в `pending[]`. Оператор подтверждает их через UI (ставится аннотация `gpu.deckhouse.io/assignment=<pool>`), либо контроллер делает это автоматически при `requireAnnotation=false`/`autoApproveSelector`. Отклонённые устройства получают аннотацию `gpu.deckhouse.io/ignore=true`.
 - **Управление состояниями.** Контроллер отвечает за condition `UnassignedDevice`:
-  - `AwaitingApproval` — карта готова (`ReadyForPooling=true`), ждёт подтверждения;
-  - `NoPoolMatched` — ни один пул не подходит под `nodeSelector/deviceSelector`;
-  - `Faulted`/`Maintenance` — bootstrap снял `ReadyForPooling`, карта исключена из `assigned[]`.
+  - `AwaitingApproval` — карта готова (`state=Ready`), ждёт подтверждения;
+  - `Faulted`/`Maintenance` — bootstrap снял готовность, карта исключена из `assigned[]`.
     Inventory сообщает фактические данные, bootstrap — health, а gpupool фиксирует, кому карта доступна.
 - **Управление узлом.** Метка `gpu.deckhouse.io/enabled=true|false` включает или выключает подготовку узла. При отключении bootstrap снимает сервисные DaemonSet'ы, карты получают condition `ManagedDisabled`. Отдельные устройства можно временно исключить через `gpu.deckhouse.io/ignore=true`.
-- **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=ReadyForPooling` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
+- **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=Ready` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
 - **Переразметка (`spec.allocation`).** Контроллер переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin и (при необходимости) `nvidia-mig-manager` с новой конфигурацией. После успешной переподготовки публикуется событие `GPUPoolReconfigured`, maintenance снимается.
 - **Контроль аннотаций.** `gpupool-controller` регулярно сверяет состояние. Если обнаружена "висячая" аннотация (например, `assignment` без пула), создаётся событие `GPUAnnotationMismatch`, после чего лишние метки удаляются автоматически.
 - **Приоритеты workloads.** Распределение GPU не переопределяет стандартный механизм Kubernetes: Pod может задавать `priorityClassName`, kube-scheduler решает, кого вытеснить, а admission лишь проверяет наличие свободного ресурса пула. Дополнительные правила (например, резерв слотов под high-priority) описываются в `spec.access`/OperationPolicy.
@@ -824,10 +885,10 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    Ready["GPUDevice готова<br/>ReadyForPooling=True"] --> Pending["Запись в pending[]"]
+    Ready["GPUDevice готова<br/>state=Ready"] --> Pending["Запись в pending[]"]
     Pending --> DevConfirm{"Аннотация<br/>gpu.deckhouse.io/assignment?"}
     DevConfirm -->|Да| DevAssigned["state=Assigned<br/>poolRef заполнен"]
-    DevConfirm -->|Нет| DevAwait["Остаётся Unassigned<br/>reason=AwaitingApproval"]
+    DevConfirm -->|Нет| DevAwait["Остаётся PendingAssignment<br/>reason=AwaitingApproval"]
     DevAwait --> DevSelect["Оператор выбирает карту<br/>и ставит аннотацию"]
     DevSelect --> DevAssigned
     DevAssigned --> DevHold["Карта остаётся за пулом"]
@@ -884,7 +945,7 @@ sequenceDiagram
   жизненным циклом Pod'ов: после успешного `Bind` и старта контейнера переводит устройства в
   `InUse`, а при ошибке (Pod удалён, не удалось привязать, истёк таймаут)
   автоматически снимает бронирование и возвращает их в `Assigned`. Таймаут брони по умолчанию составляет
-  2 минуты; при его превышении устройство возвращается в `Unassigned`, а событие
+  2 минуты; при его превышении устройство возвращается в `PendingAssignment`, а событие
   `GPUReservationExpired` помогает расследовать причину. Если kube-scheduler
   возвращает отказ, admission ждёт фиксированный backoff и повторяет попытку,
   сохраняя бронирование.
@@ -1142,13 +1203,13 @@ status:
           class: "0300"
         product: "NVIDIA L40S"
         memoryMiB: 46080
-        state: Unassigned
+        state: Ready
         autoAttach: true
       - inventoryID: worker-01-0000:3b:00.0 # карта временно отключена оператором
         product: NVIDIA A100
-        state: Unassigned
+        state: Faulted
         autoAttach: false
-        reason: AwaitingAssignment
+        reason: ManualMaintenance
         health:
           temperatureC: 64
           eccErrorsTotal: 0
@@ -1160,6 +1221,16 @@ status:
   monitoring:
     dcgmReady: true
     lastHeartbeat: 2025-01-15T10:06:12Z
+  devices:
+    total: 3
+    ready: 1
+    pendingAssignment: 1
+    assigned: 1
+    reserved: 0
+    inUse: 1
+    validating: 0
+    faulted: 1
+    ignored: 0
   bootstrap:
     gfdReady: true
     toolkitReady: true
@@ -1201,14 +1272,15 @@ status:
   - `computeCapability` — admission/контроллер могут запрещать workload’ы, если требуется, скажем, `compute >= 8.9`.
   - `precision.supported` — список вычислительных точностей (например, `fp16`, `bf16`), нужен admission и владельцам workload’ов для проверки совместимости модели/движка.
   - `mig.types[*]` — gpupool-controller сравнивает с `spec.allocation.migProfile`, считает доступные партиции; monitoring строит capacity по типам.
-  - `state` — `Unassigned`, `Reserved`, `Assigned` или `Faulted`; admission использует
-    `Reserved` для бронирования, контроллер освобождает карты после завершения Pod'ов.
+  - `state` — `Discovered`, `Validating`, `Ready`, `PendingAssignment`, `Assigned`,
+    `Reserved`, `InUse` или `Faulted`; admission использует `Reserved` для бронирования,
+    контроллер освобождает карты после завершения Pod'ов.
 - `status.driver.*` — bootstrap (решает, нужно ли ставить/обновлять), admission (совместимость с пулом), алерты (`gpu_driver_version_info`).
 - `status.monitoring` — bootstrap (ожидает готовности DCGM), monitoring/alerts.
-- `status.bootstrap` — bootstrap (управляет повторными попытками), `gpupool-controller` (ждёт `ReadyForPooling`), оператор (диагностика).
+- `status.bootstrap` — bootstrap (управляет повторными попытками), `gpupool-controller` (ждёт `phase=Ready` и карт в `state=Ready`), оператор (диагностика).
 - `status.pools.assigned[]` — `gpupool-controller` (учёт выданных слотов), admission (валидация запрошенных ресурсов), monitoring (использование).
 - `status.pools.pending[]` — UI (подтверждение кандидатов), `gpupool-controller` (управление авто-назначением), monitoring (контроль простаивающих площадок).
-- `status.conditions` — события, алерты, UI (например, `ManagedDisabled`, `UnassignedDevice` с причинами `NoPoolMatched`/`AwaitingApproval`, `DriverMissing`).
+- `status.conditions` — события, алерты, UI (например, `ManagedDisabled`, `UnassignedDevice` с причиной `AwaitingApproval`, `DriverMissing`).
   Базовые переключатели, которые позволяют оператору управлять картами до стадии пулов:
 
 1. **Отключить узел целиком:** задать метку `gpu.deckhouse.io/enabled=false`
@@ -1216,11 +1288,13 @@ status:
    контроллер выставляет `GPUDevice.status.managed=false`, а в `GPUNodeInventory`
    появляется condition `ManagedDisabled=True`, поэтому карты не попадут в кандидаты пулов.
 2. **Игнорировать отдельные устройства:** добавить на `GPUDevice`
-   аннотацию/label `gpu.deckhouse.io/ignore=true`. Контроллер выставляет
-   `InventoryComplete=False`, карта не выдаётся.
+   аннотацию/label `gpu.deckhouse.io/ignore=true`. Карта исключается из
+   выдачи, не участвует в `status.devices.faulted`, но остаётся в CR для
+   последующей диагностики.
 3. **Оставить узел в ожидании:** пока bootstrap не снял `DriverMissing`,
-   `ToolkitMissing`, `MonitoringMissing`, condition `ReadyForPooling=False` —
-   карта отображается, но привязать её к пулу нельзя.
+   `ToolkitMissing`, `MonitoringMissing` **или** есть карты с `state=Faulted`,
+   condition `ReadyForPooling=False` — карты отображаются, но ни один пул
+   не может взять ресурс.
    `GPUPool` (MIG-пул):
 
 ```yaml
@@ -1297,7 +1371,7 @@ status:
   правило NFD не сработало. Пока condition не снят, bootstrap и gpupool не смогут
   назначить карту.
 - **Управляемое включение узлов.** Как только bootstrap перевёл карты в
-  `ReadyForPooling`, `gpupool-controller` добавляет записи в
+  `Ready`, `gpupool-controller` добавляет записи в
   `GPUNodeInventory.status.pools.pending[]` и `GPUPool.status.candidates[]`.
   Пока оператор не подтвердит назначение, ресурсы
   остаются в ожидании; событие `GPUNodeWithoutPool` подсвечивает простаивающие площадки.
@@ -1309,10 +1383,10 @@ status:
   управляемые поля (`spec.resource`, `spec.allocation`, auto-labels) без
   положенных прав.
 - **Мониторинг как prerequisite.** Пока bootstrap видит `MonitoringMissing=True`
-  (DCGM или GFD не готовы), узел не получает `ReadyForPooling`, а device-plugin не
+  (DCGM или GFD не готовы), карты не переходят в `Ready`, а device-plugin не
   стартует — исключаем GPU без наблюдаемости.
 - **Отчётность и алерты.** Метрики `gpu_device_unassigned_total`,
-  `gpupool_capacity_*`, condition `UnassignedDevice` (с причинами `AwaitingApproval`/`NoPoolMatched`)
+  `gpupool_capacity_*`, condition `UnassignedDevice` (с причиной `AwaitingApproval`)
   и событие `GPUNodeWithoutPool` дают
   дежурным быстрый сигнал о проблемах до появления инцидента у workloads.
 
@@ -1386,7 +1460,7 @@ status:
   остаться в состоянии `Reserved` и недоступными для новых запросов.
   _Снижение:_ бронирование меняется с оптимистичной блокировкой, контроллер
   отслеживает Pending Pod'ы, а встроенный TTL автоматически возвращает карты
-  в `Unassigned`. Метрики `gpu_device_reserved_total` и
+  в `PendingAssignment`. Метрики `gpu_device_reserved_total` и
   `gpu_device_reservation_age_seconds`, а также алерт `GPUReservationExpired`
   подсвечивают рост "зависших" броней.
 - **Зависимость от административных действий.** Если узел подготовлен, но не

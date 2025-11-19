@@ -42,20 +42,18 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	return nil
 }
 
-// +kubebuilder:validation:Enum=Discovered;ReadyForPooling;PendingAssignment;NoPoolMatched;Assigned;Reserved;InUse;Faulted;Unassigned
+// +kubebuilder:validation:Enum=Discovered;Validating;Ready;PendingAssignment;Assigned;Reserved;InUse;Faulted
 type GPUDeviceState string
 
 const (
 	GPUDeviceStateDiscovered        GPUDeviceState = "Discovered"
-	GPUDeviceStateReadyForPooling   GPUDeviceState = "ReadyForPooling"
+	GPUDeviceStateValidating        GPUDeviceState = "Validating"
+	GPUDeviceStateReady             GPUDeviceState = "Ready"
 	GPUDeviceStatePendingAssignment GPUDeviceState = "PendingAssignment"
-	GPUDeviceStateNoPoolMatched     GPUDeviceState = "NoPoolMatched"
 	GPUDeviceStateAssigned          GPUDeviceState = "Assigned"
 	GPUDeviceStateReserved          GPUDeviceState = "Reserved"
 	GPUDeviceStateInUse             GPUDeviceState = "InUse"
 	GPUDeviceStateFaulted           GPUDeviceState = "Faulted"
-	// GPUDeviceStateUnassigned is kept for backwards compatibility with older CRs.
-	GPUDeviceStateUnassigned GPUDeviceState = "Unassigned"
 )
 
 // +kubebuilder:object:root=true
@@ -233,6 +231,16 @@ type GPUDeviceHealth struct {
 	ECCErrorsTotal int64 `json:"eccErrorsTotal,omitempty"`
 	// LastUpdatedTime is when telemetry was last refreshed.
 	LastUpdatedTime *metav1.Time `json:"lastUpdated,omitempty"`
+	// LastHealthyTime stores the timestamp of the last heartbeat without faults.
+	LastHealthyTime *metav1.Time `json:"lastHealthyTime,omitempty"`
+	// ConsecutiveHealthy reports the number of sequential healthy heartbeats.
+	ConsecutiveHealthy int32 `json:"consecutiveHealthy,omitempty"`
+	// LastError contains the latest fault message detected for the device.
+	LastError string `json:"lastError,omitempty"`
+	// LastErrorReason categorises the latest fault (XID, ECC, etc.).
+	LastErrorReason string `json:"lastErrorReason,omitempty"`
+	// LastErrorTime records when the latest fault was observed.
+	LastErrorTime *metav1.Time `json:"lastErrorTime,omitempty"`
 	// Metrics contains vendor specific telemetry key/value pairs exported by controllers.
 	Metrics map[string]string `json:"metrics,omitempty"`
 }
@@ -270,6 +278,8 @@ type GPUNodeInventorySpec struct {
 type GPUNodeInventoryStatus struct {
 	// Hardware contains the list of GPUs discovered on the node.
 	Hardware GPUNodeHardware `json:"hw,omitempty"`
+	// Devices summarises the device lifecycle states on the node.
+	Devices GPUNodeDeviceSummary `json:"devices,omitempty"`
 	// Driver captures driver/toolkit versions and readiness.
 	Driver GPUNodeDriver `json:"driver,omitempty"`
 	// Monitoring indicates health of GFD/DCGM exporters.
@@ -287,6 +297,19 @@ type GPUNodeHardware struct {
 	Present bool `json:"present,omitempty"`
 	// Devices lists all detected GPUs with mirrored device metadata.
 	Devices []GPUNodeDevice `json:"devices,omitempty"`
+}
+
+// GPUNodeDeviceSummary aggregates device states for quick diagnostics.
+type GPUNodeDeviceSummary struct {
+	Total             int32 `json:"total,omitempty"`
+	Ready             int32 `json:"ready,omitempty"`
+	PendingAssignment int32 `json:"pendingAssignment,omitempty"`
+	Assigned          int32 `json:"assigned,omitempty"`
+	Reserved          int32 `json:"reserved,omitempty"`
+	InUse             int32 `json:"inUse,omitempty"`
+	Validating        int32 `json:"validating,omitempty"`
+	Faulted           int32 `json:"faulted,omitempty"`
+	Ignored           int32 `json:"ignored,omitempty"`
 }
 
 type GPUNodeDevice struct {
@@ -350,6 +373,10 @@ type GPUNodeMonitoring struct {
 	DCGMReady bool `json:"dcgmReady,omitempty"`
 	// LastHeartbeat records the timestamp of the last successful monitoring heartbeat.
 	LastHeartbeat *metav1.Time `json:"lastHeartbeat,omitempty"`
+	// ConsecutiveHeartbeats counts sequential successful heartbeats from DCGM exporter.
+	ConsecutiveHeartbeats int32 `json:"consecutiveHeartbeats,omitempty"`
+	// ConsecutiveFailures counts sequential failed monitoring checks (missing pods/heartbeats).
+	ConsecutiveFailures int32 `json:"consecutiveFailures,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Disabled;Validating;ValidatingFailed;GFD;Monitoring;Ready

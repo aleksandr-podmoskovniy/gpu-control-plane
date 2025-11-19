@@ -180,7 +180,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
 	moduleConfig := &unstructured.Unstructured{}
 	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
-	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*unstructured.Unstructured](r.mapModuleConfig)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(r.mapModuleConfig)
 	return builder.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
 }
 

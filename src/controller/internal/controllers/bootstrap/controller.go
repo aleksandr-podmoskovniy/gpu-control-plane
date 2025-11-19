@@ -130,7 +130,6 @@ const (
 	conditionToolkitMissing    = "ToolkitMissing"
 	conditionMonitoringMissing = "MonitoringMissing"
 	conditionGFDReady          = "GFDReady"
-	conditionInventoryComplete = "InventoryComplete"
 )
 
 var managedComponentSet = func() map[string]struct{} {
@@ -275,13 +274,13 @@ func (r *Reconciler) injectClient() {
 func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
 	moduleConfig := &unstructured.Unstructured{}
 	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
-	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*unstructured.Unstructured](r.mapModuleConfig)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(r.mapModuleConfig)
 	return builder.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
 }
 
 func (r *Reconciler) attachWorkloadWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
 	pod := &corev1.Pod{}
-	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc[*corev1.Pod](mapWorkloadPodToInventory)
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(mapWorkloadPodToInventory)
 	return builder.WatchesRawSource(source.Kind(c, pod, handlerFunc))
 }
 

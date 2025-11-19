@@ -276,8 +276,8 @@ func TestMainHandlesInitialisationError(t *testing.T) {
 
 	main()
 
-	if exited.Load() != 0 {
-		t.Fatalf("expected custom exitFunc to be invoked with code 0, got %d", exited.Load())
+	if exited.Load() != 1 {
+		t.Fatalf("expected custom exitFunc to be invoked with code 1, got %d", exited.Load())
 	}
 }
 

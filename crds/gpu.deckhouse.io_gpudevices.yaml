@@ -342,6 +342,24 @@ spec:
                     description: LastUpdatedTime is when telemetry was last refreshed.
                     format: date-time
                     type: string
+                  lastHealthyTime:
+                    description: LastHealthyTime stores the timestamp of the last heartbeat without faults.
+                    format: date-time
+                    type: string
+                  consecutiveHealthy:
+                    description: ConsecutiveHealthy reports the number of sequential healthy heartbeats.
+                    format: int32
+                    type: integer
+                  lastError:
+                    description: LastError contains the latest fault message detected for the device.
+                    type: string
+                  lastErrorReason:
+                    description: LastErrorReason categorises the latest fault (XID, ECC, etc.).
+                    type: string
+                  lastErrorTime:
+                    description: LastErrorTime records when the latest fault was observed.
+                    format: date-time
+                    type: string
                   metrics:
                     additionalProperties:
                       type: string
@@ -380,17 +398,17 @@ spec:
                 type: object
               state:
                 description: State reflects current lifecycle state of the device
-                  (unassigned, reserved, assigned, faulted).
+                  (discovered, validating, ready, pending assignment, assigned/reserved/in
+                  use, faulted).
                 enum:
                 - Discovered
-                - ReadyForPooling
+                - Validating
+                - Ready
                 - PendingAssignment
-                - NoPoolMatched
                 - Assigned
                 - Reserved
                 - InUse
                 - Faulted
-                - Unassigned
                 type: string
             type: object
         type: object

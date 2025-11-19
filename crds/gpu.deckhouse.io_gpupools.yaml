@@ -459,14 +459,13 @@ spec:
                         the pool.
                       enum:
                       - Discovered
-                      - ReadyForPooling
+                      - Validating
+                      - Ready
                       - PendingAssignment
-                      - NoPoolMatched
                       - Assigned
                       - Reserved
                       - InUse
                       - Faulted
-                      - Unassigned
                       type: string
                   type: object
                 type: array
