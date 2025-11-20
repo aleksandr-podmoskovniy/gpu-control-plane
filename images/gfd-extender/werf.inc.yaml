@@ -59,6 +59,7 @@ shell:
           lib="$3"
         fi
         case "$lib" in
+          *libnvidia-ml*) echo "skip bundled nvml: $lib" ;;
           /*) cp --parents "$lib" /out/rootfs ;;
           "") ;;
           *) echo "skip unresolved lib: $lib" ;;
