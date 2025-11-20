@@ -1141,7 +1141,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "deckhouse-prometheus"
+          "uid": "${ds_prometheus}"
         },
         "definition": "label_values(DCGM_FI_DEV_POWER_USAGE,exported_namespace)",
         "hide": 0,
@@ -1172,7 +1172,7 @@
         "query": "label_values(namespace_service_account:kube_pod_info:, cluster)",
         "datasource": {
           "type": "prometheus",
-          "uid": "deckhouse-prometheus"
+          "uid": "${ds_prometheus}"
         },
         "refresh": 1,
         "sort": 1

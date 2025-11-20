@@ -27,7 +27,7 @@ GO ?= go
 GOFLAGS ?= -count=1
 GOLANGCI_LINT_VERSION ?= 1.64.8
 MODULE_SDK_VERSION ?= 0.3.7
-DMT_VERSION ?= 0.1.44
+DMT_VERSION ?= 0.1.54
 
 GOLANGCI_LINT ?= $(BIN_DIR)/golangci-lint
 MODULE_SDK ?= $(BIN_DIR)/module-sdk

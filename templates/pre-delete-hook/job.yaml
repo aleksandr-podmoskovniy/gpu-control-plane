@@ -17,6 +17,14 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: gpu-control-plane-pre-delete-hook
+{{- $podSC := include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | fromYaml }}
+{{- $sc := (get $podSC "securityContext") | default (dict) }}
+{{- $_ := set $sc "seccompProfile" (dict "type" "RuntimeDefault") }}
+{{- $_ := set $sc "runAsNonRoot" true }}
+{{- $_ := set $sc "runAsUser" 64535 }}
+{{- $_ := set $sc "runAsGroup" 64535 }}
+{{- $_ := set $podSC "securityContext" $sc }}
+      {{ toYaml $podSC | nindent 6 }}
       containers:
         - name: gpu-control-plane-pre-delete-hook
           {{- $resources := list
@@ -24,7 +32,12 @@ spec:
                 (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpudevices") "name" "")
                 (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpunodeinventories") "name" "")
           }}
-          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 64535
+            runAsGroup: 64535
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           image: "{{ include "helm_lib_module_image" (list . "preDeleteHook" (include "gpuControlPlane.moduleName" .)) }}"
           env:
             - name: WAIT_TIMEOUT
@@ -37,4 +50,3 @@ spec:
               cpu: 10m
               memory: 64Mi
       {{- include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
-      {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
