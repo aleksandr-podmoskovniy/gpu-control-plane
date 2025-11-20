@@ -98,7 +98,7 @@ spec:
               protocol: TCP
           env:
             - name: LD_LIBRARY_PATH
-              value: "/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+              value: "/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
           {{- include "helm_lib_module_container_security_context_privileged" . | nindent 10 }}
           resources:
             requests:

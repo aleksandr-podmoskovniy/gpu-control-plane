@@ -39,14 +39,14 @@ var (
 
 func initNVML() error {
 	if ret := nvml.Init(); ret != nvml.SUCCESS {
-		return fmt.Errorf("initialize NVML: %v", nvml.ErrorString(ret))
+		return fmt.Errorf("initialize NVML: ret=%d", ret)
 	}
 	return nil
 }
 
 func shutdownNVML() error {
 	if ret := nvml.Shutdown(); ret != nvml.SUCCESS {
-		return fmt.Errorf("shutdown NVML: %v", nvml.ErrorString(ret))
+		return fmt.Errorf("shutdown NVML: ret=%d", ret)
 	}
 	return nil
 }
