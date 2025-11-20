@@ -49,8 +49,9 @@ consistent view of detected hardware for other Deckhouse modules.
 - Responds to NodeFeature absence or label drift by marking inventory as
   incomplete, ensuring operators are aware when the data pipeline is missing
   inputs.
-- Exposes hooks and Helm values to align bootstrap components (GFD, DCGM
-  exporter, device plugin, MIG manager) with module policies.
+- Exposes hooks and Helm values to align bootstrap components (GFD with the
+  gfd-extender sidecar, DCGM hostengine/exporter, device plugin, MIG manager)
+  with module policies.
 
 ## Inventory model
 
@@ -90,6 +91,13 @@ The module relies on `module-sdk` hooks to integrate with addon-operator:
   labels GPU nodes with the `gpu.deckhouse.io/*` hierarchy.
 - `pkg/readiness` – exposes the module readiness probe used by addon-operator to
   block releases while validation errors or pending bootstrap actions remain.
+
+The bootstrap DaemonSets always deploy the NVIDIA stack (GFD + gfd-extender,
+DCGM hostengine/exporter, watchdog, validator) on managed nodes regardless of
+`monitoring.serviceMonitor`. The monitoring flag only controls whether Prometheus
+scrape objects and Grafana dashboards are rendered; health collection keeps
+running so `GPUDevice.status.health` remains populated even when you disable the
+cluster-wide monitoring integration.
 
 ## Packaging and deployment assets
 

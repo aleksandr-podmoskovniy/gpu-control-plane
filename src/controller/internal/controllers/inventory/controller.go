@@ -74,6 +74,7 @@ const (
 	eventDeviceDetected   = "GPUDeviceDetected"
 	eventDeviceRemoved    = "GPUDeviceRemoved"
 	eventInventoryChanged = "GPUInventoryConditionChanged"
+	eventDetectUnavailable = "GPUDetectionUnavailable"
 
 	defaultResyncPeriod = 30 * time.Second
 
@@ -478,16 +479,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	aggregate := contracts.Result{}
 
 	var telemetry nodeTelemetry
+	var detections nodeDetection
 	if len(snapshotList) > 0 {
 		if t, err := r.collectNodeTelemetry(ctx, node.Name); err == nil {
 			telemetry = t
 		} else {
 			log.V(1).Info("dcgm telemetry unavailable", "node", node.Name, "error", err)
 		}
+		if d, err := r.collectNodeDetections(ctx, node.Name); err == nil {
+			detections = d
+		} else {
+			log.V(1).Info("gfd-extender telemetry unavailable", "node", node.Name, "error", err)
+			r.recorder.Eventf(node, corev1.EventTypeWarning, eventDetectUnavailable, "gfd-extender unavailable for node %s: %v", node.Name, err)
+		}
 	}
 
 	for _, snapshot := range snapshotList {
-		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, telemetry)
+		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, telemetry, detections)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -612,7 +620,7 @@ func chooseNodeFeature(items []nfdv1alpha1.NodeFeature, nodeName string) *nfdv1a
 	return selected
 }
 
-func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, telemetry nodeTelemetry) (*v1alpha1.GPUDevice, contracts.Result, error) {
+func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, telemetry nodeTelemetry, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
 	deviceName := buildDeviceName(node.Name, snapshot)
 	device := &v1alpha1.GPUDevice{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
@@ -707,6 +715,7 @@ func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, sna
 	}
 
 	applyTelemetry(device, snapshot, telemetry)
+	applyDetection(device, snapshot, detections)
 
 	result, err := r.invokeHandlers(ctx, device)
 	if err != nil {

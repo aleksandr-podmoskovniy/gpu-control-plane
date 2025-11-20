@@ -695,9 +695,21 @@ stateDiagram-v2
 
 - **Источники сигналов.**
   1. DCGM exporter: XID, ECC, температурные/питание/PCIe/MIG ошибки, violation’ы.
-  2. GFD + сайдкар detect-gpu: применение MIG профиль, прошивки, расхождения PCI/UUID.
+  2. GFD + сайдкар gfd-extender: применение MIG профилей, прошивки, расхождения PCI/UUID,
+     а также оперативные метрики мощности/памяти/утилизации. Сайдкар работает как HTTP‑инспектор:
+     - запускается рядом с gfd (общие volumeMount’ы `/run/nvidia/driver` и `/sys`),
+       использует NVML для сбора среза по каждой карте и не занимается discovery;
+     - на узле открывает `:2376/api/v1/detect/gpu`, контроллер при каждом reconcile
+       опрашивает Pod `gfd-extender`, мапит UUID/индекс на `GPUDevice` и перекладывает
+       паспорт железа (PCI-вендор/адрес/класс, NUMA, power limit, SM count, PCIE gen/width,
+       board/serial, compute capability, поддерживаемые MIG-профили) в `status.hardware.*`,
+       а телеметрию мощности/памяти/утилизации — в `status.health.metrics.*`;
+     - сервис не зависит от флага мониторинга в Deckhouse: даже если Prometheus и
+       ServiceMonitor выключены, gfd-extender продолжает собирать паспорт устройства.
   3. События device-plugin/MIG-manager (CrashLoop, отсутствие устройств).
-- Реализация сигналов от detect-gpu и device-plugin запланирована отдельно; пока fault’ы формируются только из DCGM.
+- Адресные fault’ы пока формируются только из DCGM; сигналы от gfd-extender и
+  device-plugin дополнительно влияют на health и будут использоваться в
+  контроллере Faulted после завершения интеграции.
 - На первом этапе мы используем только метрическую часть DCGM: температуру, счётчики ECC и ошибки `XID`, а также накопительные счётчики power/thermal/reliability violations. Эти показатели попадают в `GPUDevice.status.health` и формируют причины Faulted; остальные DCGM-метрики остаются в Prometheus и не переносятся в CR. DCGM hostengine обязателен, но если exporter ещё не поднят или падает, `status.health` остаётся пустым — появления exporter ждёт bootstrap.
 - **Переходы в `Faulted`.**
   - Любой адресный сигнал (DCGM/GFD/sidecar) помечает соответствующую карту `state=Faulted`

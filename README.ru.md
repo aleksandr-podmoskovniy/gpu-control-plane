@@ -78,8 +78,11 @@ werf bundle assemble --save-bundle-to=./bundle
 4. Убедитесь, что контроллер запущен в `d8-gpu-control-plane`, и что для
    GPU-узлов появляются ресурсы `GPUDevice`/`GPUNodeInventory`.
 
-> ℹ️ Сейчас модуль покрывает инвентаризацию и диагностику. Bootstrap
-> (GFD/DCGM/MIG) включается на следующей фазе.
+> ℹ️ Bootstrap-компоненты (GFD с сайдкаром gfd-extender, DCGM hostengine +
+> exporter, watchdog/validator) разворачиваются автоматически на всех
+> управляемых узлах вне зависимости от настройки `monitoring.serviceMonitor`.
+> Отключение мониторинга влияет только на публикацию ServiceMonitor и Grafana,
+> но не на сбор health-данных внутри `GPUDevice`.
 
 ## Разработка
 

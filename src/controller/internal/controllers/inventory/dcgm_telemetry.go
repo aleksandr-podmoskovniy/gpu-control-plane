@@ -70,6 +70,18 @@ func (t nodeTelemetry) find(snapshot deviceSnapshot) (telemetryPoint, bool) {
 		if result.eccTotal == nil {
 			result.eccTotal = tp.eccTotal
 		}
+		if result.xidCode == nil {
+			result.xidCode = tp.xidCode
+		}
+		if result.powerViolations == nil {
+			result.powerViolations = tp.powerViolations
+		}
+		if result.thermalViolations == nil {
+			result.thermalViolations = tp.thermalViolations
+		}
+		if result.reliabilityViolations == nil {
+			result.reliabilityViolations = tp.reliabilityViolations
+		}
 		if result.lastUpdated.IsZero() || (!tp.lastUpdated.IsZero() && tp.lastUpdated.After(result.lastUpdated)) {
 			result.lastUpdated = tp.lastUpdated
 		}

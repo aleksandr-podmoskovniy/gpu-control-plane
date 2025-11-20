@@ -1,3 +1,5 @@
+//go:build !linux || !cgo
+
 // Copyright 2025 Flant JSC
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,13 +14,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-go 1.24.6
+package detect
 
-use (
-	./images/hooks
-	./images/kube-api-rewriter
-	./images/pre-delete-hook
-	./pkg
-	./src/controller
-	./src/gfd-extender
-)
+import "errors"
+
+func initNVML() error {
+	return errors.New("nvml is available only on linux with cgo")
+}
+
+func shutdownNVML() error {
+	return nil
+}
+
+func queryNVML() ([]Info, error) {
+	return nil, errors.New("nvml is available only on linux with cgo")
+}

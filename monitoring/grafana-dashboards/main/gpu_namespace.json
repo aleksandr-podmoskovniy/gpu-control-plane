@@ -22,7 +22,7 @@
       }
     ]
   },
-  "description": "",
+  "description": "Namespace-level GPU metrics (adopted from node-manager)",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "gnetId": 15117,
@@ -51,7 +51,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "Сводная таблица утилизации GPU по подам\n\nРесурсы GPU запрашиваются использую PodSpec K8s для ресурса типа `nvidia.com/gpu`",
+      "description": "\u0421\u0432\u043e\u0434\u043d\u0430\u044f \u0442\u0430\u0431\u043b\u0438\u0446\u0430 \u0443\u0442\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u0438 GPU \u043f\u043e \u043f\u043e\u0434\u0430\u043c\n\n\u0420\u0435\u0441\u0443\u0440\u0441\u044b GPU \u0437\u0430\u043f\u0440\u0430\u0448\u0438\u0432\u0430\u044e\u0442\u0441\u044f \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u044e PodSpec K8s \u0434\u043b\u044f \u0440\u0435\u0441\u0443\u0440\u0441\u0430 \u0442\u0438\u043f\u0430 `nvidia.com/gpu`",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -326,7 +326,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "Утилизация вычислительных едениц",
+      "description": "\u0423\u0442\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044f \u0432\u044b\u0447\u0438\u0441\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -625,7 +625,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "Кол-во вычислительных едениц `nvidia.com/gpu` свыше используемых",
+      "description": "\u041a\u043e\u043b-\u0432\u043e \u0432\u044b\u0447\u0438\u0441\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446 `nvidia.com/gpu` \u0441\u0432\u044b\u0448\u0435 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c\u044b\u0445",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -726,7 +726,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "Кол-во используемых едениц `nvidia.com/gpu` свыше запрошеных",
+      "description": "\u041a\u043e\u043b-\u0432\u043e \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446 `nvidia.com/gpu` \u0441\u0432\u044b\u0448\u0435 \u0437\u0430\u043f\u0440\u043e\u0448\u0435\u043d\u044b\u0445",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1259,20 +1259,16 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "${ds_prometheus}"
+          "uid": "deckhouse-prometheus"
         },
-        "definition": "label_values(DCGM_FI_DEV_POWER_USAGE,exported_namespace)",
+        "definition": "label_values(DCGM_FI_DEV_GPU_UTIL, exported_namespace)",
         "hide": 0,
         "includeAll": false,
         "label": "Namespace",
         "multi": false,
         "name": "namespace",
         "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(DCGM_FI_DEV_POWER_USAGE,exported_namespace)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
+        "query": "label_values(DCGM_FI_DEV_GPU_UTIL, exported_namespace)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -1308,6 +1304,19 @@
         "skipUrlSync": false,
         "sort": 0,
         "type": "query"
+      },
+      {
+        "name": "cluster",
+        "type": "query",
+        "definition": "label_values(namespace_service_account:kube_pod_info:, cluster)",
+        "query": "label_values(namespace_service_account:kube_pod_info:, cluster)",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "deckhouse-prometheus"
+        },
+        "refresh": 1,
+        "label": "Cluster",
+        "sort": 1
       }
     ]
   },
@@ -1330,8 +1339,8 @@
     ]
   },
   "timezone": "",
-  "title": "GPU Namespace",
-  "uid": "gpu-namespaces",
+  "title": "GPU Namespace Overview",
+  "uid": "gpu_namespace_overview",
   "version": 10,
   "weekStart": ""
 }

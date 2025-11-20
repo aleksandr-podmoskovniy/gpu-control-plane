@@ -35,6 +35,7 @@ global:
         nvidiaDevicePlugin: sha256:0000000000000000000000000000000000000000000000000000000000000000
         nvidiaDcgm: sha256:0000000000000000000000000000000000000000000000000000000000000000
         nvidiaDcgmExporter: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gfdExtender: sha256:0000000000000000000000000000000000000000000000000000000000000000
   modules:
     placement:
       customTolerationKeys: []
@@ -72,6 +73,9 @@ moduleConfig:
         featuresDir: /etc/kubernetes/node-feature-discovery/features.d
         hostSysPath: /sys
         failOnInitError: true
+        gfdExtender:
+          enabled: true
+          port: 2376
       dcgm:
         enabled: true
         port: 5555
@@ -102,6 +106,9 @@ gpuControlPlane:
       featuresDir: /etc/kubernetes/node-feature-discovery/features.d
       hostSysPath: /sys
       failOnInitError: true
+      gfdExtender:
+        enabled: true
+        port: 2376
     dcgm:
       enabled: true
       port: 5555

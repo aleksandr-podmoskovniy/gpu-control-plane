@@ -75,7 +75,7 @@ func TestReconcileDeviceUpdatesExtendedHardware(t *testing.T) {
 	}
 
 	approval := DeviceApprovalPolicy{}
-	if _, _, err := rec.reconcileDevice(context.Background(), node, snap, node.Labels, true, approval, nodeTelemetry{}); err != nil {
+	if _, _, err := rec.reconcileDevice(context.Background(), node, snap, node.Labels, true, approval, nodeTelemetry{}, nodeDetection{}); err != nil {
 		t.Fatalf("reconcileDevice returned error: %v", err)
 	}
 

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
@@ -111,6 +112,29 @@ dcgm_exporter_last_update_time_seconds 1700000100
 	applyTelemetry(device, snapshot, xidTelemetry)
 	if device.Status.Health.LastErrorReason != "XIDError" {
 		t.Fatalf("expected XID fault, got reason=%s message=%s", device.Status.Health.LastErrorReason, device.Status.Health.LastError)
+	}
+
+	// Power violation should also trigger a fault via monotonic metric.
+	// Use a fresh device to assess power violation fault via monotonic metric.
+	powerDevice := &v1alpha1.GPUDevice{}
+	powerDevice.Status.Health.LastUpdatedTime = &metav1.Time{Time: time.Unix(1700000105, 0)}
+	setHealthMetricInt(&powerDevice.Status.Health, metricKeyPowerViolations, 0)
+
+	input = `
+DCGM_FI_DEV_POWER_VIOLATION{gpu="0"} 1
+dcgm_exporter_last_update_time_seconds 1700000110
+`
+	powerTlm, err := parseExporterMetrics(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseExporterMetrics returned error: %v", err)
+	}
+	powerTP, ok := powerTlm.find(snapshot)
+	if !ok || powerTP.powerViolations == nil || *powerTP.powerViolations != 1 {
+		t.Fatalf("expected power violation telemetry stored, got %+v", powerTP)
+	}
+	applyTelemetry(powerDevice, snapshot, powerTlm)
+	if powerDevice.Status.Health.LastErrorReason != "PowerViolation" {
+		t.Fatalf("expected power violation fault, got %s", powerDevice.Status.Health.LastErrorReason)
 	}
 
 	// If there is no telemetry or DCGM disabled, health stays as-is.
@@ -220,6 +244,161 @@ func TestParseMetricLineHandlesMalformedLabels(t *testing.T) {
 	name, labels, value, ok = parseMetricLine("metric{gpu=\"0\",bad} 7")
 	if !ok || name != "metric" || labels["gpu"] != "0" || value != 7 {
 		t.Fatalf("expected malformed label entry to be skipped, got %s %v %v ok=%v", name, labels, value, ok)
+	}
+}
+
+func TestUpdateMonotonicMetricAndHealthHelpers(t *testing.T) {
+	health := &v1alpha1.GPUDeviceHealth{}
+	val := int64(5)
+	if updateMonotonicMetric(health, "metric", &val, true) {
+		t.Fatalf("initial sample should not trigger violation")
+	}
+	if got := health.Metrics["metric"]; got != "5" {
+		t.Fatalf("metric should be stored on initial sample, got %s", got)
+	}
+
+	higher := int64(7)
+	if !updateMonotonicMetric(health, "metric", &higher, false) {
+		t.Fatalf("increase should trigger violation")
+	}
+	if getHealthMetricInt(health, "metric") != 7 {
+		t.Fatalf("metric should be updated to 7, got %d", getHealthMetricInt(health, "metric"))
+	}
+
+	lower := int64(6)
+	if updateMonotonicMetric(health, "metric", &lower, false) {
+		t.Fatalf("lower value should not trigger violation")
+	}
+	health.Metrics["bad"] = "NaN"
+	if getHealthMetricInt(health, "bad") != 0 {
+		t.Fatalf("non-numeric metric should be parsed as 0")
+	}
+
+	if updateMonotonicMetric(health, "metric", nil, false) {
+		t.Fatalf("nil metric should not trigger violation")
+	}
+	if _, ok := health.Metrics["metric"]; ok {
+		t.Fatalf("metric key should be removed when value is nil")
+	}
+}
+
+func TestApplyTelemetryThermalAndReliabilityViolations(t *testing.T) {
+	now := time.Unix(1700000200, 0)
+	snapshot := deviceSnapshot{Index: "0"}
+
+	thermalOnly := nodeTelemetry{
+		byIndex: map[string]telemetryPoint{
+			"0": {thermalViolations: ptrInt64(1), lastUpdated: now},
+		},
+		byUUID: map[string]telemetryPoint{},
+	}
+	device := &v1alpha1.GPUDevice{}
+	device.Status.Health.LastUpdatedTime = &metav1.Time{Time: now.Add(-time.Minute)}
+	applyTelemetry(device, snapshot, thermalOnly)
+	if device.Status.Health.LastErrorReason != "ThermalViolation" {
+		t.Fatalf("expected thermal violation fault, got %s", device.Status.Health.LastErrorReason)
+	}
+
+	reliabilityOnly := nodeTelemetry{
+		byIndex: map[string]telemetryPoint{
+			"0": {reliabilityViolations: ptrInt64(2), lastUpdated: now},
+		},
+	}
+	reliabilityDevice := &v1alpha1.GPUDevice{}
+	reliabilityDevice.Status.Health.LastUpdatedTime = &metav1.Time{Time: now.Add(-time.Minute)}
+	applyTelemetry(reliabilityDevice, snapshot, reliabilityOnly)
+	if reliabilityDevice.Status.Health.LastErrorReason != "ReliabilityViolation" {
+		t.Fatalf("expected reliability violation fault, got %s", reliabilityDevice.Status.Health.LastErrorReason)
+	}
+
+	trackDeviceFault(&reliabilityDevice.Status.Health, "Manual", "manual fault", time.Time{})
+	if reliabilityDevice.Status.Health.LastErrorTime != nil {
+		t.Fatalf("expected LastErrorTime nil when timestamp is zero")
+	}
+}
+
+func TestApplyTelemetryClearsMetricsOnHealthySample(t *testing.T) {
+	now := time.Unix(1700000300, 0)
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			Health: v1alpha1.GPUDeviceHealth{
+				LastError:          "fault",
+				LastErrorReason:    "XIDError",
+				LastErrorTime:      &metav1.Time{Time: now.Add(-time.Minute)},
+				LastUpdatedTime:    &metav1.Time{Time: now.Add(-2 * time.Minute)},
+				ConsecutiveHealthy: deviceHealthRecoveryThreshold - 1,
+				Metrics: map[string]string{
+					metricKeyXIDCode:         "31",
+					metricKeyPowerViolations: "2",
+				},
+			},
+		},
+	}
+	telemetry := nodeTelemetry{
+		byIndex: map[string]telemetryPoint{
+			"0": {lastUpdated: now},
+		},
+	}
+	applyTelemetry(device, deviceSnapshot{Index: "0"}, telemetry)
+	if device.Status.Health.LastError != "" || device.Status.Health.LastErrorReason != "" {
+		t.Fatalf("expected health error cleared on healthy sample, got %s %s", device.Status.Health.LastErrorReason, device.Status.Health.LastError)
+	}
+	if _, ok := device.Status.Health.Metrics[metricKeyPowerViolations]; ok {
+		t.Fatalf("expected power violation metric cleared")
+	}
+	if device.Status.Health.LastUpdatedTime == nil || device.Status.Health.LastUpdatedTime.Time.IsZero() {
+		t.Fatalf("expected last updated timestamp set")
+	}
+}
+
+func TestApplyTelemetryClearsXIDMetricWhenZero(t *testing.T) {
+	now := time.Unix(1700000400, 0)
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			Health: v1alpha1.GPUDeviceHealth{
+				Metrics: map[string]string{metricKeyXIDCode: "30"},
+			},
+		},
+	}
+	telemetry := nodeTelemetry{
+		byUUID: map[string]telemetryPoint{
+			"GPU-AAA": {xidCode: ptrInt64(0), lastUpdated: now},
+		},
+	}
+	applyTelemetry(device, deviceSnapshot{UUID: "GPU-AAA"}, telemetry)
+	if _, ok := device.Status.Health.Metrics[metricKeyXIDCode]; ok {
+		t.Fatalf("expected xid metric cleared when value is zero")
+	}
+	if device.Status.Health.LastUpdatedTime == nil || device.Status.Health.LastUpdatedTime.Time.IsZero() {
+		t.Fatalf("expected updated timestamp after xid clear")
+	}
+
+	// And when XID value changes, we pass through previous metric branch.
+	telemetryChange := nodeTelemetry{
+		byUUID: map[string]telemetryPoint{
+			"GPU-AAA": {xidCode: ptrInt64(31), lastUpdated: now.Add(time.Second)},
+		},
+	}
+	applyTelemetry(device, deviceSnapshot{UUID: "GPU-AAA"}, telemetryChange)
+	if device.Status.Health.LastErrorReason != "XIDError" {
+		t.Fatalf("expected xid fault on code change, got %s", device.Status.Health.LastErrorReason)
+	}
+}
+
+func TestParseExporterMetricsCoversAllCounters(t *testing.T) {
+	input := `
+DCGM_FI_DEV_THERMAL_VIOLATION{uuid="GPU-BBB"} 2
+DCGM_FI_DEV_RELIABILITY_VIOLATION{gpu="1"} 3
+`
+	telemetry, err := parseExporterMetrics(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseExporterMetrics returned error: %v", err)
+	}
+	if tp, ok := telemetry.byUUID["GPU-BBB"]; !ok || tp.thermalViolations == nil || *tp.thermalViolations != 2 || tp.lastUpdated.IsZero() {
+		t.Fatalf("expected thermal violation stored with timestamp, got %+v", tp)
+	}
+	if tp, ok := telemetry.byIndex["1"]; !ok || tp.reliabilityViolations == nil || *tp.reliabilityViolations != 3 || tp.lastUpdated.IsZero() {
+		t.Fatalf("expected reliability violation stored with timestamp, got %+v", tp)
 	}
 }
 
