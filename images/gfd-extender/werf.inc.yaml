@@ -49,6 +49,21 @@ shell:
     - cd /src
     - mkdir -p /out
     - go build -trimpath -ldflags="-s -w" -o /out/gfd-extender ./cmd/gfd-extender
+    - |
+      set -euo pipefail
+      mkdir -p /out/rootfs
+      ldd /out/gfd-extender | while read -r line; do
+        set -- $line
+        lib="$1"
+        if [ "$2" = "=>" ]; then
+          lib="$3"
+        fi
+        case "$lib" in
+          /*) cp --parents "$lib" /out/rootfs ;;
+          "") ;;
+          *) echo "skip unresolved lib: $lib" ;;
+        esac
+      done
 
 ---
 image: {{ .ModuleNamePrefix }}gfd-extender
@@ -58,6 +73,10 @@ import:
   - image: {{ .ModuleNamePrefix }}gfd-extender-artifact
     add: /out/gfd-extender
     to: /app/gfd-extender
+    after: install
+  - image: {{ .ModuleNamePrefix }}gfd-extender-artifact
+    add: /out/rootfs/
+    to: /
     after: install
   - image: {{ .ModuleNamePrefix }}gfd-extender-artifact
     add: /var
