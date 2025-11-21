@@ -72,6 +72,8 @@ func describeNVMLPresence() string {
 
 func nvmlSearchPaths() []string {
 	candidates := []string{
+		"/usr/local/nvidia/lib64",
+		"/usr/local/nvidia/lib",
 		"/driver-root/usr/lib",
 		"/driver-root/usr/lib64",
 		"/driver-root/usr/lib/x86_64-linux-gnu",

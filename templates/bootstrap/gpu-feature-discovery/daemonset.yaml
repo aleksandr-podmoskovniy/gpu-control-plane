@@ -62,7 +62,7 @@ spec:
             - name: NVIDIA_MIG_MONITOR_DEVICES
               value: {{ $migMonitor | quote }}
             - name: LD_LIBRARY_PATH
-              value: "/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -99,7 +99,7 @@ spec:
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
             - name: LD_LIBRARY_PATH
-              value: "/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
           ports:
             - name: detect
               containerPort: {{ $detectPort }}
