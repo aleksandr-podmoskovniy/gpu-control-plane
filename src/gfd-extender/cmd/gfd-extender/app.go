@@ -92,43 +92,65 @@ func loadConfig(loader configLoader) (config, error) {
 }
 
 func run(ctx context.Context, log *slog.Logger, cfg config, detectorFn detectorFactory, serverFn serverFactory) error {
-
-	for {
-		detector, err := detectorFn(cfg.Timeout)
-		if err != nil {
-			// stay alive to avoid CrashLoopBackOff and to retry when driver appears
-			if retryInterval <= 0 {
-				return err
-			}
-			log.Error("init detector", slog.String("error", err.Error()))
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(retryInterval):
-				continue
-			}
-		}
-
-		srv := serverFn(server.Config{
-			ListenAddr:      cfg.ListenAddr,
-			Path:            cfg.Path,
-			ShutdownTimeout: cfg.ShutdownTimeout,
-		}, detector, log)
-		if srv == nil {
-			return errors.New("server factory returned nil")
-		}
-
-		err = srv.Run(ctx)
-
-		if err := detector.Close(); err != nil {
-			log.Warn("shutdown NVML", slog.String("error", err.Error()))
-		}
-
-		if err == nil || errors.Is(err, context.Canceled) {
-			return nil
-		}
-		return err
+	if serverFn == nil {
+		return errors.New("server factory is nil")
 	}
+
+	ri := retryInterval
+	swap := newSwappableDetector()
+	var lastInitErr error
+	if det, err := detectorFn(cfg.Timeout); err != nil {
+		swap.setError(err)
+		lastInitErr = err
+		log.Error("init detector", slog.String("error", err.Error()))
+	} else {
+		swap.set(det)
+	}
+
+	if lastInitErr != nil && ri <= 0 {
+		return lastInitErr
+	}
+
+	if ri > 0 {
+		go func() {
+			t := time.NewTicker(ri)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					det, err := detectorFn(cfg.Timeout)
+					if err != nil {
+						swap.setError(err)
+						log.Warn("init detector retry failed", slog.String("error", err.Error()))
+						continue
+					}
+					swap.set(det)
+					log.Info("detector initialized")
+					return
+				}
+			}
+		}()
+	}
+
+	srv := serverFn(server.Config{
+		ListenAddr:      cfg.ListenAddr,
+		Path:            cfg.Path,
+		ShutdownTimeout: cfg.ShutdownTimeout,
+	}, swap, log)
+	if srv == nil {
+		return errors.New("server factory returned nil")
+	}
+
+	err := srv.Run(ctx)
+	if cerr := swap.Close(); cerr != nil {
+		log.Warn("shutdown NVML", slog.String("error", cerr.Error()))
+	}
+	if err == nil || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }
 
 func newLogger(level string) (*slog.Logger, error) {

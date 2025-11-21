@@ -171,6 +171,19 @@ func (f *fakeServer) Run(context.Context) error {
 	return f.err
 }
 
+type waitServer struct {
+	done <-chan struct{}
+}
+
+func (w *waitServer) Run(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.done:
+		return nil
+	}
+}
+
 func TestRunSuccess(t *testing.T) {
 	det := &fakeDetector{}
 	srv := &fakeServer{}
@@ -200,7 +213,7 @@ func TestRunDetectorError(t *testing.T) {
 	expected := errors.New("init failed")
 	err := run(context.Background(), discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
 		return nil, expected
-	}, nil)
+	}, func(server.Config, server.Detector, *slog.Logger) serverRunner { return &fakeServer{} })
 	if !errors.Is(err, expected) {
 		t.Fatalf("expected detector error, got %v", err)
 	}
@@ -240,6 +253,15 @@ func TestRunServerFactoryNil(t *testing.T) {
 	}
 }
 
+func TestRunServerFactoryIsNil(t *testing.T) {
+	err := run(context.Background(), discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
+		return &fakeDetector{}, nil
+	}, nil)
+	if err == nil {
+		t.Fatalf("expected error when server factory is nil")
+	}
+}
+
 func TestRunCloseError(t *testing.T) {
 	det := &fakeDetector{closeErr: errors.New("close")}
 	err := run(context.Background(), discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
@@ -270,10 +292,121 @@ func TestRunDetectorRetryUntilContextCancel(t *testing.T) {
 
 	err := run(ctx, discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
 		return nil, errors.New("no nvml")
-	}, nil)
+	}, func(server.Config, server.Detector, *slog.Logger) serverRunner { return &fakeServer{} })
 	<-cancelCh
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context cancellation, got %v", err)
+	if err != nil {
+		t.Fatalf("expected nil error despite retries, got %v", err)
+	}
+}
+
+func TestSwappableDetectorFlows(t *testing.T) {
+	s := newSwappableDetector()
+	ctx := context.Background()
+
+	_, err := s.DetectGPU(ctx)
+	if err == nil {
+		t.Fatalf("expected error when empty")
+	}
+
+	s.setError(errors.New("init failed"))
+	if _, err := s.DetectGPU(ctx); err == nil || err.Error() != "init failed" {
+		t.Fatalf("expected init failed error, got %v", err)
+	}
+
+	first := &fakeDetector{}
+	s.set(first)
+	if _, err := s.DetectGPU(ctx); err != nil {
+		t.Fatalf("expected success after set, got %v", err)
+	}
+
+	second := &fakeDetector{}
+	s.set(second)
+	if _, err := s.DetectGPU(ctx); err != nil {
+		t.Fatalf("expected success after swap, got %v", err)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("unexpected close error: %v", err)
+	}
+	if !second.closed {
+		t.Fatalf("second detector should be closed on close")
+	}
+}
+
+func TestSwappableDetectorSetErrorClosesExisting(t *testing.T) {
+	s := newSwappableDetector()
+	first := &fakeDetector{}
+	s.set(first)
+	s.setError(errors.New("boom"))
+	if !first.closed {
+		t.Fatalf("expected existing detector to be closed on setError")
+	}
+	if _, err := s.DetectGPU(context.Background()); err == nil {
+		t.Fatalf("expected error after setError")
+	}
+}
+
+func TestRunRetryThenSuccess(t *testing.T) {
+	orig := retryInterval
+	retryInterval = 5 * time.Millisecond
+	defer func() { retryInterval = orig }()
+
+	call := 0
+	done := make(chan struct{})
+	err := run(context.Background(), discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
+		call++
+		if call == 1 {
+			return nil, errors.New("init failed")
+		}
+		close(done)
+		return &fakeDetector{}, nil
+	}, func(server.Config, server.Detector, *slog.Logger) serverRunner {
+		return &waitServer{done: done}
+	})
+	if err != nil {
+		t.Fatalf("expected success after retry, got %v", err)
+	}
+}
+
+func TestRunRetryCancelled(t *testing.T) {
+	orig := retryInterval
+	retryInterval = 5 * time.Millisecond
+	defer func() { retryInterval = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(2 * time.Millisecond)
+		cancel()
+	}()
+
+	err := run(ctx, discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
+		return nil, errors.New("init failed")
+	}, func(server.Config, server.Detector, *slog.Logger) serverRunner {
+		return &waitServer{done: make(chan struct{})}
+	})
+	if err != nil {
+		t.Fatalf("expected nil after context cancel, got %v", err)
+	}
+}
+
+func TestRunRetryKeepsFailing(t *testing.T) {
+	orig := retryInterval
+	retryInterval = 5 * time.Millisecond
+	defer func() { retryInterval = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(8 * time.Millisecond)
+		cancel()
+	}()
+
+	err := run(ctx, discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
+		return nil, errors.New("still broken")
+	}, func(server.Config, server.Detector, *slog.Logger) serverRunner {
+		return &waitServer{done: make(chan struct{})}
+	})
+	if err != nil {
+		t.Fatalf("expected nil after repeated failures and cancel, got %v", err)
 	}
 }
 

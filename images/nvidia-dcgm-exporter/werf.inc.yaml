@@ -68,6 +68,7 @@ shell:
   - |
     mkdir -p /out/lib/x86_64-linux-gnu
     cp /lib/x86_64-linux-gnu/libcap.so.2* /out/lib/x86_64-linux-gnu/
+    cd /out/lib/x86_64-linux-gnu && for f in libcap.so.2.*; do ln -sf "$f" libcap.so.2; done
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 fromImage: {{ .ModuleNamePrefix }}distroless
