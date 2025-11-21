@@ -62,7 +62,7 @@ spec:
             - name: NVIDIA_MIG_MONITOR_DEVICES
               value: {{ $migMonitor | quote }}
             - name: LD_LIBRARY_PATH
-              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+              value: "/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -83,9 +83,6 @@ spec:
             - name: host-sys
               mountPath: {{ $hostSysPath | quote }}
               readOnly: true
-            - name: nvidia-libs
-              mountPath: /usr/local/nvidia
-              readOnly: true
             - name: driver-root
               mountPath: /driver-root
               readOnly: true
@@ -102,7 +99,7 @@ spec:
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
             - name: LD_LIBRARY_PATH
-              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
+              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/lib64:/lib"
           ports:
             - name: detect
               containerPort: {{ $detectPort }}

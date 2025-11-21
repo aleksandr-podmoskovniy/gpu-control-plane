@@ -23,7 +23,15 @@ func TestNvmlSearchPathsPrefersRuntimeLibs(t *testing.T) {
 	if len(paths) < 2 {
 		t.Fatalf("unexpected paths: %v", paths)
 	}
-	if paths[0] != "/usr/local/nvidia/lib64" || paths[1] != "/usr/local/nvidia/lib" {
-		t.Fatalf("unexpected preferred paths: %v", paths[:2])
+	wantPrefix := []string{
+		"/usr/local/nvidia/lib64",
+		"/usr/local/nvidia/lib",
+		"/usr/lib/x86_64-linux-gnu",
+		"/usr/lib64",
+	}
+	for i, expect := range wantPrefix {
+		if i >= len(paths) || paths[i] != expect {
+			t.Fatalf("unexpected preferred paths: %v", paths)
+		}
 	}
 }

@@ -74,13 +74,13 @@ func nvmlSearchPaths() []string {
 	candidates := []string{
 		"/usr/local/nvidia/lib64",
 		"/usr/local/nvidia/lib",
+		"/usr/lib/x86_64-linux-gnu",
+		"/usr/lib64",
 		"/driver-root/usr/lib",
 		"/driver-root/usr/lib64",
 		"/driver-root/usr/lib/x86_64-linux-gnu",
 		"/driver-root/lib",
 		"/driver-root/lib64",
-		"/usr/lib64",
-		"/usr/lib/x86_64-linux-gnu",
 		"/lib64",
 		"/lib",
 	}
@@ -92,13 +92,15 @@ func nvmlSearchPaths() []string {
 	seen := make(map[string]struct{}, len(candidates))
 	unique := make([]string, 0, len(candidates))
 	for _, p := range candidates {
-		if _, ok := seen[p]; ok || p == "" {
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
 			continue
 		}
 		seen[p] = struct{}{}
 		unique = append(unique, p)
 	}
-	sort.Strings(unique)
 	return unique
 }
 
