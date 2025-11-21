@@ -83,6 +83,9 @@ spec:
             - name: host-sys
               mountPath: {{ $hostSysPath | quote }}
               readOnly: true
+            - name: nvidia-libs
+              mountPath: /usr/local/nvidia
+              readOnly: true
             - name: driver-root
               mountPath: /driver-root
               readOnly: true
@@ -118,6 +121,9 @@ spec:
             - name: host-sys
               mountPath: {{ $hostSysPath | quote }}
               readOnly: true
+            - name: nvidia-libs
+              mountPath: /usr/local/nvidia
+              readOnly: true
         {{- end }}
       volumes:
         - name: output-dir
@@ -132,4 +138,8 @@ spec:
           hostPath:
             path: /run/nvidia/driver
             type: DirectoryOrCreate
+        - name: nvidia-libs
+          hostPath:
+            path: /usr/local/nvidia
+            type: Directory
 {{- end }}
