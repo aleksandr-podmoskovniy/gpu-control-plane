@@ -42,6 +42,7 @@ spec:
     spec:
       serviceAccountName: {{ $componentName }}
       shareProcessNamespace: true
+      runtimeClassName: nvidia
       {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
@@ -92,13 +93,17 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - "--addr={{ $detectAddr }}"
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility"
+            - name: LD_LIBRARY_PATH
+              value: "/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
           ports:
             - name: detect
               containerPort: {{ $detectPort }}
               protocol: TCP
-          env:
-            - name: LD_LIBRARY_PATH
-              value: "/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/usr/lib64:/usr/lib/x86_64-linux-gnu"
           {{- include "helm_lib_module_container_security_context_privileged" . | nindent 10 }}
           resources:
             requests:

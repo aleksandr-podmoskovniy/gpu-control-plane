@@ -161,7 +161,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\", exported_pod=~\"$pod\"})",
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\", pod=~\"$pod\"})",
           "instant": true,
           "legendFormat": "",
           "range": false,
@@ -226,7 +226,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "count(count by (exported_pod) (DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\", exported_pod=~\"$pod\"}>0))",
+          "expr": "count(count by (pod) (DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\", pod=~\"$pod\"}>0))",
           "instant": true,
           "legendFormat": "",
           "range": false,
@@ -302,8 +302,8 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "avg by (exported_pod) (DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\", exported_pod=~\"$pod\"})",
-          "legendFormat": "{{exported_pod}}",
+          "expr": "avg by (pod) (DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\", pod=~\"$pod\"})",
+          "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A"
         }
@@ -364,8 +364,8 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum by (exported_pod) (DCGM_FI_DEV_FB_USED{exported_namespace=~\"$namespace\", exported_pod=~\"$pod\"}) / 1024 / 1024 / 1024",
-          "legendFormat": "{{exported_pod}}",
+          "expr": "sum by (pod) (DCGM_FI_DEV_FB_USED{namespace=~\"$namespace\", pod=~\"$pod\"}) / 1024 / 1024 / 1024",
+          "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A"
         }
@@ -499,8 +499,8 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum by (exported_pod) (DCGM_FI_DEV_MEM_COPY_UTIL{exported_namespace=~\"$namespace\", exported_pod=~\"$pod\"})",
-          "legendFormat": "{{exported_pod}}",
+          "expr": "sum by (pod) (DCGM_FI_DEV_MEM_COPY_UTIL{namespace=~\"$namespace\", pod=~\"$pod\"})",
+          "legendFormat": "{{pod}}",
           "range": true,
           "refId": "A"
         }
@@ -541,10 +541,7 @@
           "text": "All",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${ds_prometheus}"
-        },
+        "datasource": "$ds_prometheus",
         "definition": "label_values(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"},namespace)",
         "hide": 0,
         "includeAll": true,
@@ -568,11 +565,8 @@
           "text": "All",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${ds_prometheus}"
-        },
-        "definition": "label_values(DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"},exported_pod)",
+        "datasource": "$ds_prometheus",
+        "definition": "label_values(DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"},pod)",
         "hide": 0,
         "includeAll": true,
         "label": "Pod",
@@ -581,7 +575,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"},exported_pod)",
+          "query": "label_values(DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"},pod)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,

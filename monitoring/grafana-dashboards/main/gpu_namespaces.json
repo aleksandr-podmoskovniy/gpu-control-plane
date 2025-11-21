@@ -51,7 +51,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "\u0421\u0432\u043e\u0434\u043d\u0430\u044f \u0442\u0430\u0431\u043b\u0438\u0446\u0430 \u0443\u0442\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u0438 GPU \u043f\u043e \u043f\u043e\u0434\u0430\u043c\n\n\u0420\u0435\u0441\u0443\u0440\u0441\u044b GPU \u0437\u0430\u043f\u0440\u0430\u0448\u0438\u0432\u0430\u044e\u0442\u0441\u044f \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u044e PodSpec K8s \u0434\u043b\u044f \u0440\u0435\u0441\u0443\u0440\u0441\u0430 \u0442\u0438\u043f\u0430 `nvidia.com/gpu`",
+      "description": "Сводная таблица утилизации GPU по подам\n\nРесурсы GPU запрашиваются использую PodSpec K8s для ресурса типа `nvidia.com/gpu`",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -222,7 +222,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "avg(label_replace((DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}), \"namespace\", \"$1\", \"exported_namespace\", \"(.+)\")) by (namespace)",
+          "expr": "avg(label_replace((DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}), \"namespace\", \"$1\", \"namespace\", \"(.+)\")) by (namespace)",
           "format": "table",
           "hide": false,
           "instant": true,
@@ -252,7 +252,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) - sum(label_replace((DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"exported_namespace\", \"(.+)\")) by (namespace)",
+          "expr": "sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) - sum(label_replace((DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"namespace\", \"(.+)\")) by (namespace)",
           "format": "table",
           "hide": false,
           "instant": true,
@@ -267,7 +267,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(label_replace((DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"exported_namespace\", \"(.+)\")) by (pod) - sum(kube_pod_container_resource_requests{namespace=~\"$namespace\",  resource=\"nvidia_com_gpu\"}) by (namespace) > 0 or vector(0)",
+          "expr": "sum(label_replace((DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"namespace\", \"(.+)\")) by (pod) - sum(kube_pod_container_resource_requests{namespace=~\"$namespace\",  resource=\"nvidia_com_gpu\"}) by (namespace) > 0 or vector(0)",
           "format": "table",
           "hide": false,
           "instant": true,
@@ -305,7 +305,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "\u0423\u0442\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044f \u0432\u044b\u0447\u0438\u0441\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446",
+      "description": "Утилизация вычислительных едениц",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -391,7 +391,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}) by (exported_namespace)",
+          "expr": "avg(DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}) by (namespace)",
           "interval": "",
           "legendFormat": "__auto",
           "range": true,
@@ -490,7 +490,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_DEV_FB_USED{ exported_namespace=\"$namespace\"}) by(exported_namespace)",
+          "expr": "sum(DCGM_FI_DEV_FB_USED{ namespace=\"$namespace\"}) by(namespace)",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -505,7 +505,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "\u041a\u043e\u043b-\u0432\u043e \u0432\u044b\u0447\u0438\u0441\u043b\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446 `nvidia.com/gpu` \u0441\u0432\u044b\u0448\u0435 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c\u044b\u0445",
+      "description": "Кол-во вычислительных едениц `nvidia.com/gpu` свыше используемых",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -591,7 +591,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) - sum(label_replace((DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"exported_namespace\", \"(.+)\")) by (namespace)",
+          "expr": "sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) - sum(label_replace((DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"namespace\", \"(.+)\")) by (namespace)",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -606,7 +606,7 @@
         "type": "prometheus",
         "uid": "${ds_prometheus}"
       },
-      "description": "\u041a\u043e\u043b-\u0432\u043e \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u043c\u044b\u0445 \u0435\u0434\u0435\u043d\u0438\u0446 `nvidia.com/gpu` \u0441\u0432\u044b\u0448\u0435 \u0437\u0430\u043f\u0440\u043e\u0448\u0435\u043d\u044b\u0445",
+      "description": "Кол-во используемых едениц `nvidia.com/gpu` свыше запрошеных",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -688,7 +688,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(label_replace((DCGM_FI_DEV_GPU_UTIL{exported_namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"exported_namespace\", \"(.+)\")) by (namespace) - sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) > 0",
+          "expr": "sum(label_replace((DCGM_FI_DEV_GPU_UTIL{namespace=~\"$namespace\"}/100), \"namespace\", \"$1\", \"namespace\", \"(.+)\")) by (namespace) - sum(kube_pod_container_resource_requests{namespace=~\"$namespace\", resource=\"nvidia_com_gpu\"}) by (namespace) > 0",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -797,7 +797,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_PROF_PCIE_RX_BYTES{exported_namespace=\"$namespace\"}) by(exported_namespace)",
+          "expr": "sum(DCGM_FI_PROF_PCIE_RX_BYTES{namespace=\"$namespace\"}) by(namespace)",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -893,7 +893,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_PROF_PCIE_TX_BYTES{exported_namespace=\"$namespace\"}) by(exported_namespace )",
+          "expr": "sum(DCGM_FI_PROF_PCIE_TX_BYTES{namespace=\"$namespace\"}) by(namespace )",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -1001,7 +1001,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_DEV_SM_CLOCK{exported_namespace=\"$namespace\"}) by(exported_namespace) * 1000000",
+          "expr": "sum(DCGM_FI_DEV_SM_CLOCK{namespace=\"$namespace\"}) by(namespace) * 1000000",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -1096,7 +1096,7 @@
             "uid": "${ds_prometheus}"
           },
           "editorMode": "code",
-          "expr": "sum(DCGM_FI_DEV_MEM_CLOCK{exported_namespace=\"$namespace\"}) by(exported_namespace) * 1000000",
+          "expr": "sum(DCGM_FI_DEV_MEM_CLOCK{namespace=\"$namespace\"}) by(namespace) * 1000000",
           "instant": false,
           "legendFormat": "__auto",
           "range": true,
@@ -1139,11 +1139,8 @@
           "text": "gpu-examples",
           "value": "gpu-examples"
         },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${ds_prometheus}"
-        },
-        "definition": "label_values(DCGM_FI_DEV_POWER_USAGE,exported_namespace)",
+        "datasource": "$ds_prometheus",
+        "definition": "label_values(DCGM_FI_DEV_POWER_USAGE,namespace)",
         "hide": 0,
         "includeAll": true,
         "label": "Namespace",
@@ -1152,7 +1149,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(DCGM_FI_DEV_POWER_USAGE,exported_namespace)",
+          "query": "label_values(DCGM_FI_DEV_POWER_USAGE,namespace)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -1170,10 +1167,7 @@
         "type": "query",
         "definition": "label_values(namespace_service_account:kube_pod_info:, cluster)",
         "query": "label_values(namespace_service_account:kube_pod_info:, cluster)",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${ds_prometheus}"
-        },
+        "datasource": "$ds_prometheus",
         "refresh": 1,
         "sort": 1
       }

@@ -79,6 +79,20 @@ import:
     add: /out/rootfs/
     to: /
     after: install
+  - image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+    add: /pkg/compat/lib
+    to: /usr/lib
+    after: install
+  - image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+    add: /pkg/compat/lib64
+    to: /lib64
+    after: install
+  - image: {{ .ModuleNamePrefix }}nvidia-dcgm-package
+    add: /pkg/usr/lib/x86_64-linux-gnu
+    to: /usr/lib/x86_64-linux-gnu
+    includePaths:
+      - libnvidia-ml.so*
+    after: install
   - image: {{ .ModuleNamePrefix }}gfd-extender-artifact
     add: /var
     to: /var
