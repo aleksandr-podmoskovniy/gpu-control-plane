@@ -38,6 +38,9 @@ var (
 )
 
 func initNVML() error {
+	if msg := describeNVMLPresence(); msg != "" {
+		fmt.Println(msg)
+	}
 	if ret := nvml.Init(); ret != nvml.SUCCESS {
 		return fmt.Errorf("initialize NVML: ret=%d", ret)
 	}
@@ -49,6 +52,52 @@ func shutdownNVML() error {
 		return fmt.Errorf("shutdown NVML: ret=%d", ret)
 	}
 	return nil
+}
+
+func describeNVMLPresence() string {
+	paths := nvmlSearchPaths()
+	found := make([]string, 0, len(paths))
+	for _, p := range paths {
+		for _, name := range []string{"libnvidia-ml.so.1", "libnvidia-ml.so"} {
+			if _, err := os.Stat(filepath.Join(p, name)); err == nil {
+				found = append(found, filepath.Join(p, name))
+			}
+		}
+	}
+	if len(found) == 0 {
+		return fmt.Sprintf("nvml lib not found; searched=%v", paths)
+	}
+	return fmt.Sprintf("nvml lib candidates=%v", found)
+}
+
+func nvmlSearchPaths() []string {
+	candidates := []string{
+		"/driver-root/usr/lib",
+		"/driver-root/usr/lib64",
+		"/driver-root/usr/lib/x86_64-linux-gnu",
+		"/driver-root/lib",
+		"/driver-root/lib64",
+		"/usr/lib64",
+		"/usr/lib/x86_64-linux-gnu",
+		"/lib64",
+		"/lib",
+	}
+	for _, p := range strings.Split(os.Getenv("LD_LIBRARY_PATH"), ":") {
+		if p != "" {
+			candidates = append([]string{p}, candidates...)
+		}
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	unique := make([]string, 0, len(candidates))
+	for _, p := range candidates {
+		if _, ok := seen[p]; ok || p == "" {
+			continue
+		}
+		seen[p] = struct{}{}
+		unique = append(unique, p)
+	}
+	sort.Strings(unique)
+	return unique
 }
 
 func queryNVML() ([]Info, error) {

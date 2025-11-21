@@ -193,6 +193,10 @@ func TestRunSuccess(t *testing.T) {
 }
 
 func TestRunDetectorError(t *testing.T) {
+	orig := retryInterval
+	retryInterval = 0
+	defer func() { retryInterval = orig }()
+
 	expected := errors.New("init failed")
 	err := run(context.Background(), discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
 		return nil, expected
@@ -248,6 +252,28 @@ func TestRunCloseError(t *testing.T) {
 	}
 	if !det.closed {
 		t.Fatalf("detector was not closed")
+	}
+}
+
+func TestRunDetectorRetryUntilContextCancel(t *testing.T) {
+	orig := retryInterval
+	retryInterval = 5 * time.Millisecond
+	defer func() { retryInterval = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelCh := make(chan struct{})
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+		close(cancelCh)
+	}()
+
+	err := run(ctx, discardLogger(), config{}, func(time.Duration) (closableDetector, error) {
+		return nil, errors.New("no nvml")
+	}, nil)
+	<-cancelCh
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
 	}
 }
 

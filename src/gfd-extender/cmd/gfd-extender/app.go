@@ -57,6 +57,8 @@ type config struct {
 	LogLevel        string        `env:"GFD_EXTENDER_LOG_LEVEL" env-default:"info"`
 }
 
+var retryInterval = 30 * time.Second
+
 func loadConfig(loader configLoader) (config, error) {
 	cfg := config{
 		ListenAddr:      defaultListenAddr,
@@ -90,30 +92,43 @@ func loadConfig(loader configLoader) (config, error) {
 }
 
 func run(ctx context.Context, log *slog.Logger, cfg config, detectorFn detectorFactory, serverFn serverFactory) error {
-	detector, err := detectorFn(cfg.Timeout)
-	if err != nil {
-		return fmt.Errorf("init detector: %w", err)
-	}
-	defer func() {
+
+	for {
+		detector, err := detectorFn(cfg.Timeout)
+		if err != nil {
+			// stay alive to avoid CrashLoopBackOff and to retry when driver appears
+			if retryInterval <= 0 {
+				return err
+			}
+			log.Error("init detector", slog.String("error", err.Error()))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryInterval):
+				continue
+			}
+		}
+
+		srv := serverFn(server.Config{
+			ListenAddr:      cfg.ListenAddr,
+			Path:            cfg.Path,
+			ShutdownTimeout: cfg.ShutdownTimeout,
+		}, detector, log)
+		if srv == nil {
+			return errors.New("server factory returned nil")
+		}
+
+		err = srv.Run(ctx)
+
 		if err := detector.Close(); err != nil {
 			log.Warn("shutdown NVML", slog.String("error", err.Error()))
 		}
-	}()
 
-	srv := serverFn(server.Config{
-		ListenAddr:      cfg.ListenAddr,
-		Path:            cfg.Path,
-		ShutdownTimeout: cfg.ShutdownTimeout,
-	}, detector, log)
-
-	if srv == nil {
-		return errors.New("server factory returned nil")
-	}
-
-	if err := srv.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		if err == nil || errors.Is(err, context.Canceled) {
+			return nil
+		}
 		return err
 	}
-	return nil
 }
 
 func newLogger(level string) (*slog.Logger, error) {
