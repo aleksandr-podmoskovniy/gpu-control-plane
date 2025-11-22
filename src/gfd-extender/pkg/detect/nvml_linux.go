@@ -76,6 +76,8 @@ func nvmlSearchPaths() []string {
 		"/usr/local/nvidia/lib",
 		"/usr/lib/x86_64-linux-gnu",
 		"/usr/lib64",
+		"/driver-root/compat/lib",
+		"/driver-root/compat/lib64",
 		"/driver-root/usr/lib",
 		"/driver-root/usr/lib64",
 		"/driver-root/usr/lib/x86_64-linux-gnu",

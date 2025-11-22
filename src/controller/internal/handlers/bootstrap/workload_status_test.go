@@ -395,8 +395,8 @@ func TestWorkloadStatusHandlerEnablesGFDAfterValidator(t *testing.T) {
 		t.Fatalf("handler returned error: %v", err)
 	}
 
-	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseGFD {
-		t.Fatalf("expected phase GFD, got %s", inventory.Status.Bootstrap.Phase)
+	if inventory.Status.Bootstrap.Phase != v1alpha1.GPUNodeBootstrapPhaseMonitoring {
+		t.Fatalf("expected phase Monitoring, got %s", inventory.Status.Bootstrap.Phase)
 	}
 
 	cond := findCondition(inventory.Status.Conditions, conditionReadyForPooling)
@@ -1417,7 +1417,7 @@ func TestDetermineBootstrapPhase(t *testing.T) {
 		{name: "disabled", inv: &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{Conditions: []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}}}, inventoryComplete: true, validator: true, gfd: true, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseDisabled},
 		{name: "inventory-incomplete", inv: inventory, inventoryComplete: false, validator: true, gfd: true, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
 		{name: "validator-pending", inv: inventory, inventoryComplete: true, validator: false, gfd: true, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},
-		{name: "gfd-pending", inv: inventory, inventoryComplete: true, validator: true, gfd: false, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseGFD},
+		{name: "gfd-pending", inv: inventory, inventoryComplete: true, validator: true, gfd: false, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
 		{name: "monitoring", inv: inventory, inventoryComplete: true, validator: true, gfd: true, monitor: false, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
 		{name: "ready", inv: inventory, inventoryComplete: true, validator: true, gfd: true, monitor: true, needsValidation: false, expected: v1alpha1.GPUNodeBootstrapPhaseReady},
 		{name: "pending-devices-force-validating", inv: &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{Bootstrap: v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseReady}}}, inventoryComplete: true, validator: true, gfd: true, monitor: true, needsValidation: true, expected: v1alpha1.GPUNodeBootstrapPhaseValidating},

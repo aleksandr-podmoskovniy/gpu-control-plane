@@ -28,6 +28,8 @@ func TestNvmlSearchPathsPrefersRuntimeLibs(t *testing.T) {
 		"/usr/local/nvidia/lib",
 		"/usr/lib/x86_64-linux-gnu",
 		"/usr/lib64",
+		"/driver-root/compat/lib",
+		"/driver-root/compat/lib64",
 	}
 	for i, expect := range wantPrefix {
 		if i >= len(paths) || paths[i] != expect {

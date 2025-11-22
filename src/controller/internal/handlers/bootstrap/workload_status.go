@@ -739,13 +739,10 @@ func determineBootstrapPhase(inventory *v1alpha1.GPUNodeInventory, inventoryComp
 		}
 		return v1alpha1.GPUNodeBootstrapPhaseValidating
 	}
-	if !gfdReady {
-		return v1alpha1.GPUNodeBootstrapPhaseGFD
+	if monitoringReady && gfdReady {
+		return v1alpha1.GPUNodeBootstrapPhaseReady
 	}
-	if !monitoringReady {
-		return v1alpha1.GPUNodeBootstrapPhaseMonitoring
-	}
-	return v1alpha1.GPUNodeBootstrapPhaseReady
+	return v1alpha1.GPUNodeBootstrapPhaseMonitoring
 }
 
 func pendingDevicesMessage(total int, throttled []string) string {
