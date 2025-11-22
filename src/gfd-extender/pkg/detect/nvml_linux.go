@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && cgo && !nonvml
 
 // Copyright 2025 Flant JSC
 //

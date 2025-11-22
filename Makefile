@@ -88,7 +88,7 @@ rewriter-test: cache coverage-dir
 
 gfd-extender-test: cache coverage-dir
 	@echo "==> go test (gfd-extender)"
-	@cd $(GFD_EXTENDER_DIR) && CGO_ENABLED=0 $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...
+	@cd $(GFD_EXTENDER_DIR) && CGO_ENABLED=0 $(GO) test $(GOFLAGS) -tags=nonvml -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...
 
 lint-docs:
 	@echo "==> prettier (markdown)"
