@@ -54,6 +54,8 @@ const (
 	smiExpectedFields = 18
 )
 
+const maxWarningsPerGPU = 32
+
 var (
 	pciDevicesRoot = sysfsPCIDevicesPath
 	readSysfsFile  = os.ReadFile
@@ -169,6 +171,9 @@ func queryNVML() ([]Info, error) {
 			w.addf("gpu %d: pci info: %v", idx, err)
 		}
 
+		if len(w) > maxWarningsPerGPU {
+			w = append(w[:maxWarningsPerGPU], fmt.Sprintf("truncated %d warnings", len(w)-maxWarningsPerGPU))
+		}
 		if len(w) > 0 {
 			info.Partial = true
 			info.Warnings = w

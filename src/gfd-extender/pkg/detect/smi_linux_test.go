@@ -88,3 +88,28 @@ func TestNormalizePCIAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestWarningsTruncated(t *testing.T) {
+	execSmi = func(ctx context.Context) ([][]string, error) {
+		// second device will produce many missing fields
+		return [][]string{
+			{"GPU-1", "A100", "1024", "512", "512", "P0", "1100", "900", "10", "20", "0000:01:00.0", "4", "16", "SERIAL", "ampere", "60", "200", "535.104.06"},
+			{"GPU-2"},
+		}, nil
+	}
+	t.Cleanup(func() { execSmi = runSmi })
+
+	infos, err := queryNVML()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(infos) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(infos))
+	}
+	if len(infos[1].Warnings) == 0 {
+		t.Fatalf("expected warnings for second device")
+	}
+	if len(infos[1].Warnings) > maxWarningsPerGPU+1 { // +1 for truncated marker
+		t.Fatalf("warnings should be truncated, got %d", len(infos[1].Warnings))
+	}
+}

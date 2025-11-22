@@ -127,6 +127,8 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("detect request failed",
 			slog.String("remote", r.RemoteAddr),
+			slog.String("path", r.URL.Path),
+			slog.String("method", r.Method),
 			slog.String("error", err.Error()),
 		)
 		http.Error(w, "failed to collect GPU data", http.StatusInternalServerError)
@@ -141,6 +143,8 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("partial GPU data from gfd-extender",
 				slog.Int("index", info.Index),
 				slog.String("uuid", info.UUID),
+				slog.String("path", r.URL.Path),
+				slog.String("remote", r.RemoteAddr),
 				slog.String("warning", warn),
 			)
 		}
@@ -163,6 +167,8 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
 		slog.Int("devices", len(infos)),
 		slog.Int("warnings", warnCount),
 		slog.Duration("duration", time.Since(start)),
+		slog.String("path", r.URL.Path),
+		slog.String("remote", r.RemoteAddr),
 	)
 	detectRequests.WithLabelValues("ok").Inc()
 	detectDuration.Observe(time.Since(start).Seconds())
