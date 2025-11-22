@@ -99,3 +99,9 @@ func TestNewClientDefaultTimeout(t *testing.T) {
 		t.Fatalf("negative timeout should keep default, got %s", c.Timeout)
 	}
 }
+
+func TestQueryNVMLStub(t *testing.T) {
+	if _, err := queryNVML(); err == nil {
+		t.Fatalf("expected stub to fail on this platform")
+	}
+}

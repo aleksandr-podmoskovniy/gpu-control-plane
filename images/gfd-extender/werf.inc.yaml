@@ -20,7 +20,7 @@ final: false
 fromImage: builder/golang-bookworm-1.24
 git:
   - add: {{ .ModuleDir }}/src/gfd-extender
-    to: /src
+    to: /workspace/src/gfd-extender
     stageDependencies:
       install:
         - go.mod
@@ -37,16 +37,19 @@ shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
     - export GOTOOLCHAIN=go1.25.2
-    - cd /src
+    - cd /workspace/src/gfd-extender
     - go mod download
   setup:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
     - export GOTOOLCHAIN=go1.25.2
     - export GOOS=linux
     - export GOARCH=amd64
-    - cd /src
+    - export CGO_ENABLED=1
+    - cd /workspace/src/gfd-extender
     - mkdir -p /out
-    - go build -trimpath -ldflags="-s -w" -o /out/gfd-extender ./cmd/gfd-extender
+    - |
+      {{- $_ := set $ "ProjectName" (printf "%s/gfd-extender" $.ImageName) -}}
+      {{- include "image-build.build" (set $ "BuildCommand" `go build -trimpath -ldflags="-s -w" -o /out/gfd-extender ./cmd/gfd-extender`) | nindent 6 }}
 
 ---
 image: {{ .ModuleNamePrefix }}gfd-extender

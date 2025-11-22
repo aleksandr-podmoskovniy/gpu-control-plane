@@ -42,6 +42,7 @@ type Info struct {
 	Family                      string        `json:"family"`
 	Serial                      string        `json:"serial"`
 	DisplayMode                 string        `json:"displayMode"`
+	Precision                   []string      `json:"precision,omitempty"`
 	MIG                         MIGInfo       `json:"mig"`
 	// Partial indicates that some fields failed to collect; details are in Warnings.
 	Partial  bool     `json:"partial,omitempty"`

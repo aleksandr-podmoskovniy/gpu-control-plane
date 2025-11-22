@@ -216,6 +216,21 @@ func TestHandleDetectWarningsAndMetrics(t *testing.T) {
 	}
 }
 
+func TestWrapMiddlewareLogsStatus(t *testing.T) {
+	srv := newTestServer(fakeDetector{})
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/detect", nil)
+
+	srv.wrapMiddleware(inner).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTeapot {
+		t.Fatalf("expected status from inner handler, got %d", rr.Code)
+	}
+}
+
 func TestMetricsEndpointExposed(t *testing.T) {
 	srv := newTestServer(fakeDetector{})
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)

@@ -99,7 +99,9 @@ spec:
             - name: NVIDIA_DRIVER_CAPABILITIES
               value: "compute,utility"
             - name: LD_LIBRARY_PATH
-              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:/driver-root/compat/lib:/driver-root/compat/lib64:/driver-root/usr/lib:/driver-root/usr/lib64:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/lib:/driver-root/lib64:/lib64:/lib"
+              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/usr/lib64:/driver-root/lib64:/driver-root/lib:/driver-root/compat/lib64:/driver-root/compat/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:/lib64:/lib"
+            - name: PATH
+              value: "/driver-root/usr/bin:/driver-root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           ports:
             - name: detect
               containerPort: {{ $detectPort }}
@@ -118,12 +120,6 @@ spec:
             - name: host-sys
               mountPath: {{ $hostSysPath | quote }}
               readOnly: true
-            - name: nvidia-libs
-              mountPath: /usr/local/nvidia
-              readOnly: true
-            - name: host-lib64
-              mountPath: /usr/lib/x86_64-linux-gnu
-              readOnly: true
         {{- end }}
       volumes:
         - name: output-dir
@@ -138,12 +134,4 @@ spec:
           hostPath:
             path: /run/nvidia/driver
             type: DirectoryOrCreate
-        - name: nvidia-libs
-          hostPath:
-            path: /usr/local/nvidia
-            type: Directory
-        - name: host-lib64
-          hostPath:
-            path: /usr/lib/x86_64-linux-gnu
-            type: Directory
 {{- end }}

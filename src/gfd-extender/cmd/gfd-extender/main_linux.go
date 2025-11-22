@@ -16,13 +16,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/ilyakaznacheev/cleanenv"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/src/gfd-extender/internal/server"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/src/gfd-extender/pkg/detect"
@@ -65,5 +64,29 @@ func realServerFactory(cfg server.Config, det server.Detector, log *slog.Logger)
 }
 
 func readEnvConfig(target interface{}) error {
-	return cleanenv.ReadEnv(target)
+	cfg := target.(*config)
+	if v := os.Getenv("GFD_EXTENDER_ADDR"); v != "" {
+		cfg.ListenAddr = v
+	}
+	if v := os.Getenv("GFD_EXTENDER_PATH"); v != "" {
+		cfg.Path = v
+	}
+	if v := os.Getenv("GFD_EXTENDER_LOG_LEVEL"); v != "" {
+		cfg.LogLevel = v
+	}
+	if v := os.Getenv("GFD_EXTENDER_TIMEOUT"); v != "" {
+		dur, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse GFD_EXTENDER_TIMEOUT: %w", err)
+		}
+		cfg.Timeout = dur
+	}
+	if v := os.Getenv("GFD_EXTENDER_SHUTDOWN_TIMEOUT"); v != "" {
+		dur, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse GFD_EXTENDER_SHUTDOWN_TIMEOUT: %w", err)
+		}
+		cfg.ShutdownTimeout = dur
+	}
+	return nil
 }

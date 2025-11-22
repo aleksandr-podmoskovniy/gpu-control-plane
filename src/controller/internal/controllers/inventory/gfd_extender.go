@@ -86,6 +86,7 @@ type detectGPUEntry struct {
 	Family                      string               `json:"family"`
 	Serial                      string               `json:"serial"`
 	DisplayMode                 string               `json:"displayMode"`
+	Precision                   []string             `json:"precision"`
 	MIG                         detectGPUMIG         `json:"mig"`
 }
 
@@ -285,6 +286,9 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 	}
 	if len(entry.MIG.ProfilesSupported) > 0 {
 		hw.MIG.ProfilesSupported = append([]string(nil), entry.MIG.ProfilesSupported...)
+	}
+	if len(entry.Precision) > 0 && len(hw.Precision.Supported) == 0 {
+		hw.Precision.Supported = append([]string(nil), entry.Precision...)
 	}
 }
 

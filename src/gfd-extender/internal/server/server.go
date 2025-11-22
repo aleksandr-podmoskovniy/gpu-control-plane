@@ -91,7 +91,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc(s.cfg.Path, s.handleDetect)
 	mux.Handle("/metrics", promhttp.HandlerFor(s.registry, promhttp.HandlerOpts{}))
-	s.httpSrv = s.factory(s.cfg.ListenAddr, mux)
+	s.httpSrv = s.factory(s.cfg.ListenAddr, s.wrapMiddleware(mux))
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -199,4 +199,30 @@ func (s *stdHTTPServer) ListenAndServe() error {
 
 func (s *stdHTTPServer) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
+}
+
+// wrapMiddleware instruments requests with basic logging and status tracking.
+func (s *Server) wrapMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lrw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+		next.ServeHTTP(lrw, r)
+		s.logger.Info("http request",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("remote", r.RemoteAddr),
+			slog.Int("status", lrw.status),
+			slog.Duration("duration", time.Since(start)),
+		)
+	})
+}
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.status = code
+	lrw.ResponseWriter.WriteHeader(code)
 }

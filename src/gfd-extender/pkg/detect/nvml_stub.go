@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !linux
+
 package detect
 
-import "testing"
+import "fmt"
 
-func TestWarningCollector(t *testing.T) {
-	var w warningCollector
-	w.addf("hello %s %d", "gpu", 1)
-	if len(w) != 1 {
-		t.Fatalf("expected 1 warning, got %d", len(w))
-	}
-	if w[0] != "hello gpu 1" {
-		t.Fatalf("unexpected warning text: %s", w[0])
-	}
+// Stub implementation for non-Linux platforms to keep unit tests runnable without NVML.
+
+func initNVML() error    { return nil }
+func shutdownNVML() error { return nil }
+
+func queryNVML() ([]Info, error) {
+	return nil, fmt.Errorf("nvml not supported on this platform")
 }
