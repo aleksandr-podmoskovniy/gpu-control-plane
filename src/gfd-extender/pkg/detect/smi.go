@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build linux
-
 package detect
 
 import (
@@ -31,7 +29,9 @@ import (
 const (
 	smiTimeout          = 5 * time.Second
 	sysfsPCIDevicesPath = "/sys/bus/pci/devices"
+)
 
+const (
 	smiIdxUUID = iota
 	smiIdxName
 	smiIdxMemTotal
@@ -50,17 +50,24 @@ const (
 	smiIdxTempGPU
 	smiIdxPowerDraw
 	smiIdxDriverVersion
+)
 
+const (
 	smiExpectedFields = 18
 )
 
-const maxWarningsPerGPU = 32
+var maxWarningsPerGPU = 32
 
 var (
 	pciDevicesRoot = sysfsPCIDevicesPath
 	readSysfsFile  = os.ReadFile
 	execSmi        = runSmi
+	runSmiCommand  = runSmiDefault
 )
+
+func runSmiDefault(ctx context.Context, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, args[0], args[1:]...).Output()
+}
 
 func initNVML() error { return nil }
 
@@ -76,7 +83,10 @@ func queryNVML() ([]Info, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseSmiRows(rows)
+}
 
+func parseSmiRows(rows [][]string) ([]Info, error) {
 	infos := make([]Info, 0, len(rows))
 	for idx, fields := range rows {
 		w := warningCollector{}
@@ -84,7 +94,11 @@ func queryNVML() ([]Info, error) {
 
 		setStr := func(target *string, i int) {
 			if i < len(fields) {
-				*target = strings.TrimSpace(fields[i])
+				val := strings.TrimSpace(fields[i])
+				*target = val
+				if val == "" {
+					w.addf("gpu %d: empty field %d", idx, i)
+				}
 			} else {
 				w.addf("gpu %d: missing field %d", idx, i)
 			}
@@ -108,6 +122,8 @@ func queryNVML() ([]Info, error) {
 		info.MemoryInfoV2 = MemoryInfoV2{Total: total, Free: free, Used: used}
 		if total > 0 {
 			info.MemoryMiB = int32(total / (1024 * 1024))
+		} else {
+			w.addf("gpu %d: memory total is zero", idx)
 		}
 
 		if len(fields) > smiIdxPState {
@@ -132,11 +148,15 @@ func queryNVML() ([]Info, error) {
 		if len(fields) > smiIdxPCIEGen {
 			if v, err := strconv.Atoi(strings.TrimSpace(fields[smiIdxPCIEGen])); err == nil {
 				info.PCIE.Generation = ptrInt32(int32(v))
+			} else {
+				w.addf("gpu %d: empty pcie gen", idx)
 			}
 		}
 		if len(fields) > smiIdxPCIEWidth {
 			if v, err := strconv.Atoi(strings.TrimSpace(fields[smiIdxPCIEWidth])); err == nil {
 				info.PCIE.Width = ptrInt32(int32(v))
+			} else {
+				w.addf("gpu %d: empty pcie width", idx)
 			}
 		}
 		if len(fields) > smiIdxSerial {
@@ -154,21 +174,22 @@ func queryNVML() ([]Info, error) {
 			info.DriverVersion = strings.TrimSpace(fields[smiIdxDriverVersion])
 		}
 
-		if pciInfo, err := collectPCIInfo(info.PCI.Address, idx); err == nil {
-			if info.PCI.Address == "" {
-				info.PCI.Address = pciInfo.Address
-			}
-			if info.PCI.Vendor == "" {
-				info.PCI.Vendor = pciInfo.Vendor
-			}
-			if info.PCI.Device == "" {
-				info.PCI.Device = pciInfo.Device
-			}
-			if info.PCI.Class == "" {
-				info.PCI.Class = pciInfo.Class
-			}
-		} else {
-			w.addf("gpu %d: pci info: %v", idx, err)
+		pciInfo, _ := collectPCIInfo(info.PCI.Address, idx)
+		if info.PCI.Address == "" {
+			info.PCI.Address = pciInfo.Address
+		}
+		if info.PCI.Vendor == "" {
+			info.PCI.Vendor = pciInfo.Vendor
+		}
+		if info.PCI.Device == "" {
+			info.PCI.Device = pciInfo.Device
+		}
+		if info.PCI.Class == "" {
+			info.PCI.Class = pciInfo.Class
+		}
+
+		if info.PCI.Address == "" {
+			w.addf("gpu %d: missing pci address", idx)
 		}
 
 		if len(w) > maxWarningsPerGPU {
@@ -187,12 +208,17 @@ func queryNVML() ([]Info, error) {
 func runSmi(ctx context.Context) ([][]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, smiTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "nvidia-smi",
+	out, err := runSmiCommand(ctx,
+		"nvidia-smi",
 		"--query-gpu=uuid,name,memory.total,memory.free,memory.used,pstate,clocks.gr,clocks.mem,utilization.gpu,utilization.memory,pci.bus_id,pci.link.gen.current,pci.link.width.current,serial,family,temperature.gpu,power.draw,driver_version",
-		"--format=csv,noheader,nounits").Output()
+		"--format=csv,noheader,nounits")
 	if err != nil {
 		return nil, fmt.Errorf("nvidia-smi failed: %w", err)
 	}
+	return parseSmiOutput(out), nil
+}
+
+func parseSmiOutput(out []byte) [][]string {
 	lines := bytes.Split(bytes.TrimSpace(out), []byte{'\n'})
 	rows := make([][]string, 0, len(lines))
 	for _, line := range lines {
@@ -205,7 +231,7 @@ func runSmi(ctx context.Context) ([][]string, error) {
 		}
 		rows = append(rows, fields)
 	}
-	return rows, nil
+	return rows
 }
 
 func collectPCIInfo(busID string, index int) (PCIInfo, error) {
@@ -232,14 +258,14 @@ func collectPCIInfo(busID string, index int) (PCIInfo, error) {
 }
 
 func normalizePCIAddress(busID string) string {
-	parts := strings.Split(busID, ":")
-	switch len(parts) {
-	case 2:
+	if busID == "" {
+		return ""
+	}
+	if strings.Count(busID, ":") >= 2 {
 		return strings.ToLower(busID)
-	case 1:
-		if strings.Contains(busID, ".") {
-			return strings.ToLower("0000:" + busID)
-		}
+	}
+	if strings.Contains(busID, ".") {
+		return strings.ToLower("0000:" + busID)
 	}
 	return ""
 }
@@ -255,7 +281,25 @@ func readHexValue(path string) (string, error) {
 }
 
 func nvmlSearchPaths() []string {
-	candidates := []string{
+	seen := make(map[string]struct{})
+	unique := make([]string, 0)
+
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		unique = append(unique, p)
+	}
+
+	for _, p := range strings.Split(os.Getenv("LD_LIBRARY_PATH"), ":") {
+		add(p)
+	}
+
+	for _, p := range []string{
 		"/usr/local/nvidia/lib64",
 		"/usr/local/nvidia/lib",
 		"/usr/lib/x86_64-linux-gnu",
@@ -269,24 +313,10 @@ func nvmlSearchPaths() []string {
 		"/driver-root/lib64",
 		"/lib64",
 		"/lib",
+	} {
+		add(p)
 	}
-	for _, p := range strings.Split(os.Getenv("LD_LIBRARY_PATH"), ":") {
-		if p != "" {
-			candidates = append([]string{p}, candidates...)
-		}
-	}
-	seen := make(map[string]struct{}, len(candidates))
-	unique := make([]string, 0, len(candidates))
-	for _, p := range candidates {
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		unique = append(unique, p)
-	}
+
 	return unique
 }
 

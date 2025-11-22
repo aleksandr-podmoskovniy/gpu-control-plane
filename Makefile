@@ -87,12 +87,7 @@ rewriter-test: cache coverage-dir
 
 gfd-extender-test: cache coverage-dir
 	@echo "==> go test (gfd-extender)"
-	@cd $(GFD_EXTENDER_DIR) && \
-	if [ "$$(go env GOOS)" = "linux" ]; then \
-		GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...; \
-	else \
-		CGO_ENABLED=0 $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...; \
-	fi
+	@cd $(GFD_EXTENDER_DIR) && CGO_ENABLED=0 $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...
 
 lint-docs:
 	@echo "==> prettier (markdown)"
