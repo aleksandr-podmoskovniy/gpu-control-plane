@@ -28,6 +28,7 @@ GOFLAGS ?= -count=1
 GOLANGCI_LINT_VERSION ?= 1.64.8
 MODULE_SDK_VERSION ?= 0.3.7
 DMT_VERSION ?= 0.1.54
+GOLANGCI_LINT_OPTS ?= --timeout=5m
 
 GOLANGCI_LINT ?= $(BIN_DIR)/golangci-lint
 MODULE_SDK ?= $(BIN_DIR)/module-sdk
@@ -97,7 +98,7 @@ lint-docs:
 
 lint-go: cache ensure-golangci-lint
 	@echo "==> golangci-lint"
-	@(cd $(CONTROLLER_DIR) && $(GOLANGCI_LINT) run ./...)
+	@(cd $(CONTROLLER_DIR) && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_OPTS) ./...)
 	@echo "==> go vet"
 	@cd $(CONTROLLER_DIR) && $(GO) vet ./...
 
