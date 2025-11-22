@@ -79,3 +79,23 @@ func TestDetectGPUNilContext(t *testing.T) {
 		t.Fatalf("expected success with nil context")
 	}
 }
+
+func TestClientInitClose(t *testing.T) {
+	c := NewClient()
+	// On non-linux build tags initNVML returns error; we only assert that Close never errors.
+	_ = c.Init()
+	if err := c.Close(); err != nil {
+		t.Fatalf("expected close to be noop, got %v", err)
+	}
+}
+
+func TestNewClientDefaultTimeout(t *testing.T) {
+	c := NewClient()
+	if c.Timeout != defaultTimeout {
+		t.Fatalf("expected default timeout %s, got %s", defaultTimeout, c.Timeout)
+	}
+	c = NewClient(WithTimeout(-time.Second))
+	if c.Timeout != defaultTimeout {
+		t.Fatalf("negative timeout should keep default, got %s", c.Timeout)
+	}
+}

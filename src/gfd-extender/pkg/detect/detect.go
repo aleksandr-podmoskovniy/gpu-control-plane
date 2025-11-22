@@ -26,7 +26,7 @@ var collect = queryNVML
 // Option configures a Client.
 type Option func(c *Client)
 
-// Client calls NVML to query GPUs.
+// Client calls underlying collector.
 type Client struct {
 	Timeout time.Duration
 }
@@ -40,7 +40,7 @@ func NewClient(opts ...Option) *Client {
 	return c
 }
 
-// WithTimeout overrides the NVML call timeout.
+// WithTimeout overrides the call timeout.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		if timeout > 0 {
@@ -49,10 +49,10 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// Init initializes NVML bindings.
+// Init initializes underlying provider (noop for smi).
 func (c *Client) Init() error { return initNVML() }
 
-// Close releases NVML resources.
+// Close releases provider resources (noop for smi).
 func (c *Client) Close() error { return shutdownNVML() }
 
 // DetectGPU returns the current set of GPUs or propagates context cancellation.

@@ -27,7 +27,7 @@ type Definition struct {
 
 var definitions = []Definition{
 	{Name: meta.ComponentValidator, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseValidating},
-	{Name: meta.ComponentGPUFeatureDiscovery, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseGFD},
+	{Name: meta.ComponentGPUFeatureDiscovery, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
 	{Name: meta.ComponentDCGM, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
 	{Name: meta.ComponentDCGMExporter, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
 }

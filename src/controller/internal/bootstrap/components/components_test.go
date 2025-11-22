@@ -43,7 +43,6 @@ func TestEnabledComponentsByPhase(t *testing.T) {
 		}},
 		{phase: v1alpha1.GPUNodeBootstrapPhaseGFD, expected: []meta.Component{
 			meta.ComponentValidator,
-			meta.ComponentGPUFeatureDiscovery,
 		}},
 		{phase: v1alpha1.GPUNodeBootstrapPhaseMonitoring, expected: []meta.Component{
 			meta.ComponentValidator,

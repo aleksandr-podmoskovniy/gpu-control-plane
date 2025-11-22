@@ -1,4 +1,4 @@
-//go:build linux && cgo
+//go:build linux
 
 // Copyright 2025 Flant JSC
 //
