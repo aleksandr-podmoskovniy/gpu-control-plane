@@ -69,9 +69,14 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	toolkitReady := !isConditionTrue(inventory, conditionToolkitMissing)
 	componentReady := isConditionTrue(inventory, conditionGFDReady)
 	monitoringMissing := isConditionTrue(inventory, conditionMonitoringMissing)
-	monitoringHealthy := inventory.Status.Monitoring.ConsecutiveHeartbeats >= infraReadyHeartbeatThreshold && !monitoringMissing
+
+	monitoringInitialized := !inventory.Status.Monitoring.LastHeartbeat.IsZero()
+	monitoringHealthy := inventory.Status.Monitoring.ConsecutiveHeartbeats >= infraReadyHeartbeatThreshold && !monitoringMissing && monitoringInitialized
+
 	infraReady := driverReady && toolkitReady && componentReady && monitoringHealthy
-	infraDegraded := !driverReady || !toolkitReady || monitoringMissing
+
+	canFaultByInfra := phase == v1alpha1.GPUNodeBootstrapPhaseMonitoring || phase == v1alpha1.GPUNodeBootstrapPhaseReady
+	infraDegraded := canFaultByInfra && (!driverReady || !toolkitReady || (monitoringMissing && monitoringInitialized))
 
 	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {

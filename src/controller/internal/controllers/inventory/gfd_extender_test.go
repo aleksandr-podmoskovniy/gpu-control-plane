@@ -148,10 +148,14 @@ func TestDetectGPUPort(t *testing.T) {
 	}
 }
 
-func TestCollectNodeDetectionsMissingPodReturnsError(t *testing.T) {
+func TestCollectNodeDetectionsMissingPodIsSilent(t *testing.T) {
 	rec := &Reconciler{client: newTestClient(newTestScheme(t))}
-	if _, err := rec.collectNodeDetections(context.Background(), "node-no-pod"); err == nil {
-		t.Fatalf("expected error when gfd-extender pod missing")
+	detections, err := rec.collectNodeDetections(context.Background(), "node-no-pod")
+	if err != nil {
+		t.Fatalf("unexpected error when pod missing: %v", err)
+	}
+	if len(detections.byIndex) != 0 || len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections, got %+v", detections)
 	}
 }
 
@@ -195,8 +199,10 @@ func TestCollectNodeDetectionsHTTPError(t *testing.T) {
 	detectHTTPClient = server.Client()
 	defer func() { detectHTTPClient = orig }()
 
-	if _, err := rec.collectNodeDetections(context.Background(), node.Name); err == nil {
-		t.Fatalf("expected error when gfd-extender returns non-200")
+	if detections, err := rec.collectNodeDetections(context.Background(), node.Name); err != nil {
+		t.Fatalf("unexpected error when gfd-extender returns non-200: %v", err)
+	} else if len(detections.byIndex) != 0 || len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections on non-200, got %+v", detections)
 	}
 }
 
@@ -268,8 +274,10 @@ func TestCollectNodeDetectionsWithoutPort(t *testing.T) {
 	}
 
 	rec := &Reconciler{client: newTestClient(newTestScheme(t), node, pod)}
-	if _, err := rec.collectNodeDetections(context.Background(), node.Name); err == nil {
-		t.Fatalf("expected error when gfd-extender port is missing")
+	if detections, err := rec.collectNodeDetections(context.Background(), node.Name); err != nil {
+		t.Fatalf("unexpected error when gfd-extender port is missing: %v", err)
+	} else if len(detections.byIndex) != 0 || len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections when port is missing, got %+v", detections)
 	}
 }
 
@@ -363,8 +371,12 @@ func TestCollectNodeDetectionsSkipsNonReadyAndOtherNode(t *testing.T) {
 	}
 
 	rec := &Reconciler{client: newTestClient(newTestScheme(t), node, otherNodePod, notReadyPod)}
-	if _, err := rec.collectNodeDetections(context.Background(), node.Name); err == nil {
-		t.Fatalf("expected error when only non-ready/other-node pods present")
+	detections, err := rec.collectNodeDetections(context.Background(), node.Name)
+	if err != nil {
+		t.Fatalf("unexpected error when pods are non-ready/other-node: %v", err)
+	}
+	if len(detections.byIndex) != 0 && len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections, got %+v", detections)
 	}
 }
 
@@ -401,8 +413,12 @@ func TestCollectNodeDetectionsDoError(t *testing.T) {
 	detectHTTPClient = &http.Client{Transport: failingRoundTripper{}}
 	defer func() { detectHTTPClient = orig }()
 
-	if _, err := rec.collectNodeDetections(context.Background(), node.Name); err == nil {
-		t.Fatalf("expected error when HTTP client fails")
+	detections, err := rec.collectNodeDetections(context.Background(), node.Name)
+	if err != nil {
+		t.Fatalf("unexpected error on HTTP failure: %v", err)
+	}
+	if len(detections.byIndex) != 0 || len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections on HTTP failure, got %+v", detections)
 	}
 }
 
@@ -429,8 +445,12 @@ func TestCollectNodeDetectionsBadURL(t *testing.T) {
 	}
 
 	rec := &Reconciler{client: newTestClient(newTestScheme(t), node, pod)}
-	if _, err := rec.collectNodeDetections(context.Background(), node.Name); err == nil {
-		t.Fatalf("expected error when request URL is invalid")
+	detections, err := rec.collectNodeDetections(context.Background(), node.Name)
+	if err != nil {
+		t.Fatalf("unexpected error on bad URL: %v", err)
+	}
+	if len(detections.byIndex) != 0 || len(detections.byUUID) != 0 {
+		t.Fatalf("expected empty detections on bad URL, got %+v", detections)
 	}
 }
 

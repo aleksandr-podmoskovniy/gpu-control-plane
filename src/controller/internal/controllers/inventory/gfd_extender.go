@@ -129,23 +129,25 @@ func (r *Reconciler) collectNodeDetections(ctx context.Context, node string) (no
 	}
 
 	if targetPod == nil {
-		return result, fmt.Errorf("gfd-extender pod for node %s not found", node)
+		// GFD DaemonSet ещё не готов — не считаем это ошибкой, просто пропускаем цикл.
+		return result, nil
 	}
 
 	url := fmt.Sprintf("http://%s:%d%s", targetPod.Status.PodIP, port, detectGPUPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return result, err
+		return result, nil
 	}
 
 	resp, err := detectHTTPClient.Do(req)
 	if err != nil {
-		return result, err
+		// При старте pod может не слушать ещё; не шумим и не блокируем reconcile.
+		return result, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return result, fmt.Errorf("unexpected status %s", resp.Status)
+		return result, nil
 	}
 
 	var entries []detectGPUEntry

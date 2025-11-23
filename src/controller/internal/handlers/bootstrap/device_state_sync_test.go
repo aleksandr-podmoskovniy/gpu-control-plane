@@ -62,7 +62,13 @@ func inventoryWithInfraReady(node string) *v1alpha1.GPUNodeInventory {
 				{Type: conditionToolkitMissing, Status: metav1.ConditionFalse},
 				{Type: conditionMonitoringMissing, Status: metav1.ConditionFalse},
 			},
-			Monitoring: v1alpha1.GPUNodeMonitoring{ConsecutiveHeartbeats: infraReadyHeartbeatThreshold},
+			Monitoring: v1alpha1.GPUNodeMonitoring{
+				ConsecutiveHeartbeats: infraReadyHeartbeatThreshold,
+				LastHeartbeat: func() *metav1.Time {
+					now := metav1.Now()
+					return &now
+				}(),
+			},
 			Bootstrap:  v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseReady},
 		},
 	}

@@ -203,8 +203,10 @@ func TestTelemetryFindFalse(t *testing.T) {
 
 func TestScrapeExporterMetricsErrorPaths(t *testing.T) {
 	pod := &corev1.Pod{}
-	if _, err := scrapeExporterMetrics(context.Background(), pod); err == nil {
-		t.Fatalf("expected error when pod IP is empty")
+	if telemetry, err := scrapeExporterMetrics(context.Background(), pod); err != nil {
+		t.Fatalf("unexpected error when pod IP is empty: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry when pod IP is empty, got %+v", telemetry)
 	}
 
 	badURL := &corev1.Pod{
@@ -220,18 +222,24 @@ func TestScrapeExporterMetricsErrorPaths(t *testing.T) {
 			}},
 		},
 	}
-	if _, err := scrapeExporterMetrics(context.Background(), badURL); err == nil {
-		t.Fatalf("expected error for invalid request URL")
+	if telemetry, err := scrapeExporterMetrics(context.Background(), badURL); err != nil {
+		t.Fatalf("unexpected error for invalid request URL: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry for invalid URL, got %+v", telemetry)
 	}
 }
 
-func TestCollectNodeTelemetryExporterMissing(t *testing.T) {
+func TestCollectNodeTelemetryExporterMissingIsSilent(t *testing.T) {
 	scheme := newTestScheme(t)
 	client := newTestClient(scheme)
 	rec := &Reconciler{client: client}
 
-	if _, err := rec.collectNodeTelemetry(context.Background(), "node-1"); err == nil {
-		t.Fatalf("expected error when exporter pod is missing")
+	telemetry, err := rec.collectNodeTelemetry(context.Background(), "node-1")
+	if err != nil {
+		t.Fatalf("unexpected error when exporter is missing: %v", err)
+	}
+	if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry, got %+v", telemetry)
 	}
 }
 

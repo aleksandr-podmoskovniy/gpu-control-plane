@@ -128,12 +128,12 @@ func (r *Reconciler) collectNodeTelemetry(ctx context.Context, node string) (nod
 		break
 	}
 	if exporter == nil {
-		return result, fmt.Errorf("dcgm exporter pod for node %s not found", node)
+		return result, nil
 	}
 
 	telemetry, err := scrapeExporterMetrics(ctx, exporter)
 	if err != nil {
-		return result, err
+		return result, nil
 	}
 
 	return telemetry, nil
@@ -146,24 +146,24 @@ func scrapeExporterMetrics(ctx context.Context, pod *corev1.Pod) (nodeTelemetry,
 	}
 
 	if pod.Status.PodIP == "" {
-		return out, fmt.Errorf("pod %s has no IP assigned", pod.Name)
+		return out, nil
 	}
 
 	port := exporterPort(pod)
 	url := fmt.Sprintf("http://%s:%d/metrics", pod.Status.PodIP, port)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return out, err
+		return out, nil
 	}
 
 	resp, err := telemetryHTTPClient.Do(req)
 	if err != nil {
-		return out, err
+		return out, nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("unexpected status %s", resp.Status)
+		return out, nil
 	}
 
 	return parseExporterMetrics(resp.Body)

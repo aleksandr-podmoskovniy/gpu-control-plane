@@ -86,8 +86,10 @@ func TestCollectNodeTelemetryNoExporter(t *testing.T) {
 	scheme := newTestScheme(t)
 	reconciler := &Reconciler{client: newTestClient(scheme)}
 
-	if _, err := reconciler.collectNodeTelemetry(context.Background(), "node-missing"); err == nil {
-		t.Fatalf("expected error when exporter pod missing")
+	if telemetry, err := reconciler.collectNodeTelemetry(context.Background(), "node-missing"); err != nil {
+		t.Fatalf("unexpected error when exporter missing: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry, got %+v", telemetry)
 	}
 
 	notReady := &corev1.Pod{
@@ -107,8 +109,10 @@ func TestCollectNodeTelemetryNoExporter(t *testing.T) {
 		},
 	}
 	reconciler.client = newTestClient(scheme, notReady)
-	if _, err := reconciler.collectNodeTelemetry(context.Background(), "node-notready"); err == nil {
-		t.Fatalf("expected error when exporter pod not ready")
+	if telemetry, err := reconciler.collectNodeTelemetry(context.Background(), "node-notready"); err != nil {
+		t.Fatalf("unexpected error when exporter not ready: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry for not ready exporter, got %+v", telemetry)
 	}
 
 	reconciler.client = &failingListClient{err: errors.New("list pods fail")}
@@ -155,8 +159,10 @@ func TestCollectNodeTelemetryScrapeError(t *testing.T) {
 	telemetryHTTPClient = server.Client()
 	defer func() { telemetryHTTPClient = origClient }()
 
-	if _, err := reconciler.collectNodeTelemetry(context.Background(), "node-scrape-error"); err == nil {
-		t.Fatalf("expected scrape error to propagate")
+	if telemetry, err := reconciler.collectNodeTelemetry(context.Background(), "node-scrape-error"); err != nil {
+		t.Fatalf("unexpected error on scrape failure: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry on scrape failure, got %+v", telemetry)
 	}
 }
 
@@ -172,13 +178,17 @@ func TestScrapeExporterMetricsErrors(t *testing.T) {
 			}},
 		},
 	}
-	if _, err := scrapeExporterMetrics(context.Background(), pod); err == nil {
-		t.Fatalf("expected error due to missing endpoint")
+	if telemetry, err := scrapeExporterMetrics(context.Background(), pod); err != nil {
+		t.Fatalf("unexpected error for missing endpoint: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry for missing endpoint, got %+v", telemetry)
 	}
 
 	noIP := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}
-	if _, err := scrapeExporterMetrics(context.Background(), noIP); err == nil {
-		t.Fatalf("expected error when pod has no IP")
+	if telemetry, err := scrapeExporterMetrics(context.Background(), noIP); err != nil {
+		t.Fatalf("unexpected error when pod has no IP: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry when pod has no IP, got %+v", telemetry)
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -235,8 +245,10 @@ func TestScrapeExporterMetricsNonOK(t *testing.T) {
 			}},
 		},
 	}
-	if _, err := scrapeExporterMetrics(context.Background(), pod); err == nil {
-		t.Fatalf("expected error on non-200 status")
+	if telemetry, err := scrapeExporterMetrics(context.Background(), pod); err != nil {
+		t.Fatalf("unexpected error on non-200 status: %v", err)
+	} else if len(telemetry.byIndex) != 0 || len(telemetry.byUUID) != 0 {
+		t.Fatalf("expected empty telemetry on non-200 status, got %+v", telemetry)
 	}
 }
 

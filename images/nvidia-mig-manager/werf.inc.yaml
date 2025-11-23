@@ -1,0 +1,114 @@
+{{ $version := "0.12.3" }}
+---
+image: {{ .ModuleNamePrefix }}nvidia-mig-manager-src-artifact
+fromImage: {{ .ModuleNamePrefix }}src-artifact
+final: false
+secrets:
+  - id: SOURCE_REPO
+    value: {{ .SOURCE_REPO }}
+shell:
+  install:
+    - export SOURCE_REPO=$(cat /run/secrets/SOURCE_REPO)
+    - git clone --depth 1 --branch v{{ $version }} ${SOURCE_REPO}/NVIDIA/mig-parted.git /src/mig-parted
+    - cd /src/mig-parted
+    - git rev-parse --short HEAD > /src/.GIT_HASH
+    - rm -rf .git hack deployments vendor
+---
+image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+final: false
+fromImage: {{ .ModuleNamePrefix }}builder-cuda
+import:
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-src-artifact
+    add: /src
+    to: /src
+    before: install
+mount:
+  - fromPath: "~/go-pkg-cache"
+    to: /go/pkg
+secrets:
+  - id: GOPROXY
+    value: {{ .GOPROXY }}
+shell:
+  install:
+    - export GOPATH=/go
+    - export PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
+    - export GIT_COMMIT=$(cat /src/.GIT_HASH)
+    - cd /src/mig-parted
+    - export CLI_VERSION_PACKAGE=github.com/NVIDIA/mig-parted/internal/info
+    - export GOPROXY=$(cat /run/secrets/GOPROXY)
+    - export GOOS=linux GOARCH=amd64
+    - make PREFIX=/usr/bin/ cmds
+    - chmod 0700 /usr/bin/nvidia-mig-parted /usr/bin/nvidia-mig-manager
+    # install helper tools similar to node-manager packaging
+    - apt-get update
+    - apt-get install -y --no-install-recommends bash coreutils jq nvidia-container-toolkit
+    - curl -fsSL -o /usr/bin/kubectl https://dl.k8s.io/release/v1.29.7/bin/linux/amd64/kubectl
+    - chmod +x /usr/bin/kubectl
+    - rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+---
+image: {{ .ModuleNamePrefix }}nvidia-mig-manager
+fromImage: {{ .ModuleNamePrefix }}distroless
+import:
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/bin
+    includePaths:
+      - nvidia-mig-parted
+      - nvidia-mig-manager
+    to: /usr/bin
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/lib64
+    includePaths:
+      - ld-linux-x86-64.so.2
+    to: /usr/lib64
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/lib/x86_64-linux-gnu
+    includePaths:
+      - ld-linux-x86-64.so.2
+      - libc.so.6
+      - libresolv.so.2
+      - libpthread.so.0
+      - librt.so.1
+      - libdl.so.2
+      - libm.so.6
+      - libgcc_s.so.1
+    to: /usr/lib/x86_64-linux-gnu
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /
+    includePaths:
+      - lib64
+      - lib
+    to: /
+    before: setup
+  # Align with node-manager packaging: ship helper tools used by mig-manager scripts.
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/bin/nvidia-ctk
+    to: /usr/bin/nvidia-ctk
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/bin/kubectl
+    to: /usr/bin/kubectl
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /usr/bin/jq
+    to: /usr/bin/jq
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /bin/bash
+    to: /usr/bin/bash
+    before: setup
+  - image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+    add: /bin
+    includePaths:
+      - ls
+      - cp
+      - mv
+      - rm
+    to: /usr/bin
+    before: setup
+imageSpec:
+  config:
+    env:
+      NVIDIA_REQUIRE_CUDA: "cuda>=12.8"
