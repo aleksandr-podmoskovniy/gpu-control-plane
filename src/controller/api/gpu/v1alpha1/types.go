@@ -106,6 +106,8 @@ type GPUPoolReference struct {
 }
 
 type GPUDeviceHardware struct {
+	// UUID is the GPU UUID reported by NVML/DCGM.
+	UUID string `json:"uuid,omitempty"`
 	// Product is a human readable GPU model as reported by the driver (e.g. NVIDIA A100-PCIE-40GB).
 	Product string `json:"product,omitempty"`
 	// PCI contains vendor/device/class identifiers describing the PCI function.

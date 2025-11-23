@@ -74,6 +74,7 @@ type detectGPUEntry struct {
 	PowerManagementDefaultLimit uint32               `json:"powerManagementDefaultLimit"`
 	Utilization                 detectGPUUtilization `json:"utilization"`
 	PowerState                  uint32               `json:"powerState"`
+	TemperatureC                int32                `json:"temperatureC"`
 	MemoryMiB                   int32                `json:"memoryMiB"`
 	ComputeMajor                int32                `json:"computeMajor"`
 	ComputeMinor                int32                `json:"computeMinor"`
@@ -205,6 +206,12 @@ func applyDetection(device *v1alpha1.GPUDevice, snapshot deviceSnapshot, detecti
 	health.Metrics["detect.memory.usedBytes"] = fmt.Sprintf("%d", entry.MemoryInfo.Used)
 	health.Metrics["detect.utilization.gpuPercent"] = fmt.Sprintf("%d", entry.Utilization.GPU)
 	health.Metrics["detect.utilization.memoryPercent"] = fmt.Sprintf("%d", entry.Utilization.Memory)
+	if entry.TemperatureC != 0 {
+		health.Metrics["detect.temperature.celsius"] = fmt.Sprintf("%d", entry.TemperatureC)
+		if device.Status.Health.TemperatureC == 0 {
+			device.Status.Health.TemperatureC = entry.TemperatureC
+		}
+	}
 
 	now := metav1.NewTime(time.Now().UTC())
 	health.LastUpdatedTime = &now
@@ -227,6 +234,9 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 
 	if entry.Product != "" {
 		hw.Product = entry.Product
+	}
+	if entry.UUID != "" {
+		hw.UUID = entry.UUID
 	}
 	if entry.MemoryMiB > 0 {
 		hw.MemoryMiB = entry.MemoryMiB

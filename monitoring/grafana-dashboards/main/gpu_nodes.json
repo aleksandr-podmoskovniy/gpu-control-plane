@@ -560,21 +560,33 @@
         }
       },
       "pluginVersion": "8.2.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds_prometheus}"
-          },
-          "editorMode": "code",
-          "exemplar": true,
-          "expr": "sum(max(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"}) by(Hostname, gpu)) by(Hostname)",
-          "interval": "",
-          "legendFormat": "{{ Hostname }}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
+    "targets": [
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds_prometheus}"
+        },
+        "editorMode": "code",
+        "exemplar": true,
+        "expr": "sum(max(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"}) by(Hostname, gpu)) by(Hostname)",
+        "interval": "",
+        "legendFormat": "{{ Hostname }}",
+        "range": true,
+        "refId": "A"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds_prometheus}"
+        },
+        "editorMode": "code",
+        "exemplar": true,
+        "expr": "sum(max(DCGM_FI_DEV_POWER_USAGE{Hostname=~\"$node\"}) by(Hostname, gpu))",
+        "legendFormat": "Total",
+        "range": true,
+        "refId": "B"
+      }
+    ],
       "title": "GPU Power Usage",
       "transformations": [
         {

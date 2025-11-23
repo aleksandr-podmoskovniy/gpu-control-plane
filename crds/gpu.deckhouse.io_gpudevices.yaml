@@ -176,6 +176,9 @@ spec:
                       in MiB.
                     format: int32
                     type: integer
+                  uuid:
+                    description: UUID is the GPU UUID reported by NVML/DCGM.
+                    type: string
                   mig:
                     description: MIG describes Multi-Instance GPU capabilities and
                       available profiles.

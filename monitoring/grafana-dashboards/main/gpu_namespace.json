@@ -158,23 +158,24 @@
               }
             ]
           },
+  {
+    "matcher": {
+      "id": "byName",
+      "options": "pod"
+    },
+    "properties": [
+      {
+        "id": "links",
+        "value": [
           {
-            "matcher": {
-              "id": "byName",
-              "options": "pod"
-            },
-            "properties": [
-              {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "",
-                    "url": "/d/gpu-pods?var-pod=${__data.fields.pod}&${namespace:queryparam}"
-                  }
-                ]
-              }
-            ]
+            "targetBlank": false,
+            "title": "Pod details",
+            "url": "/d/gpu_namespace_pods/gpu-namespace-pods?var-namespace=$namespace&var-pod=${__value.text}&var-cluster=$cluster"
           }
+        ]
+      }
+    ]
+  }
         ]
       },
       "gridPos": {

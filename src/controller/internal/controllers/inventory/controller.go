@@ -513,7 +513,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	ctrlResult := ctrl.Result{}
-	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
+	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy, detections); err != nil {
 		return ctrl.Result{}, err
 	}
 	updateDeviceStateMetrics(node.Name, reconciledDevices)
@@ -844,7 +844,7 @@ func (r *Reconciler) invokeHandlers(ctx context.Context, device *v1alpha1.GPUDev
 	return rec.Reconcile(ctx)
 }
 
-func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error {
+func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy, detections nodeDetection) error {
 	inventory := &v1alpha1.GPUNodeInventory{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
 	if apierrors.IsNotFound(err) {
@@ -971,6 +971,13 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 			}
 			if snap.UUID != "" {
 				nodeDevice.UUID = snap.UUID
+			} else if entry, ok := detections.find(snap); ok && entry.UUID != "" {
+				nodeDevice.UUID = entry.UUID
+			}
+			if nodeDevice.PCI.Address == "" {
+				if entry, ok := detections.find(snap); ok && entry.PCI.Address != "" {
+					nodeDevice.PCI.Address = strings.ToLower(entry.PCI.Address)
+				}
 			}
 		}
 

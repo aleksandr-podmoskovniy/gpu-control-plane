@@ -158,23 +158,24 @@
               }
             ]
           },
+  {
+    "matcher": {
+      "id": "byName",
+      "options": "namespace"
+    },
+    "properties": [
+      {
+        "id": "links",
+        "value": [
           {
-            "matcher": {
-              "id": "byName",
-              "options": "namespace"
-            },
-            "properties": [
-              {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "",
-                    "url": "/d/gpu-namespace?${namespace:queryparam}"
-                  }
-                ]
-              }
-            ]
+            "targetBlank": false,
+            "title": "Namespace details",
+            "url": "/d/gpu_namespace_overview/gpu-namespace-overview?var-namespace=${__value.text}&var-cluster=$cluster"
           }
+        ]
+      }
+    ]
+  }
         ]
       },
       "gridPos": {

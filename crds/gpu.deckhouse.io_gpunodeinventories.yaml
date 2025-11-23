@@ -340,6 +340,9 @@ spec:
                           description: MemoryMiB is device memory capacity in MiB.
                           format: int32
                           type: integer
+                        uuid:
+                          description: UUID is the GPU UUID reported by NVML/DCGM.
+                          type: string
                         mig:
                           description: MIG summarises MIG capabilities for this device.
                           properties:
@@ -510,9 +513,6 @@ spec:
                           - Reserved
                           - InUse
                           - Faulted
-                          type: string
-                        uuid:
-                          description: UUID is the GPU UUID obtained from NVML/DCGM.
                           type: string
                       type: object
                     type: array

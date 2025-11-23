@@ -19,7 +19,6 @@ package detect
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -47,7 +46,6 @@ func queryNVML() ([]Info, error) {
 	}
 
 	infos := make([]Info, 0, count)
-	now := time.Now().UTC()
 
 	for i := 0; i < count; i++ {
 		dev, ret := nvml.DeviceGetHandleByIndex(i)
@@ -71,6 +69,9 @@ func queryNVML() ([]Info, error) {
 			if mem.Total > 0 {
 				info.MemoryMiB = int32(mem.Total / (1024 * 1024))
 			}
+		}
+		if temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret == nvml.SUCCESS {
+			info.TemperatureC = int32(temp)
 		}
 		if pwr, ret := dev.GetPowerUsage(); ret == nvml.SUCCESS {
 			info.PowerUsage = pwr
@@ -117,8 +118,6 @@ func queryNVML() ([]Info, error) {
 		}
 
 		info.Precision = derivePrecisions(info.ComputeMajor, info.ComputeMinor)
-
-		info.Warnings = append(info.Warnings, fmt.Sprintf("updated=%s", now.Format(time.RFC3339)))
 		infos = append(infos, info)
 	}
 

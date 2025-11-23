@@ -22,6 +22,7 @@ type Info struct {
 	Product                     string        `json:"product"`
 	MemoryInfo                  MemoryInfo    `json:"memoryInfo"`
 	MemoryInfoV2                MemoryInfoV2  `json:"memoryInfoV2"`
+	TemperatureC                int32         `json:"temperatureC"`
 	PowerUsage                  uint32        `json:"powerUsage"`
 	PowerState                  PState        `json:"powerState"`
 	PowerManagementDefaultLimit uint32        `json:"powerManagementDefaultLimit"`

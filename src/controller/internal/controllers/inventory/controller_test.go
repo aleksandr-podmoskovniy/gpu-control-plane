@@ -2620,7 +2620,7 @@ func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 		Labels:          map[string]string{},
 	}
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 
@@ -2660,7 +2660,7 @@ func TestReconcileNodeInventorySkipsCreationWhenNoDevices(t *testing.T) {
 		Labels:          map[string]string{},
 	}
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 
@@ -2699,7 +2699,7 @@ func TestReconcileNodeInventoryOwnerReferenceError(t *testing.T) {
 		},
 	}
 
-	err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged)
+	err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged, nodeDetection{})
 	if err == nil {
 		t.Fatalf("expected owner reference error due to missing scheme registration")
 	}
@@ -2734,7 +2734,7 @@ func TestReconcileNodeInventorySkipsUnknownDevices(t *testing.T) {
 	reconciler := &Reconciler{client: client, scheme: scheme, recorder: record.NewFakeRecorder(32), fallbackManaged: managedPolicyFrom(defaultModuleSettings())}
 
 	snapshot := nodeSnapshot{Managed: true, Devices: []deviceSnapshot{}}
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 	updated := &v1alpha1.GPUNodeInventory{}
@@ -4188,7 +4188,7 @@ func TestReconcileNodeInventoryOwnerReferenceCreateError(t *testing.T) {
 
 	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{
 		Devices: []deviceSnapshot{{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}},
-	}, devices, reconciler.fallbackManaged)
+	}, devices, reconciler.fallbackManaged, nodeDetection{})
 	if err == nil {
 		t.Fatal("expected owner reference error on create")
 	}
@@ -4218,7 +4218,7 @@ func TestReconcileNodeInventoryReturnsGetError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged); !errors.Is(err, getErr) {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged, nodeDetection{}); !errors.Is(err, getErr) {
 		t.Fatalf("expected get error to propagate, got %v", err)
 	}
 }
@@ -4264,7 +4264,7 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 
 	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{
 		Devices: []deviceSnapshot{{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}},
-	}, devices, reconciler.fallbackManaged)
+	}, devices, reconciler.fallbackManaged, nodeDetection{})
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -4287,7 +4287,7 @@ func TestReconcileNodeInventoryOwnerReferenceUpdateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged, nodeDetection{})
 	if err == nil {
 		t.Fatal("expected owner reference error on update")
 	}
@@ -4326,7 +4326,7 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
+	err = reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged, nodeDetection{})
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -4393,7 +4393,7 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 				MIG:       v1alpha1.GPUMIGConfig{},
 			},
 		},
-	}}, reconciler.fallbackManaged)
+	}}, reconciler.fallbackManaged, nodeDetection{})
 	if err == nil || !strings.Contains(err.Error(), "inventory refetch failure") {
 		t.Fatalf("expected refetch failure, got %v", err)
 	}
@@ -4438,7 +4438,7 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 		}},
 	}
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
@@ -4500,7 +4500,7 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 			{Index: "1", Vendor: "10de", Device: "1db5", Class: "0302"},
 			{Index: "0", Vendor: "10de", Device: "2230", Class: "0302"},
 		},
-	}, devices, reconciler.fallbackManaged); err != nil {
+	}, devices, reconciler.fallbackManaged, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 
@@ -4546,7 +4546,7 @@ func TestReconcileNodeInventoryDefaultManagedLabel(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{Managed: false}, nil, ManagedNodesPolicy{}); err != nil {
+	if err := reconciler.reconcileNodeInventory(context.Background(), node, nodeSnapshot{Managed: false}, nil, ManagedNodesPolicy{}, nodeDetection{}); err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
 	updatedInventory := &v1alpha1.GPUNodeInventory{}
