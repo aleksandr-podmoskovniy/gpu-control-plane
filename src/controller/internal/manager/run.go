@@ -51,9 +51,9 @@ var (
 	registerWebhooks    = func(ctx context.Context, mgr manager.Manager, deps webhook.Dependencies) error {
 		return webhook.Register(ctx, mgr, deps)
 	}
-	getConfigOrDie      = ctrl.GetConfigOrDie
-	addGPUScheme        = v1alpha1.AddToScheme
-	addNFDScheme        = nfdv1alpha1.AddToScheme
+	getConfigOrDie = ctrl.GetConfigOrDie
+	addGPUScheme   = v1alpha1.AddToScheme
+	addNFDScheme   = nfdv1alpha1.AddToScheme
 )
 
 // Run initialises controller-runtime manager using the provided configuration and starts all controllers.
@@ -117,28 +117,28 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 		return fmt.Errorf("readyz: %w", err)
 	}
 
+	moduleState, err := config.ModuleSettingsToState(sysCfg.Module)
+	if err != nil {
+		return fmt.Errorf("convert module settings: %w", err)
+	}
+	store := config.NewModuleConfigStore(moduleState)
 	deps := controllers.Dependencies{
 		Logger:            Log,
 		InventoryHandlers: contracts.NewInventoryRegistry(),
 		BootstrapHandlers: contracts.NewBootstrapRegistry(),
 		PoolHandlers:      contracts.NewPoolRegistry(),
 		AdmissionHandlers: contracts.NewAdmissionRegistry(),
+		ModuleConfigStore: store,
 	}
 
 	registerHandlers(Log, &handlers.Handlers{
-		Inventory: deps.InventoryHandlers,
-		Bootstrap: deps.BootstrapHandlers,
-		Pool:      deps.PoolHandlers,
-		Admission: deps.AdmissionHandlers,
-		Client:    mgr.GetClient(),
+		Inventory:         deps.InventoryHandlers,
+		Bootstrap:         deps.BootstrapHandlers,
+		Pool:              deps.PoolHandlers,
+		Admission:         deps.AdmissionHandlers,
+		Client:            mgr.GetClient(),
+		ModuleConfigStore: store,
 	})
-
-	moduleState, err := config.ModuleSettingsToState(sysCfg.Module)
-	if err != nil {
-		return fmt.Errorf("convert module settings: %w", err)
-	}
-	store := config.NewModuleConfigStore(moduleState)
-	deps.ModuleConfigStore = store
 
 	if err := registerControllers(ctx, mgr, sysCfg.Controllers, store, deps); err != nil {
 		return fmt.Errorf("register controllers: %w", err)

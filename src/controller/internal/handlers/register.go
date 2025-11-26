@@ -18,6 +18,7 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/admission"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/bootstrap"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/gpupool"
@@ -51,7 +52,12 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	}
 	deps.Pool.Register(gpupool.NewCapacitySyncHandler(log.WithName("gpupool.capacity-sync")))
 	if deps.Client != nil {
-		deps.Pool.Register(gpupool.NewRendererHandler(log.WithName("gpupool.renderer"), deps.Client, gpupool.RenderConfig{}))
+		renderCfg := gpupool.RenderConfig{}
+		if deps.ModuleConfigStore != nil {
+			state := deps.ModuleConfigStore.Current()
+			renderCfg.CustomTolerationKeys = state.Settings.Placement.CustomTolerationKeys
+		}
+		deps.Pool.Register(gpupool.NewRendererHandler(log.WithName("gpupool.renderer"), deps.Client, renderCfg))
 	}
 	deps.Admission.Register(admission.NewPoolValidationHandler(log.WithName("admission.pool-validation")))
 	deps.Admission.Register(admission.NewPoolSnapshotHandler(log.WithName("admission.pool-snapshot")))
@@ -59,9 +65,10 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 
 // Handlers groups registry pointers used by controllers.
 type Handlers struct {
-	Inventory *contracts.InventoryRegistry
-	Bootstrap *contracts.BootstrapRegistry
-	Pool      *contracts.PoolRegistry
-	Admission *contracts.AdmissionRegistry
-	Client    client.Client
+	Inventory         *contracts.InventoryRegistry
+	Bootstrap         *contracts.BootstrapRegistry
+	Pool              *contracts.PoolRegistry
+	Admission         *contracts.AdmissionRegistry
+	Client            client.Client
+	ModuleConfigStore *config.ModuleConfigStore
 }

@@ -40,9 +40,10 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
 	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
-		Namespace:          "gpu-ns",
-		DevicePluginImage:  "device-plugin:tag",
-		DefaultMIGStrategy: "single",
+		Namespace:            "gpu-ns",
+		DevicePluginImage:    "device-plugin:tag",
+		DefaultMIGStrategy:   "single",
+		CustomTolerationKeys: []string{"custom-tol"},
 	})
 
 	pool := &v1alpha1.GPUPool{
@@ -114,6 +115,9 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	expectedTol := corev1.Toleration{Key: poolLabelKey("alpha"), Operator: corev1.TolerationOpEqual, Value: "alpha", Effect: corev1.TaintEffectNoSchedule}
 	if !hasToleration(ds.Spec.Template.Spec.Tolerations, expectedTol) {
 		t.Fatalf("pool toleration missing")
+	}
+	if !hasToleration(ds.Spec.Template.Spec.Tolerations, corev1.Toleration{Key: "custom-tol", Operator: corev1.TolerationOpExists}) {
+		t.Fatalf("custom toleration missing")
 	}
 	reqs := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
 	if reqs == nil || len(reqs.NodeSelectorTerms) != 1 {

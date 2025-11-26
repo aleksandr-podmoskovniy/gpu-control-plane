@@ -205,7 +205,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.PoolHandler) (contracts.Result, error) {
 		return handler.HandlePool(ctx, pool)
 	})
-	rec.SetResourceUpdater(func(context.Context) error { return nil })
+	rec.SetResourceUpdater(func(ctx context.Context) error {
+		return r.client.Status().Update(ctx, pool)
+	})
 
 	res, err := rec.Reconcile(ctx)
 	if err != nil {

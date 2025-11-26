@@ -48,17 +48,19 @@ var migGPUClients string
 
 // RenderConfig carries per-pool workload rendering settings.
 type RenderConfig struct {
-	Namespace          string
-	DevicePluginImage  string
-	MIGManagerImage    string
-	DefaultMIGStrategy string
+	Namespace            string
+	DevicePluginImage    string
+	MIGManagerImage      string
+	DefaultMIGStrategy   string
+	CustomTolerationKeys []string
 }
 
 // RendererHandler ensures per-pool workloads (device-plugin, MIG manager) are deployed.
 type RendererHandler struct {
-	log    logr.Logger
-	client client.Client
-	cfg    RenderConfig
+	log               logr.Logger
+	client            client.Client
+	cfg               RenderConfig
+	customTolerations []corev1.Toleration
 }
 
 // NewRendererHandler builds a RendererHandler using env fallbacks.
@@ -76,7 +78,12 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 	if cfg.DefaultMIGStrategy == "" {
 		cfg.DefaultMIGStrategy = defaults.DefaultMIGStrategy
 	}
-	return &RendererHandler{log: log, client: c, cfg: cfg}
+	return &RendererHandler{
+		log:               log,
+		client:            c,
+		cfg:               cfg,
+		customTolerations: buildCustomTolerations(cfg.CustomTolerationKeys),
+	}
 }
 
 func renderConfigFromEnv() RenderConfig {
@@ -246,7 +253,6 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 
 func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
 	poolKey := poolLabelKey(pool.Name)
-	resourceName := fmt.Sprintf("gpu.deckhouse.io/%s", pool.Name)
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("nvidia-device-plugin-%s", pool.Name),
@@ -273,14 +279,14 @@ func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "nvidia-device-plugin",
-					Tolerations: []corev1.Toleration{
+					Tolerations: mergeTolerations([]corev1.Toleration{
 						{
 							Key:      poolKey,
 							Operator: corev1.TolerationOpEqual,
 							Value:    pool.Name,
 							Effect:   corev1.TaintEffectNoSchedule,
 						},
-					},
+					}, h.customTolerations),
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -303,10 +309,10 @@ func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.
 							Name:            "device-plugin",
 							Image:           h.cfg.DevicePluginImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command:         []string{"/nvidia-device-plugin"},
 							Args: []string{
 								"--config-file=/config/config.yaml",
 								"--pass-device-specs=false",
-								fmt.Sprintf("--resource-name=%s", resourceName),
 								"--fail-on-init-error=false",
 							},
 							SecurityContext: &corev1.SecurityContext{
@@ -465,11 +471,11 @@ func (h *RendererHandler) migManagerDaemonSet(pool *v1alpha1.GPUPool) *appsv1.Da
 					HostPID:            true,
 					HostNetwork:        true,
 					DNSPolicy:          corev1.DNSClusterFirstWithHostNet,
-					Tolerations: []corev1.Toleration{
+					Tolerations: mergeTolerations([]corev1.Toleration{
 						{Key: "node.kubernetes.io/unschedulable", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
 						{Key: "mig-reconfigure", Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule},
 						{Key: poolKey, Operator: corev1.TolerationOpEqual, Value: pool.Name, Effect: corev1.TaintEffectNoSchedule},
-					},
+					}, h.customTolerations),
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -582,6 +588,49 @@ func (h *RendererHandler) buildMIGDevices(pool *v1alpha1.GPUPool) []map[string]a
 	}
 
 	return devices
+}
+
+func buildCustomTolerations(keys []string) []corev1.Toleration {
+	if len(keys) == 0 {
+		return nil
+	}
+	out := make([]corev1.Toleration, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, corev1.Toleration{
+			Key:      k,
+			Operator: corev1.TolerationOpExists,
+		})
+	}
+	return out
+}
+
+func mergeTolerations(base []corev1.Toleration, extra []corev1.Toleration) []corev1.Toleration {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make([]corev1.Toleration, 0, len(base)+len(extra))
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	for _, t := range base {
+		out = append(out, t)
+		seen[t.Key+string(t.Operator)+t.Value+string(t.Effect)] = struct{}{}
+	}
+	for _, t := range extra {
+		key := t.Key + string(t.Operator) + t.Value + string(t.Effect)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, t)
+	}
+	return out
 }
 
 func (h *RendererHandler) createOrUpdate(ctx context.Context, obj client.Object, pool *v1alpha1.GPUPool) error {

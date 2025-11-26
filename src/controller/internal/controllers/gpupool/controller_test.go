@@ -283,7 +283,10 @@ func TestSetupWithManagerPropagatesError(t *testing.T) {
 func TestReconcileAggregatesResults(t *testing.T) {
 	scheme := newScheme(t)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
-	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
+	client := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(pool).
+		WithStatusSubresource(pool).
+		Build()
 
 	handlerA := &stubPoolHandler{name: "a", result: contracts.Result{Requeue: true}}
 	handlerB := &stubPoolHandler{name: "b", result: contracts.Result{RequeueAfter: time.Second}}
@@ -329,7 +332,10 @@ func TestRequeueAllPools(t *testing.T) {
 func TestMapModuleConfigRequeuesPools(t *testing.T) {
 	scheme := newScheme(t)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns"}}
-	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
+	client := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(pool).
+		WithStatusSubresource(pool).
+		Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
@@ -352,7 +358,10 @@ func TestRequeueAllPoolsHandlesError(t *testing.T) {
 func TestReconcileHandlerError(t *testing.T) {
 	scheme := newScheme(t)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
-	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
+	client := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(pool).
+		WithStatusSubresource(pool).
+		Build()
 
 	handler := &stubPoolHandler{name: "boom", err: errors.New("handler fail")}
 
@@ -393,7 +402,10 @@ func TestReconcileNotFound(t *testing.T) {
 func TestReconcileNoHandlers(t *testing.T) {
 	scheme := newScheme(t)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
-	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
+	client := clientfake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(pool).
+		WithStatusSubresource(pool).
+		Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
