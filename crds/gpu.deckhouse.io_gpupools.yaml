@@ -384,7 +384,6 @@ spec:
                     type: string
                 type: object
             required:
-            - allocation
             - resource
             type: object
           status:

@@ -282,7 +282,7 @@ func TestSetupWithManagerPropagatesError(t *testing.T) {
 
 func TestReconcileAggregatesResults(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	handlerA := &stubPoolHandler{name: "a", result: contracts.Result{Requeue: true}}
@@ -292,7 +292,7 @@ func TestReconcileAggregatesResults(t *testing.T) {
 	rec.client = client
 	rec.scheme = scheme
 
-	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}})
+	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pool"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -306,8 +306,8 @@ func TestReconcileAggregatesResults(t *testing.T) {
 
 func TestRequeueAllPools(t *testing.T) {
 	scheme := newScheme(t)
-	poolA := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
-	poolB := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b"}}
+	poolA := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns-a"}}
+	poolB := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b", Namespace: "ns-b"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(poolA, poolB).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
@@ -317,9 +317,10 @@ func TestRequeueAllPools(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("expected two requeue requests, got %#v", requests)
 	}
-	expected := map[string]struct{}{"pool-a": {}, "pool-b": {}}
+	expected := map[string]struct{}{"ns-a/pool-a": {}, "ns-b/pool-b": {}}
 	for _, req := range requests {
-		if _, ok := expected[req.Name]; !ok {
+		key := req.Namespace + "/" + req.Name
+		if _, ok := expected[key]; !ok {
 			t.Fatalf("unexpected request %v", req)
 		}
 	}
@@ -327,14 +328,14 @@ func TestRequeueAllPools(t *testing.T) {
 
 func TestMapModuleConfigRequeuesPools(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
 
 	reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{})
-	if len(reqs) != 1 || reqs[0].NamespacedName.Name != "pool-a" {
+	if len(reqs) != 1 || reqs[0].NamespacedName.Name != "pool-a" || reqs[0].NamespacedName.Namespace != "ns" {
 		t.Fatalf("unexpected requests: %#v", reqs)
 	}
 }
@@ -350,7 +351,7 @@ func TestRequeueAllPoolsHandlesError(t *testing.T) {
 
 func TestReconcileHandlerError(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	handler := &stubPoolHandler{name: "boom", err: errors.New("handler fail")}
@@ -359,7 +360,7 @@ func TestReconcileHandlerError(t *testing.T) {
 	rec.client = client
 	rec.scheme = scheme
 
-	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}}); err == nil {
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pool"}}); err == nil {
 		t.Fatal("expected handler error")
 	}
 	if handler.calls != 1 {
@@ -371,7 +372,7 @@ func TestReconcileGetError(t *testing.T) {
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = &failingClient{err: errors.New("get fail")}
 
-	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}}); err == nil {
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pool"}}); err == nil {
 		t.Fatal("expected get error")
 	}
 }
@@ -384,21 +385,21 @@ func TestReconcileNotFound(t *testing.T) {
 	rec.client = client
 	rec.scheme = scheme
 
-	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "missing"}}); err != nil {
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "missing"}}); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
 func TestReconcileNoHandlers(t *testing.T) {
 	scheme := newScheme(t)
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(pool).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = client
 	rec.scheme = scheme
 
-	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}})
+	res, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pool"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -476,7 +477,7 @@ func TestReconcileWrapsAPIError(t *testing.T) {
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
 	rec.client = &failingClient{err: apierrors.NewConflict(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "gpupools"}, "pool", errors.New("boom"))}
 
-	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "pool"}}); err == nil {
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "pool"}}); err == nil {
 		t.Fatal("expected API error")
 	}
 }

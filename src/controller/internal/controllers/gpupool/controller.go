@@ -193,7 +193,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	ctx = logr.NewContext(ctx, log)
 
 	pool := &v1alpha1.GPUPool{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: req.Name}, pool); err != nil {
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: req.Name}, pool); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("GPUPool removed")
 			return ctrl.Result{}, nil
@@ -230,7 +230,12 @@ func (r *Reconciler) requeueAllPools(ctx context.Context) []reconcile.Request {
 
 	reqs := make([]reconcile.Request, 0, len(list.Items))
 	for _, pool := range list.Items {
-		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Name: pool.Name}})
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: pool.Namespace,
+				Name:      pool.Name,
+			},
+		})
 	}
 	return reqs
 }
