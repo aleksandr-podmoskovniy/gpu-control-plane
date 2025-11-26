@@ -72,11 +72,11 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(cm.Data["config.yaml"]), &parsed); err != nil {
 		t.Fatalf("parse config: %v", err)
 	}
-	shared, ok := parsed["shared"].(map[string]any)
+	sharing, ok := parsed["sharing"].(map[string]any)
 	if !ok {
-		t.Fatalf("shared block missing")
+		t.Fatalf("sharing block missing")
 	}
-	timeSlicing, ok := shared["timeSlicing"].(map[string]any)
+	timeSlicing, ok := sharing["timeSlicing"].(map[string]any)
 	if !ok {
 		t.Fatalf("timeSlicing block missing")
 	}

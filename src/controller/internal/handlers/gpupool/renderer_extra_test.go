@@ -197,26 +197,26 @@ func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	}
 	cm := h.devicePluginConfigMap(pool)
 	var cfg struct {
-		Shared struct {
+		Sharing struct {
 			TimeSlicing struct {
 				Resources []struct {
 					Name     string `json:"name"`
 					Replicas int32  `json:"replicas"`
 				} `json:"resources"`
 			} `json:"timeSlicing"`
-		} `json:"shared"`
+		} `json:"sharing"`
 	}
 	if err := yaml.Unmarshal([]byte(cm.Data["config.yaml"]), &cfg); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(cfg.Shared.TimeSlicing.Resources) != 2 {
-		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Shared.TimeSlicing.Resources))
+	if len(cfg.Sharing.TimeSlicing.Resources) != 2 {
+		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Sharing.TimeSlicing.Resources))
 	}
-	if cfg.Shared.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Shared.TimeSlicing.Resources[0].Replicas != 5 {
-		t.Fatalf("default resource override not applied: %+v", cfg.Shared.TimeSlicing.Resources[0])
+	if cfg.Sharing.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
+		t.Fatalf("default resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[0])
 	}
-	if cfg.Shared.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Shared.TimeSlicing.Resources[1].Replicas != 2 {
-		t.Fatalf("custom resource override not applied: %+v", cfg.Shared.TimeSlicing.Resources[1])
+	if cfg.Sharing.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
+		t.Fatalf("custom resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[1])
 	}
 }
 
@@ -484,6 +484,41 @@ func TestAddOwnerIdempotent(t *testing.T) {
 	addOwner(cm, pool)
 	if len(cm.OwnerReferences) != 1 {
 		t.Fatalf("expected single owner ref, got %d", len(cm.OwnerReferences))
+	}
+}
+
+func TestBuildCustomTolerations(t *testing.T) {
+	tols := buildCustomTolerations([]string{"a", "", "a", "b"})
+	if len(tols) != 2 {
+		t.Fatalf("expected 2 tolerations, got %d", len(tols))
+	}
+	keys := map[string]bool{tols[0].Key: true, tols[1].Key: true}
+	if !keys["a"] || !keys["b"] {
+		t.Fatalf("unexpected keys: %v", keys)
+	}
+	if buildCustomTolerations(nil) != nil {
+		t.Fatalf("nil input should return nil slice")
+	}
+}
+
+func TestMergeTolerations(t *testing.T) {
+	base := []corev1.Toleration{
+		{Key: "a", Operator: corev1.TolerationOpExists},
+	}
+	extra := []corev1.Toleration{
+		{Key: "a", Operator: corev1.TolerationOpExists},
+		{Key: "b", Operator: corev1.TolerationOpEqual, Value: "v"},
+	}
+	merged := mergeTolerations(base, extra)
+	if len(merged) != 2 {
+		t.Fatalf("expected deduplicated tolerations, got %d: %v", len(merged), merged)
+	}
+	if merged[0].Key != "a" || merged[1].Key != "b" {
+		t.Fatalf("unexpected order or keys: %v", merged)
+	}
+	merged = mergeTolerations(base, nil)
+	if len(merged) != 1 || merged[0].Key != "a" {
+		t.Fatalf("merge with nil extra should return base: %v", merged)
 	}
 }
 

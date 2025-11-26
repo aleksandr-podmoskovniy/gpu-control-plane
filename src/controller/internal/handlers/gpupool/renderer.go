@@ -212,7 +212,15 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		"flags": map[string]any{
 			"migStrategy": h.cfg.DefaultMIGStrategy,
 		},
-		"shared": map[string]any{
+		"resources": map[string]any{
+			"gpus": []map[string]any{
+				{
+					"pattern": "*",
+					"name":    resourceName,
+				},
+			},
+		},
+		"sharing": map[string]any{
 			"timeSlicing": map[string]any{
 				"resources": resources,
 			},
@@ -634,8 +642,22 @@ func mergeTolerations(base []corev1.Toleration, extra []corev1.Toleration) []cor
 }
 
 func (h *RendererHandler) createOrUpdate(ctx context.Context, obj client.Object, pool *v1alpha1.GPUPool) error {
+	desired := obj.DeepCopyObject().(client.Object)
 	_, err := controllerutil.CreateOrUpdate(ctx, h.client, obj, func() error {
 		addOwner(obj, pool)
+		switch cur := obj.(type) {
+		case *corev1.ConfigMap:
+			d := desired.(*corev1.ConfigMap)
+			cur.Labels = d.Labels
+			cur.Annotations = d.Annotations
+			cur.Data = d.Data
+			cur.BinaryData = d.BinaryData
+		case *appsv1.DaemonSet:
+			d := desired.(*appsv1.DaemonSet)
+			cur.Labels = d.Labels
+			cur.Annotations = d.Annotations
+			cur.Spec = d.Spec
+		}
 		return nil
 	})
 	return err
