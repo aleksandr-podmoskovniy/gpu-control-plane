@@ -733,8 +733,9 @@ stateDiagram-v2
 `GPUPool` описывает логический пул GPU-ресурсов и правила работы с отдельными картами.
 Пока карта находится в состоянии `Ready` и не подтверждена пулом, на
 узле работают только базовые DaemonSet'ы bootstrap (GFD/DCGM). Пер-пуловые
-`nvidia-device-plugin-*` и `nvidia-mig-manager-*` запускаются **только после**
-назначения карты, чтобы workloads не могли запросить ресурс до решения оператора.
+`nvidia-device-plugin-*` и `nvidia-mig-manager-*` запускаются контроллером пула на узлах
+с подходящими картами (Ready и проходящими `deviceSelector`), после назначения
+или auto-assign — workloads видят только готовый ресурс.
 Ключевые элементы `spec`:
 
 > **Минимальный сценарий.** Чтобы начать работать, достаточно создать хотя бы один
@@ -745,8 +746,7 @@ stateDiagram-v2
 
 - Управление осуществляется **только на уровне карты**. Каждый `GPUDevice` подтверждается
   отдельно; узловой scope не поддерживается, пул никогда не закрепляет весь узел целиком.
-- **resource** — имя публичного ресурса и единица учёта:
-  - `name`: строка `gpu.deckhouse.io/<pool>`, указывается в `resources.limits`;
+- **resource** — единица учёта; публичное имя ресурса всегда `gpu.deckhouse.io/<имя пула>`:
   - `unit`: человекочитаемая единица (`card`, `mig-partition`, `timeslice`).
 - **nodeSelector** — `LabelSelector` для узлов-кандидатов. Им описываем площадку
   (зону, класс узлов, тип GPU), на которой допускаем размещение пула. Как только
@@ -769,13 +769,10 @@ stateDiagram-v2
     ставить аннотации без участия оператора.
   - `autoApproveSelector` — можно указать только если нужно автоматически подключать
     карты с определёнными атрибутами; в обычном случае поле не задаётся.
-- **Общее поведение по режимам управления**:
-
-- **allocation** — режим выдачи ресурсов:
-  - `mode`: `Exclusive`, `MIG` или `TimeSlice`;
-  - `maxDevicesPerNode`: ограничение устройств с одного узла;
-  - `migProfile`: профиль MIG при `mode=MIG`;
-  - `timeSlice`: параметры тайм-шеринг (`maxSlicesPerDevice`).
+- **resource** — единица выдачи и параметры нарезки:
+  - `unit: Card|MIG`; `slicesPerUnit`: сколько слоёв даёт одна карта/партиция (`1` — эксклюзив, `>1` — time-slice);
+  - `maxDevicesPerNode`: ограничение устройств с одного узла (опционально);
+  - `migProfile`: профиль MIG при `unit=MIG`.
 - **access** — дефолтные списки namespaces/Dex-групп/ServiceAccount. Заполняется
   модулем multitenancy/admission-policy и редко меняется вручную.
 - **scheduling** — подсказки для размещения (`Spread`, `BinPack`, `topologyKey`,
@@ -797,7 +794,7 @@ stateDiagram-v2
     Inventory сообщает фактические данные, bootstrap — health, а gpupool фиксирует, кому карта доступна.
 - **Управление узлом.** Метка `gpu.deckhouse.io/enabled=true|false` включает или выключает подготовку узла. При отключении bootstrap снимает сервисные DaemonSet'ы, карты получают condition `ManagedDisabled`. Отдельные устройства можно временно исключить через `gpu.deckhouse.io/ignore=true`.
 - **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=Ready` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
-- **Переразметка (`spec.allocation`).** Контроллер переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin и (при необходимости) `nvidia-mig-manager` с новой конфигурацией. После успешной переподготовки публикуется событие `GPUPoolReconfigured`, maintenance снимается.
+- **Переразметка пула.** Не поддерживается: поля resource/селекторы/планирование immutable, для новой схемы создаётся новый пул.
 - **Контроль аннотаций.** `gpupool-controller` регулярно сверяет состояние. Если обнаружена "висячая" аннотация (например, `assignment` без пула), создаётся событие `GPUAnnotationMismatch`, после чего лишние метки удаляются автоматически.
 - **Приоритеты workloads.** Распределение GPU не переопределяет стандартный механизм Kubernetes: Pod может задавать `priorityClassName`, kube-scheduler решает, кого вытеснить, а admission лишь проверяет наличие свободного ресурса пула. Дополнительные правила (например, резерв слотов под high-priority) описываются в `spec.access`/OperationPolicy.
 
@@ -826,7 +823,7 @@ flowchart LR
   `autoApproveSelector`) контроллер проставляет аннотацию самостоятельно.
 - **Фильтрация узлов.** Для каждого `GPUPool` контроллер берёт узлы с
   `ReadyForPooling=true`, сопоставляет их с `spec.nodeSelector` и `spec.deviceSelector`
-  (всегда для карточного режима). Если `allocation.maxDevicesPerNode` ограничивает число
+  (всегда для карточного режима). Если `resource.maxDevicesPerNode` ограничивает число
   устройств, контроллер учитывает это при выборе. Любое изменение `GPUNodeInventory`
   (появление/исчезновение карт, обновление MIG) инициирует повторный reconcile; контроллер
   следит, чтобы устройства не пересекались между пулами.
@@ -845,7 +842,7 @@ flowchart LR
       Для отклонения кандидатуры оператор может удалить запись из `pending[]` через UI —
       контроллер ставит метку `gpu.deckhouse.io/ignore=true` на устройство, чтобы оно не
       предлагалось повторно без изменений.
-- **Конфигурация устройств.** В зависимости от `allocation.mode` он:
+- **Конфигурация устройств.** В зависимости от `resource.unit` он:
   - генерирует ConfigMap с перечнем устройств и запускает отдельный DaemonSet
     `nvidia-device-plugin` с `nodeAffinity` только на узлы пула. Шаблон поставляется
     модулем и проходит валидацию: контроллер отказывает reconcile, если сокет
@@ -867,17 +864,16 @@ flowchart LR
     `gpupool-controller` пересобирает ConfigMap, перезапускает DaemonSet и в `preStop`
     аккуратно закрывает сокет, чтобы kubelet увидел новую картину. Запущенные Pod'ы при
     этом продолжают работу: устройство уже закреплено, и kubelet не отбирает его.
-  - при `mode=MIG` размещает `nvidia-mig-manager` с нужным профилем и контролирует,
-    что actual MIG-конфигурация совпадает с `spec.allocation.migProfile`;
-  - при `mode=TimeSlice` конфигурирует device plugin/вебхуки на тайм-слоты с учётом
-    `timeSlice.maxSlicesPerDevice`.
+  - при `unit=MIG` размещает `nvidia-mig-manager` с нужным профилем и контролирует,
+    что actual MIG-конфигурация совпадает с `spec.resource.migProfile`;
+  - при `unit=Card` и `slicesPerUnit>1` конфигурирует device plugin на тайм-слоты; `slicesPerUnit=1` эквивалентен эксклюзиву.
     Для предотвращения коллизий контроллер ставит аннотацию
     `gpu.deckhouse.io/assignment=<pool>` на ресурс `GPUDevice` и фиксирует факт
     назначения в `GPUPool.status.devices[]`. Если другой пул пытается забрать ту же карту,
     reconcile завершается `Misconfigured`. Taint/toleration, описанные в
     `spec.scheduling`, применяются к узлу; по умолчанию используем только label/affinity и
     существующие taint'ы площадки.
-- **Операционные действия.** Подтверждение карт происходит через аннотацию `gpu.deckhouse.io/assignment=<pool>` (UI или автоподтверждение). Метка `gpu.deckhouse.io/enabled` выводит узел из управления, `gpu.deckhouse.io/ignore` временно исключает устройство. Удаление аннотаций возвращает карту в `pending[]`. При изменении `spec.allocation` контроллер автоматически переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin/MIG-manager и после события `GPUPoolReconfigured` возобновляет выдачу. Регулярная сверка аннотаций устраняет "висячие" записи (событие `GPUAnnotationMismatch`).
+- **Операционные действия.** Подтверждение карт происходит через аннотацию `gpu.deckhouse.io/assignment=<pool>` (UI или автоподтверждение). Метка `gpu.deckhouse.io/enabled` выводит узел из управления, `gpu.deckhouse.io/ignore` временно исключает устройство. Удаление аннотаций возвращает карту в `pending[]`. При изменении `spec.resource` контроллер автоматически переводит пул в `Maintenance`, ждёт `status.capacity.used=0`, перезапускает per-pool device-plugin/MIG-manager и после события `GPUPoolReconfigured` возобновляет выдачу. Регулярная сверка аннотаций устраняет "висячие" записи (событие `GPUAnnotationMismatch`).
 - **Финалайзеры.** При создании пула контроллер добавляет финалайзер
   `gpupool-controller.deckhouse.io/finalizer`, чтобы гарантировать автоматическое
   выполнение `hooks.cleanup`, остановку пер-пуловых DaemonSet и освобождение
@@ -936,7 +932,7 @@ sequenceDiagram
   Попытка смешать разные пулы в одном Pod завершается ошибкой admission
   (`MixedPoolRequest`).
 - Admission сверяет доступ (`spec.access`), наличие свободных устройств и
-  `allocation`‑ограничения. Когда ресурсов хватает, он:
+  `resource`‑ограничения. Когда ресурсов хватает, он:
   1. подбирает узел и конкретные `inventoryID`, подходящие под `deviceSelector`;
   2. фиксирует временное бронирование — помечает выбранные `GPUDevice`
      состоянием `Reserved` и генерирует идентификатор запроса;
@@ -982,7 +978,7 @@ containers:
 - **Эксплуатация.**
   - Подтверждать карты из `pending[]` (UI/автоподтверждение) и следить за `UnassignedDevice`.
   - Использовать метку `gpu.deckhouse.io/enabled` для вывода узлов и аннотации `assignment`/`ignore` для управления картами.
-  - При смене `spec.allocation` контроллер сам переводит пул в `Maintenance`, ждёт освобождения карт и перезапускает per-pool device-plugin/MIG-manager; после события `GPUPoolReconfigured` новые запросы продолжаются.
+  - Изменение `spec.resource` не допускается; для новой конфигурации создаётся новый пул.
   - DCGM остаётся основным источником телеметрии. При критических Xid, перегреве или ECC-контроле контроллер помечает устройство, выводит его из пула и требует ручного возвращения.
   - Сценарии наподобие "разделить узел на два пула" настраиваются через `deviceSelector` и `spec.scheduling`; контроллер гарантирует, что множества карт не пересекаются.
 
@@ -997,7 +993,7 @@ containers:
   с уникальным сокетом `/var/lib/kubelet/device-plugins/<pool>.sock`. ConfigMap
   содержит список устройств пула; плагин регистрирует ресурс `gpu.deckhouse.io/<pool>`
   и отдаёт только выбранные GPU/MIG. Несколько плагинов не конфликтуют.
-- **MIG manager**. Если указан `spec.allocation.migProfile`, контроллер стартует
+- **MIG manager**. Если указан `spec.resource.migProfile`, контроллер стартует
   `nvidia-mig-manager-<pool>` на нужных узлах. Менеджер настраивает профиль и
   отслеживает состояние; при выводе из пула выполняет rollback.
 - **GFD / NFD**. Модуль GPU control plane требует активного Node Feature
@@ -1283,7 +1279,7 @@ status:
   - `memoryMiB` — объём памяти адаптера (для квот/алертов и расчёта вместимости).
   - `computeCapability` — admission/контроллер могут запрещать workload’ы, если требуется, скажем, `compute >= 8.9`.
   - `precision.supported` — список вычислительных точностей (например, `fp16`, `bf16`), нужен admission и владельцам workload’ов для проверки совместимости модели/движка.
-  - `mig.types[*]` — gpupool-controller сравнивает с `spec.allocation.migProfile`, считает доступные партиции; monitoring строит capacity по типам.
+  - `mig.types[*]` — gpupool-controller сравнивает с `spec.resource.migProfile`, считает доступные партиции; monitoring строит capacity по типам.
   - `state` — `Discovered`, `Validating`, `Ready`, `PendingAssignment`, `Assigned`,
     `Reserved`, `InUse` или `Faulted`; admission использует `Reserved` для бронирования,
     контроллер освобождает карты после завершения Pod'ов.
@@ -1326,7 +1322,7 @@ spec:
   deviceSelector:
     include:
       indexes: ["0-1"] # по две карты с каждого узла
-  allocation:
+  resource:
     mode: MIG
     migProfile: all-2g.20gb
     maxDevicesPerNode: 2
@@ -1392,7 +1388,7 @@ status:
   Оператор обязан подтвердить исправление, прежде чем пул снова станет `Available`.
 - **Политики доступа и валидация.** Admission и OperationPolicy проверяют, что
   namespace/Dex-группы соответствуют `spec.access`, а webhook запрещает менять
-  управляемые поля (`spec.resource`, `spec.allocation`, auto-labels) без
+  управляемые поля (`spec.resource`, `spec.resource`, auto-labels) без
   положенных прав.
 - **Мониторинг как prerequisite.** Пока bootstrap видит `MonitoringMissing=True`
   (DCGM или GFD не готовы), карты не переходят в `Ready`, а device-plugin не

@@ -10,28 +10,32 @@ spec:
             spec:
               description: Желаемая конфигурация пула.
               properties:
+                provider:
+                  description: GPU-вендор (сейчас поддерживается только `Nvidia`).
+                  enum:
+                    - Nvidia
+                  default: Nvidia
+                backend:
+                  description: Интеграционный бэкенд (`DevicePlugin` или `DRA`).
+                  enum:
+                    - DevicePlugin
+                    - DRA
+                  default: DevicePlugin
                 resource:
-                  description: Имя ресурса device-plugin и единица измерения, публикуемая пулом.
+                  description: Единица ресурса и параметры нарезки (имя ресурса формируется как `gpu.deckhouse.io/<имя пула>`). Поле неизменяемо после создания.
                   properties:
-                    name:
-                      description: Полное имя ресурса (например, gpu.deckhouse.io/a100-full).
                     unit:
-                      description: Единица измерения («device», «mig-partition» и т.п.).
-                nodeSelector:
-                  description: Ограничение узлов, которые могут предоставлять карты в пул.
-                deviceSelector:
-                  description: Фильтр устройств, разрешённых к использованию в пуле.
-                allocation:
-                  description: Стратегия выделения GPU (Exclusive, MIG, TimeSlice) и её параметры.
-                  properties:
-                    mode:
-                      description: Режим распределения ресурсов (Exclusive/MIG/TimeSlice).
+                      description: Единица («Card» или «MIG»).
                     migProfile:
-                      description: MIG-профиль, используемый в режиме MIG.
+                      description: MIG-профиль, когда unit=MIG.
+                    slicesPerUnit:
+                      description: Тайм-шеринговые слои на одну карту/партицию (1 — эксклюзив).
                     maxDevicesPerNode:
                       description: Лимит устройств, который может предоставить один узел.
-                    timeSlice:
-                      description: Настройки тайм-шеринга (количество срезов на устройство).
+                nodeSelector:
+                  description: Ограничение узлов, которые могут предоставлять карты в пул (immutable).
+                deviceSelector:
+                  description: Фильтр устройств, разрешённых к использованию в пуле (immutable).
                 deviceAssignment:
                   description: Правила автоматического или ручного утверждения устройств.
                   properties:
@@ -49,8 +53,10 @@ spec:
                     dexGroups:
                       description: Группы Dex, которым разрешено использовать пул.
                 scheduling:
-                  description: Подсказки для планировщика (стратегия, топология, тейнты).
+                  description: Подсказки для планировщика (стратегия, топология, тейнты). Поле неизменяемо.
                   properties:
+                    taintsEnabled:
+                      description: Включает применение taint/толераций для узлов пула (по умолчанию true).
                     strategy:
                       description: Стратегия распределения по узлам (BinPack или Spread).
                     topologyKey:
@@ -62,6 +68,11 @@ spec:
               properties:
                 capacity:
                   description: Текущая ёмкость пула (всего/использовано/доступно).
+                  properties:
+                    baseUnits:
+                      description: Число базовых устройств/партиций, участвующих в пуле.
+                    slicesPerUnit:
+                      description: Сколько слоёв (slices) даёт один base unit.
                 nodes:
                   description: Статистика по узлам, участвующим в пуле.
                 candidates:

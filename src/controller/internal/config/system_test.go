@@ -72,7 +72,7 @@ func TestLoadFileMergesDefaults(t *testing.T) {
 func TestLoadFileNormalisesWorkers(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("controllers:\n  admission:\n    workers: 0\n    resyncPeriod: 0s\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("controllers:\n  gpuInventory:\n    workers: 0\n    resyncPeriod: 0s\n"), 0o600); err != nil {
 		t.Fatalf("write temp config: %v", err)
 	}
 
@@ -80,12 +80,11 @@ func TestLoadFileNormalisesWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadFile failed: %v", err)
 	}
-
-	if cfg.Controllers.Admission.Workers != 1 {
-		t.Fatalf("expected normalised to 1, got %d", cfg.Controllers.Admission.Workers)
+	if cfg.Controllers.GPUInventory.Workers != 1 {
+		t.Fatalf("expected normalised workers to 1, got %d", cfg.Controllers.GPUInventory.Workers)
 	}
-	if cfg.Controllers.Admission.ResyncPeriod != defaultControllerResyncPeriod {
-		t.Fatalf("expected default resync period, got %s", cfg.Controllers.Admission.ResyncPeriod)
+	if cfg.Controllers.GPUInventory.ResyncPeriod != defaultControllerResyncPeriod {
+		t.Fatalf("expected default resync period, got %s", cfg.Controllers.GPUInventory.ResyncPeriod)
 	}
 }
 
@@ -230,6 +229,86 @@ func TestNormalizeModuleSettingsDefaults(t *testing.T) {
 	}
 	if cfg.Scheduling.TopologyKey != defaultSchedulingTopologyKey {
 		t.Fatalf("expected default topology key, got %s", cfg.Scheduling.TopologyKey)
+	}
+}
+
+func TestNormalizeModuleSettingsBranches(t *testing.T) {
+	cfg := ModuleSettings{
+		ManagedNodes:   ManagedNodesSettings{LabelKey: "  "},
+		DeviceApproval: DeviceApprovalSettings{Mode: DeviceApprovalModeSelector},
+		Scheduling:     SchedulingSettings{DefaultStrategy: "binpack", TopologyKey: "  "},
+		Placement:      PlacementSettings{CustomTolerationKeys: []string{" key ", "key", " "}},
+		Inventory:      InventorySettings{ResyncPeriod: " "},
+		HTTPS:          HTTPSSettings{Mode: "Weird", CertManagerIssuer: "  ", CustomCertificateSecret: " secret "},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.ManagedNodes.LabelKey != defaultManagedNodeLabelKey {
+		t.Fatalf("expected default managed label, got %s", cfg.ManagedNodes.LabelKey)
+	}
+	if cfg.DeviceApproval.Mode != DeviceApprovalModeSelector || cfg.DeviceApproval.Selector == nil {
+		t.Fatalf("expected selector initialised for mode Selector")
+	}
+	if cfg.Scheduling.DefaultStrategy != "BinPack" {
+		t.Fatalf("expected strategy normalised to BinPack, got %s", cfg.Scheduling.DefaultStrategy)
+	}
+	if cfg.Placement.CustomTolerationKeys[0] != "key" || len(cfg.Placement.CustomTolerationKeys) != 1 {
+		t.Fatalf("expected deduped toleration keys, got %v", cfg.Placement.CustomTolerationKeys)
+	}
+	if cfg.Inventory.ResyncPeriod != defaultInventoryResyncPeriod {
+		t.Fatalf("expected default resync period, got %s", cfg.Inventory.ResyncPeriod)
+	}
+	if cfg.HTTPS.Mode != defaultHTTPSMode {
+		t.Fatalf("expected default HTTPS mode, got %s", cfg.HTTPS.Mode)
+	}
+	if cfg.HTTPS.CustomCertificateSecret != "" {
+		t.Fatalf("expected secret cleared for non-custom mode, got %s", cfg.HTTPS.CustomCertificateSecret)
+	}
+	if cfg.HTTPS.CertManagerIssuer != defaultHTTPSCertManagerIssuer {
+		t.Fatalf("expected default certManager issuer, got %s", cfg.HTTPS.CertManagerIssuer)
+	}
+
+	cfg = ModuleSettings{
+		Scheduling: SchedulingSettings{DefaultStrategy: "Spread", TopologyKey: ""},
+		HTTPS:      HTTPSSettings{Mode: HTTPSModeCustomCertificate, CustomCertificateSecret: " cert "},
+	}
+	normalizeModuleSettings(&cfg)
+	if cfg.Scheduling.TopologyKey != defaultSchedulingTopologyKey {
+		t.Fatalf("expected topology key defaulted, got %s", cfg.Scheduling.TopologyKey)
+	}
+	if cfg.HTTPS.CustomCertificateSecret != "cert" {
+		t.Fatalf("expected trimmed custom secret, got %s", cfg.HTTPS.CustomCertificateSecret)
+	}
+}
+
+func TestNormalizeModuleSettingsHTTPSAndSelector(t *testing.T) {
+	cfg := ModuleSettings{
+		ManagedNodes: ManagedNodesSettings{LabelKey: "gpu.deckhouse.io/enabled"},
+		DeviceApproval: DeviceApprovalSettings{
+			Mode:     DeviceApprovalModeSelector,
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{" role ": " gpu "}},
+		},
+		Scheduling: SchedulingSettings{DefaultStrategy: "Spread"},
+		HTTPS:      HTTPSSettings{Mode: HTTPSModeCustomCertificate, CustomCertificateSecret: "  my-secret "},
+	}
+
+	normalizeModuleSettings(&cfg)
+
+	if cfg.HTTPS.CustomCertificateSecret != "my-secret" {
+		t.Fatalf("expected trimmed custom certificate secret, got %q", cfg.HTTPS.CustomCertificateSecret)
+	}
+
+	cfg.HTTPS.Mode = "Invalid"
+	normalizeModuleSettings(&cfg)
+	if cfg.HTTPS.Mode != defaultHTTPSMode {
+		t.Fatalf("expected default HTTPS mode, got %s", cfg.HTTPS.Mode)
+	}
+
+	cfg.DeviceApproval.Mode = "Weird"
+	normalizeModuleSettings(&cfg)
+	if cfg.DeviceApproval.Mode != DeviceApprovalModeManual {
+		t.Fatalf("expected default approval mode, got %s", cfg.DeviceApproval.Mode)
 	}
 }
 

@@ -21,7 +21,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/admission"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/bootstrap"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/gpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/inventory"
@@ -45,9 +44,6 @@ var (
 	}
 	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
 		return gpupool.New(log, cfg, store, handlers), nil
-	}
-	newAdmissionController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.AdmissionHandler) (setupController, error) {
-		return admission.New(log, cfg, store, handlers), nil
 	}
 )
 
@@ -93,9 +89,6 @@ func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfi
 		},
 		func() (setupController, error) {
 			return newPoolController(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.ModuleConfigStore, deps.PoolHandlers.List())
-		},
-		func() (setupController, error) {
-			return newAdmissionController(deps.Logger.WithName("admission"), cfg.Admission, deps.ModuleConfigStore, deps.AdmissionHandlers.List())
 		},
 	}
 

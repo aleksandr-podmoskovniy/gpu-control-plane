@@ -16,6 +16,7 @@ package handlers
 
 import (
 	"github.com/go-logr/logr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/admission"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/bootstrap"
@@ -43,7 +44,16 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	deps.Bootstrap.Register(bootstrap.NewWorkloadStatusHandler(log.WithName("bootstrap.workload-status"), ""))
 	deps.Bootstrap.Register(bootstrap.NewDeviceStateSyncHandler(log.WithName("bootstrap.device-state-sync")))
 	deps.Bootstrap.Register(bootstrap.NewNodeReadinessHandler(log.WithName("bootstrap.node-readiness")))
+	deps.Pool.Register(gpupool.NewCompatibilityCheckHandler())
+	if deps.Client != nil {
+		deps.Pool.Register(gpupool.NewSelectionSyncHandler(log.WithName("gpupool.selection-sync"), deps.Client))
+		deps.Pool.Register(gpupool.NewNodeMarkHandler(log.WithName("gpupool.node-mark"), deps.Client))
+	}
 	deps.Pool.Register(gpupool.NewCapacitySyncHandler(log.WithName("gpupool.capacity-sync")))
+	if deps.Client != nil {
+		deps.Pool.Register(gpupool.NewRendererHandler(log.WithName("gpupool.renderer"), deps.Client, gpupool.RenderConfig{}))
+	}
+	deps.Admission.Register(admission.NewPoolValidationHandler(log.WithName("admission.pool-validation")))
 	deps.Admission.Register(admission.NewPoolSnapshotHandler(log.WithName("admission.pool-snapshot")))
 }
 
@@ -53,4 +63,5 @@ type Handlers struct {
 	Bootstrap *contracts.BootstrapRegistry
 	Pool      *contracts.PoolRegistry
 	Admission *contracts.AdmissionRegistry
+	Client    client.Client
 }

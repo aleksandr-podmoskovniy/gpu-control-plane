@@ -41,6 +41,13 @@ spec:
           spec:
             description: Spec declares desired rules for selecting and slicing devices.
             properties:
+              backend:
+                description: Backend chooses integration backend (device-plugin or DRA).
+                enum:
+                - DevicePlugin
+                - DRA
+                type: string
+                default: DevicePlugin
               access:
                 description: Access lists namespaces/service accounts allowed to consume
                   the pool.
@@ -62,39 +69,6 @@ spec:
                     items:
                       type: string
                     type: array
-                type: object
-              allocation:
-                description: Allocation configures the way devices are sliced and
-                  presented (exclusive/MIG/time-slice).
-                properties:
-                  maxDevicesPerNode:
-                    description: MaxDevicesPerNode caps number of devices contributed
-                      per node.
-                    format: int32
-                    type: integer
-                  migProfile:
-                    description: MIGProfile specifies the MIG profile to use when
-                      Mode=MIG.
-                    type: string
-                  mode:
-                    description: Mode selects allocation strategy (Exclusive, MIG,
-                      TimeSlice).
-                    enum:
-                    - Exclusive
-                    - MIG
-                    - TimeSlice
-                    type: string
-                  timeSlice:
-                    description: TimeSlice configures time-slicing specific parameters.
-                    properties:
-                      maxSlicesPerDevice:
-                        description: MaxSlicesPerDevice is the maximum number of slices
-                          cut from a single device.
-                        format: int32
-                        type: integer
-                    type: object
-                required:
-                - mode
                 type: object
               deviceAssignment:
                 description: DeviceAssignment controls manual vs automatic assignment
@@ -159,25 +133,37 @@ spec:
                     description: Exclude defines negative selection rules that remove
                       devices from the pool.
                     properties:
-                      indexes:
-                        description: Indexes matches by user-defined device indices
-                          (e.g. 0-1, 1).
-                        items:
-                          type: string
-                        type: array
                       inventoryIDs:
                         description: InventoryIDs matches specific devices by inventory
                           identifier.
                         items:
                           type: string
                         type: array
-                      labels:
-                        additionalProperties:
+                      migCapable:
+                        description: MIGCapable restricts selection to devices that
+                          are (or are not) MIG capable.
+                        type: boolean
+                      migProfiles:
+                        description: MIGProfiles matches devices that support at least
+                          one of the listed MIG profiles.
+                        items:
                           type: string
-                        description: Labels matches by GPUDevice labels.
-                        type: object
-                      pciIDs:
-                        description: PCIIDs matches devices by vendor/device PCI identifiers.
+                        type: array
+                      pciDevices:
+                        description: PCIDevices matches devices by PCI device identifier
+                          (hex without 0x, e.g. 20b0).
+                        items:
+                          type: string
+                        type: array
+                      pciVendors:
+                        description: PCIVendors matches devices by PCI vendor identifier
+                          (hex without 0x, e.g. 10de).
+                        items:
+                          type: string
+                        type: array
+                      products:
+                        description: Products matches devices by reported hardware
+                          product name (exact match).
                         items:
                           type: string
                         type: array
@@ -185,25 +171,37 @@ spec:
                   include:
                     description: Include defines positive selection rules for devices.
                     properties:
-                      indexes:
-                        description: Indexes matches by user-defined device indices
-                          (e.g. 0-1, 1).
-                        items:
-                          type: string
-                        type: array
                       inventoryIDs:
                         description: InventoryIDs matches specific devices by inventory
                           identifier.
                         items:
                           type: string
                         type: array
-                      labels:
-                        additionalProperties:
+                      migCapable:
+                        description: MIGCapable restricts selection to devices that
+                          are (or are not) MIG capable.
+                        type: boolean
+                      migProfiles:
+                        description: MIGProfiles matches devices that support at least
+                          one of the listed MIG profiles.
+                        items:
                           type: string
-                        description: Labels matches by GPUDevice labels.
-                        type: object
-                      pciIDs:
-                        description: PCIIDs matches devices by vendor/device PCI identifiers.
+                        type: array
+                      pciDevices:
+                        description: PCIDevices matches devices by PCI device identifier
+                          (hex without 0x, e.g. 20b0).
+                        items:
+                          type: string
+                        type: array
+                      pciVendors:
+                        description: PCIVendors matches devices by PCI vendor identifier
+                          (hex without 0x, e.g. 10de).
+                        items:
+                          type: string
+                        type: array
+                      products:
+                        description: Products matches devices by reported hardware
+                          product name (exact match).
                         items:
                           type: string
                         type: array
@@ -259,21 +257,101 @@ spec:
                 description: Resource defines the custom resource name and unit exposed
                   to workloads.
                 properties:
-                  name:
-                    description: Name is the fully-qualified resource name users reference
-                      in Pod specs.
+                  migLayout:
+                    description: MIGLayout allows specifying per-device MIG profiles with counts
+                      (only when Unit=MIG).
+                    items:
+                      properties:
+                        deviceFilter:
+                          description: DeviceFilter allows matching by vendor:device
+                            hex strings (e.g. 0x20B010DE).
+                          items:
+                            type: string
+                          type: array
+                        pciBusIDs:
+                          description: PCIBusIDs restricts layout to specific PCI
+                            bus IDs (domain:bus:slot.func).
+                          items:
+                            type: string
+                          type: array
+                        profiles:
+                          description: Profiles lists MIG profiles with optional counts.
+                          items:
+                            properties:
+                              count:
+                                description: Count is how many instances of the profile
+                                  to create (defaults to 1).
+                                format: int32
+                                type: integer
+                              name:
+                                description: Name is the MIG profile name (e.g. 1g.10gb).
+                                type: string
+                            type: object
+                          type: array
+                        slicesPerUnit:
+                          description: SlicesPerUnit overrides resource.slicesPerUnit
+                            for this layout group.
+                          format: int32
+                          type: integer
+                        uuids:
+                          description: UUIDs restricts layout to specific GPU UUIDs.
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    type: array
+                  maxDevicesPerNode:
+                    description: MaxDevicesPerNode caps number of devices contributed
+                      per node.
+                    format: int32
+                    type: integer
+                  migProfile:
+                    description: MIGProfile specifies the MIG profile to use when
+                      unit=MIG.
                     type: string
+                  slicesPerUnit:
+                    description: SlicesPerUnit configures oversubscription per base
+                      unit (card or MIG partition).
+                    format: int32
+                    type: integer
+                  timeSlicingResources:
+                    description: TimeSlicingResources allows overriding slicesPerUnit
+                      per resource.
+                    items:
+                      properties:
+                        name:
+                          description: Name is the resource name to override (defaults
+                            to pool resource name).
+                          type: string
+                        slicesPerUnit:
+                          description: SlicesPerUnit is the number of slices for
+                            this resource.
+                          format: int32
+                          type: integer
+                      type: object
+                    type: array
                   unit:
-                    description: Unit describes the resource unit (e.g. device, mig-partition).
+                    description: Unit describes the resource unit (Card or MIG).
+                    enum:
+                    - Card
+                    - MIG
                     type: string
                 required:
-                - name
                 - unit
                 type: object
+              provider:
+                description: Provider selects GPU vendor implementation.
+                enum:
+                - Nvidia
+                type: string
+                default: Nvidia
               scheduling:
                 description: Scheduling configures topology spreading, taints and
                   other scheduling hints.
                 properties:
+                  taintsEnabled:
+                    description: TaintsEnabled controls whether per-pool taints/tolerations are applied.
+                    type: boolean
                   strategy:
                     description: Strategy controls balancing strategy among nodes
                       (BinPack or Spread).
@@ -351,6 +429,14 @@ spec:
                 description: Capacity summarises total/used/available capacity inside
                   the pool.
                 properties:
+                  baseUnits:
+                    description: BaseUnits is the number of base devices/partitions contributing to capacity.
+                    format: int32
+                    type: integer
+                  slicesPerUnit:
+                    description: SlicesPerUnit shows how many slices each base unit provides.
+                    format: int32
+                    type: integer
                   available:
                     description: Available is free capacity that may still be assigned.
                     format: int32

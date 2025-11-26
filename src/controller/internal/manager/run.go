@@ -29,11 +29,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/webhook"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
@@ -46,6 +48,9 @@ var (
 	newManager          = ctrl.NewManager
 	registerHandlers    = handlers.RegisterDefaults
 	registerControllers = controllers.Register
+	registerWebhooks    = func(ctx context.Context, mgr manager.Manager, deps webhook.Dependencies) error {
+		return webhook.Register(ctx, mgr, deps)
+	}
 	getConfigOrDie      = ctrl.GetConfigOrDie
 	addGPUScheme        = v1alpha1.AddToScheme
 	addNFDScheme        = nfdv1alpha1.AddToScheme
@@ -71,6 +76,10 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	options := manager.Options{
 		Metrics:                metricsOpts,
 		HealthProbeBindAddress: ":8081",
+		WebhookServer: crwebhook.NewServer(crwebhook.Options{
+			Port:    9443,
+			CertDir: "/var/lib/gpu-control-plane/tls",
+		}),
 	}
 
 	if sysCfg.LeaderElection.Enabled {
@@ -121,6 +130,7 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 		Bootstrap: deps.BootstrapHandlers,
 		Pool:      deps.PoolHandlers,
 		Admission: deps.AdmissionHandlers,
+		Client:    mgr.GetClient(),
 	})
 
 	moduleState, err := config.ModuleSettingsToState(sysCfg.Module)
@@ -132,6 +142,15 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 
 	if err := registerControllers(ctx, mgr, sysCfg.Controllers, store, deps); err != nil {
 		return fmt.Errorf("register controllers: %w", err)
+	}
+
+	if err := registerWebhooks(ctx, mgr, webhook.Dependencies{
+		Logger:            deps.Logger,
+		AdmissionHandlers: deps.AdmissionHandlers,
+		Client:            mgr.GetClient(),
+		ModuleConfigStore: deps.ModuleConfigStore,
+	}); err != nil {
+		return fmt.Errorf("register webhooks: %w", err)
 	}
 
 	Log.Info("starting manager", "goVersion", runtime.Version())

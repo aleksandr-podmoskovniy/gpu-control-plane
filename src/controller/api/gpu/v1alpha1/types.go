@@ -494,14 +494,20 @@ type GPUPool struct {
 }
 
 type GPUPoolSpec struct {
-	// Resource defines the custom resource name and unit exposed to workloads.
+	// Provider selects GPU vendor implementation (only "Nvidia" is supported for now).
+	// +kubebuilder:validation:Enum=Nvidia
+	// +kubebuilder:default:="Nvidia"
+	Provider string `json:"provider,omitempty"`
+	// Backend chooses integration backend (device-plugin or DRA).
+	// +kubebuilder:validation:Enum=DevicePlugin;DRA
+	// +kubebuilder:default:="DevicePlugin"
+	Backend string `json:"backend,omitempty"`
+	// Resource defines the resource unit exposed to workloads. Resource name is derived from pool name.
 	Resource GPUPoolResourceSpec `json:"resource"`
 	// NodeSelector limits the pool to specific nodes.
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
 	// DeviceSelector filters devices that may join the pool.
 	DeviceSelector *GPUPoolDeviceSelector `json:"deviceSelector,omitempty"`
-	// Allocation configures the way devices are sliced and presented (exclusive/MIG/time-slice).
-	Allocation GPUPoolAllocationSpec `json:"allocation"`
 	// DeviceAssignment controls manual vs automatic assignment flows.
 	DeviceAssignment GPUPoolAssignmentSpec `json:"deviceAssignment,omitempty"`
 	// Access lists namespaces/service accounts allowed to consume the pool.
@@ -511,10 +517,54 @@ type GPUPoolSpec struct {
 }
 
 type GPUPoolResourceSpec struct {
-	// Name is the fully-qualified resource name users reference in Pod specs.
-	Name string `json:"name"`
-	// Unit describes the resource unit (e.g. device, mig-partition).
+	// Unit describes the resource unit (Card or MIG).
+	// +kubebuilder:validation:Enum=Card;MIG
 	Unit string `json:"unit"`
+	// MIGProfile specifies the MIG profile when Unit=MIG (single profile shortcut).
+	MIGProfile string `json:"migProfile,omitempty"`
+	// MIGLayout allows specifying per-device MIG profiles with counts (only when Unit=MIG).
+	MIGLayout []GPUPoolMIGDeviceLayout `json:"migLayout,omitempty"`
+	// MaxDevicesPerNode caps number of devices contributed per node.
+	MaxDevicesPerNode *int32 `json:"maxDevicesPerNode,omitempty"`
+	// SlicesPerUnit configures oversubscription per base unit (card or MIG partition).
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
+	// +kubebuilder:default:=1
+	SlicesPerUnit int32 `json:"slicesPerUnit,omitempty"`
+	// TimeSlicingResources allows overriding slicesPerUnit per resource.
+	TimeSlicingResources []GPUPoolTimeSlicingResource `json:"timeSlicingResources,omitempty"`
+}
+
+// GPUPoolMIGDeviceLayout describes MIG profiles per device selector.
+type GPUPoolMIGDeviceLayout struct {
+	// UUIDs restricts layout to specific GPU UUIDs.
+	UUIDs []string `json:"uuids,omitempty"`
+	// PCIBusIDs restricts layout to specific PCI bus IDs (domain:bus:slot.func).
+	PCIBusIDs []string `json:"pciBusIDs,omitempty"`
+	// DeviceFilter allows matching by vendor:device hex strings (e.g. 0x20B010DE).
+	DeviceFilter []string `json:"deviceFilter,omitempty"`
+	// Profiles lists MIG profiles with optional counts.
+	Profiles []GPUPoolMIGProfile `json:"profiles,omitempty"`
+	// SlicesPerUnit overrides resource.slicesPerUnit for this layout group.
+	SlicesPerUnit *int32 `json:"slicesPerUnit,omitempty"`
+}
+
+// GPUPoolMIGProfile represents desired MIG profile count.
+type GPUPoolMIGProfile struct {
+	// Name is the MIG profile name (e.g. 1g.10gb).
+	Name string `json:"name,omitempty"`
+	// Count is how many instances of the profile to create (defaults to 1).
+	Count *int32 `json:"count,omitempty"`
+	// SlicesPerUnit overrides resource or layout slices for this profile (optional).
+	SlicesPerUnit *int32 `json:"slicesPerUnit,omitempty"`
+}
+
+// GPUPoolTimeSlicingResource overrides slicesPerUnit for a specific resource.
+type GPUPoolTimeSlicingResource struct {
+	// Name is the resource name to override (defaults to pool resource name).
+	Name string `json:"name,omitempty"`
+	// SlicesPerUnit is the number of slices for this resource.
+	SlicesPerUnit int32 `json:"slicesPerUnit,omitempty"`
 }
 
 type GPUPoolDeviceSelector struct {
@@ -527,37 +577,16 @@ type GPUPoolDeviceSelector struct {
 type GPUPoolSelectorRules struct {
 	// InventoryIDs matches specific devices by inventory identifier.
 	InventoryIDs []string `json:"inventoryIDs,omitempty"`
-	// PCIIDs matches devices by vendor/device PCI identifiers.
-	PCIIDs []string `json:"pciIDs,omitempty"`
-	// Indexes matches by user-defined device indices (e.g. 0-1, 1).
-	Indexes []string `json:"indexes,omitempty"`
-	// Labels matches by GPUDevice labels.
-	Labels map[string]string `json:"labels,omitempty"`
-}
-
-// +kubebuilder:validation:Enum=Exclusive;MIG;TimeSlice
-type GPUPoolAllocationMode string
-
-const (
-	GPUPoolAllocationExclusive GPUPoolAllocationMode = "Exclusive"
-	GPUPoolAllocationMIG       GPUPoolAllocationMode = "MIG"
-	GPUPoolAllocationTimeSlice GPUPoolAllocationMode = "TimeSlice"
-)
-
-type GPUPoolAllocationSpec struct {
-	// Mode selects allocation strategy (Exclusive, MIG, TimeSlice).
-	Mode GPUPoolAllocationMode `json:"mode"`
-	// MIGProfile specifies the MIG profile to use when Mode=MIG.
-	MIGProfile string `json:"migProfile,omitempty"`
-	// MaxDevicesPerNode caps number of devices contributed per node.
-	MaxDevicesPerNode *int32 `json:"maxDevicesPerNode,omitempty"`
-	// TimeSlice configures time-slicing specific parameters.
-	TimeSlice *GPUPoolTimeSlice `json:"timeSlice,omitempty"`
-}
-
-type GPUPoolTimeSlice struct {
-	// MaxSlicesPerDevice is the maximum number of slices cut from a single device.
-	MaxSlicesPerDevice int32 `json:"maxSlicesPerDevice,omitempty"`
+	// Products matches devices by reported hardware product name (exact match).
+	Products []string `json:"products,omitempty"`
+	// PCIVendors matches devices by PCI vendor identifier (hex without 0x, e.g. 10de).
+	PCIVendors []string `json:"pciVendors,omitempty"`
+	// PCIDevices matches devices by PCI device identifier (hex without 0x, e.g. 20b0).
+	PCIDevices []string `json:"pciDevices,omitempty"`
+	// MIGCapable restricts selection to devices that are (or are not) MIG capable.
+	MIGCapable *bool `json:"migCapable,omitempty"`
+	// MIGProfiles matches devices that support at least one of the listed MIG profiles.
+	MIGProfiles []string `json:"migProfiles,omitempty"`
 }
 
 type GPUPoolAssignmentSpec struct {
@@ -589,6 +618,8 @@ type GPUPoolSchedulingSpec struct {
 	Strategy GPUPoolSchedulingStrategy `json:"strategy,omitempty"`
 	// TopologyKey configures topology spreading key when strategy=Spread.
 	TopologyKey string `json:"topologyKey,omitempty"`
+	// TaintsEnabled controls whether per-pool taints/tolerations are applied.
+	TaintsEnabled *bool `json:"taintsEnabled,omitempty"`
 	// Taints enumerates taints applied to nodes that host workloads from this pool.
 	Taints []GPUPoolTaintSpec `json:"taints,omitempty"`
 }
@@ -624,6 +655,10 @@ type GPUPoolCapacityStatus struct {
 	Available int32 `json:"available,omitempty"`
 	// Unit repeats the resource unit for clarity.
 	Unit string `json:"unit,omitempty"`
+	// BaseUnits is the number of base devices/partitions contributing to capacity.
+	BaseUnits int32 `json:"baseUnits,omitempty"`
+	// SlicesPerUnit shows how many slices each base unit provides.
+	SlicesPerUnit int32 `json:"slicesPerUnit,omitempty"`
 }
 
 type GPUPoolNodeStatus struct {

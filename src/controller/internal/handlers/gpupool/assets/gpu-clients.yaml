@@ -1,0 +1,11 @@
+version: v1
+systemd-services:
+  - nvsm.service
+  - nvsm-mqtt.service
+  - nvsm-core.service
+  - nvsm-api-gateway.service
+  - nvsm-notifier.service
+  - nv_peer_mem.service
+  - nvidia-dcgm.service
+  - dcgm.service
+  - dcgm-exporter.service

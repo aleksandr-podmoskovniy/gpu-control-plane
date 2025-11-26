@@ -36,7 +36,6 @@ type ControllersConfig struct {
 	GPUInventory ControllerConfig `json:"gpuInventory" yaml:"gpuInventory"`
 	GPUBootstrap ControllerConfig `json:"gpuBootstrap" yaml:"gpuBootstrap"`
 	GPUPool      ControllerConfig `json:"gpuPool" yaml:"gpuPool"`
-	Admission    ControllerConfig `json:"admission" yaml:"admission"`
 }
 
 // ControllerConfig currently exposes only worker concurrency but can be extended later.
@@ -64,13 +63,14 @@ const (
 
 // ModuleSettings holds high-level module policies delivered via ModuleConfig.
 type ModuleSettings struct {
-	ManagedNodes     ManagedNodesSettings     `json:"managedNodes" yaml:"managedNodes"`
-	DeviceApproval   DeviceApprovalSettings   `json:"deviceApproval" yaml:"deviceApproval"`
-	Scheduling       SchedulingSettings       `json:"scheduling" yaml:"scheduling"`
-	Monitoring       MonitoringSettings       `json:"monitoring" yaml:"monitoring"`
-	Inventory        InventorySettings        `json:"inventory" yaml:"inventory"`
-	HTTPS            HTTPSSettings            `json:"https" yaml:"https"`
-	HighAvailability *bool                    `json:"highAvailability,omitempty" yaml:"highAvailability,omitempty"`
+	ManagedNodes     ManagedNodesSettings   `json:"managedNodes" yaml:"managedNodes"`
+	DeviceApproval   DeviceApprovalSettings `json:"deviceApproval" yaml:"deviceApproval"`
+	Scheduling       SchedulingSettings     `json:"scheduling" yaml:"scheduling"`
+	Placement        PlacementSettings      `json:"placement" yaml:"placement"`
+	Monitoring       MonitoringSettings     `json:"monitoring" yaml:"monitoring"`
+	Inventory        InventorySettings      `json:"inventory" yaml:"inventory"`
+	HTTPS            HTTPSSettings          `json:"https" yaml:"https"`
+	HighAvailability *bool                  `json:"highAvailability,omitempty" yaml:"highAvailability,omitempty"`
 }
 
 // ManagedNodesSettings controls which nodes are considered managed by default.
@@ -91,6 +91,11 @@ type SchedulingSettings struct {
 	TopologyKey     string `json:"topologyKey,omitempty" yaml:"topologyKey,omitempty"`
 }
 
+// PlacementSettings carries cluster-wide toleration knobs.
+type PlacementSettings struct {
+	CustomTolerationKeys []string `json:"customTolerationKeys,omitempty" yaml:"customTolerationKeys,omitempty"`
+}
+
 type MonitoringSettings struct {
 	ServiceMonitor bool `json:"serviceMonitor" yaml:"serviceMonitor"`
 }
@@ -109,9 +114,9 @@ const (
 )
 
 type HTTPSSettings struct {
-	Mode                  HTTPSMode `json:"mode" yaml:"mode"`
-	CertManagerIssuer     string    `json:"certManagerIssuer" yaml:"certManagerIssuer"`
-	CustomCertificateSecret string  `json:"customCertificateSecret,omitempty" yaml:"customCertificateSecret,omitempty"`
+	Mode                    HTTPSMode `json:"mode" yaml:"mode"`
+	CertManagerIssuer       string    `json:"certManagerIssuer" yaml:"certManagerIssuer"`
+	CustomCertificateSecret string    `json:"customCertificateSecret,omitempty" yaml:"customCertificateSecret,omitempty"`
 }
 
 const (
@@ -136,7 +141,6 @@ func DefaultSystem() System {
 			GPUInventory: defaultControllerConfig(),
 			GPUBootstrap: defaultControllerConfig(),
 			GPUPool:      defaultControllerConfig(),
-			Admission:    defaultControllerConfig(),
 		},
 		Module: ModuleSettings{
 			ManagedNodes: ManagedNodesSettings{
@@ -192,11 +196,9 @@ func LoadFile(path string) (System, error) {
 	normalizeControllerWorkers(&cfg.Controllers.GPUInventory)
 	normalizeControllerWorkers(&cfg.Controllers.GPUBootstrap)
 	normalizeControllerWorkers(&cfg.Controllers.GPUPool)
-	normalizeControllerWorkers(&cfg.Controllers.Admission)
 	normalizeControllerResync(&cfg.Controllers.GPUInventory)
 	normalizeControllerResync(&cfg.Controllers.GPUBootstrap)
 	normalizeControllerResync(&cfg.Controllers.GPUPool)
-	normalizeControllerResync(&cfg.Controllers.Admission)
 	normalizeLeaderElection(&cfg.LeaderElection)
 	normalizeModuleSettings(&cfg.Module)
 
@@ -258,6 +260,21 @@ func normalizeModuleSettings(cfg *ModuleSettings) {
 	if cfg.Scheduling.DefaultStrategy == "Spread" && cfg.Scheduling.TopologyKey == "" {
 		cfg.Scheduling.TopologyKey = defaultSchedulingTopologyKey
 	}
+
+	seen := map[string]struct{}{}
+	keys := make([]string, 0, len(cfg.Placement.CustomTolerationKeys))
+	for _, k := range cfg.Placement.CustomTolerationKeys {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		keys = append(keys, k)
+	}
+	cfg.Placement.CustomTolerationKeys = keys
 
 	cfg.Inventory.ResyncPeriod = strings.TrimSpace(cfg.Inventory.ResyncPeriod)
 	if cfg.Inventory.ResyncPeriod == "" {

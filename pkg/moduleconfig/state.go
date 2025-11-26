@@ -50,6 +50,7 @@ type Settings struct {
 	ManagedNodes   ManagedNodesSettings
 	DeviceApproval DeviceApprovalSettings
 	Scheduling     SchedulingSettings
+	Placement      PlacementSettings
 	Monitoring     MonitoringSettings
 }
 
@@ -78,6 +79,10 @@ type DeviceApprovalSettings struct {
 type SchedulingSettings struct {
 	DefaultStrategy string
 	TopologyKey     string
+}
+
+type PlacementSettings struct {
+	CustomTolerationKeys []string
 }
 
 type InventorySettings struct {
@@ -115,12 +120,14 @@ func DefaultState() State {
 		ManagedNodes:   ManagedNodesSettings{LabelKey: DefaultNodeLabelKey, EnabledByDefault: true},
 		DeviceApproval: DeviceApprovalSettings{Mode: DeviceApprovalModeManual},
 		Scheduling:     SchedulingSettings{DefaultStrategy: DefaultSchedulingStrategy, TopologyKey: DefaultSchedulingTopology},
+		Placement:      PlacementSettings{},
 		Monitoring:     MonitoringSettings{ServiceMonitor: DefaultMonitoringService},
 	}
 	sanitized := map[string]any{
 		"managedNodes":   map[string]any{"labelKey": DefaultNodeLabelKey, "enabledByDefault": true},
 		"deviceApproval": map[string]any{"mode": string(DefaultDeviceApprovalMode)},
 		"scheduling":     map[string]any{"defaultStrategy": DefaultSchedulingStrategy, "topologyKey": DefaultSchedulingTopology},
+		"placement":      map[string]any{"customTolerationKeys": []string{}},
 		"monitoring":     map[string]any{"serviceMonitor": DefaultMonitoringService},
 		"inventory":      map[string]any{"resyncPeriod": DefaultInventoryResyncPeriod},
 		"https":          map[string]any{"mode": string(DefaultHTTPSMode), "certManager": map[string]any{"clusterIssuerName": DefaultHTTPSCertManagerIssuer}},
@@ -179,6 +186,10 @@ func Parse(input Input) (State, error) {
 	}
 	state.Settings.Monitoring = monitoring
 	state.Sanitized["monitoring"] = map[string]any{"serviceMonitor": monitoring.ServiceMonitor}
+
+	placement := parsePlacement(raw["placement"])
+	state.Settings.Placement = placement
+	state.Sanitized["placement"] = map[string]any{"customTolerationKeys": placement.CustomTolerationKeys}
 
 	inventory, err := parseInventory(raw["inventory"])
 	if err != nil {
@@ -438,6 +449,34 @@ func parseMonitoring(raw json.RawMessage) (MonitoringSettings, error) {
 		settings.ServiceMonitor = *payload.ServiceMonitor
 	}
 	return settings, nil
+}
+
+func parsePlacement(raw json.RawMessage) PlacementSettings {
+	settings := PlacementSettings{CustomTolerationKeys: []string{}}
+	if len(raw) == 0 || string(raw) == "null" {
+		return settings
+	}
+	var payload struct {
+		CustomTolerationKeys []string `json:"customTolerationKeys"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return settings
+	}
+	seen := map[string]struct{}{}
+	keys := make([]string, 0, len(payload.CustomTolerationKeys))
+	for _, k := range payload.CustomTolerationKeys {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		keys = append(keys, k)
+	}
+	settings.CustomTolerationKeys = keys
+	return settings
 }
 
 func parseInventory(raw json.RawMessage) (InventorySettings, error) {

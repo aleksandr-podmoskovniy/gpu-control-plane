@@ -35,6 +35,9 @@ func ModuleSettingsToState(settings ModuleSettings) (moduleconfig.State, error) 
 				"defaultStrategy": settings.Scheduling.DefaultStrategy,
 				"topologyKey":     settings.Scheduling.TopologyKey,
 			},
+			"placement": map[string]any{
+				"customTolerationKeys": settings.Placement.CustomTolerationKeys,
+			},
 			"monitoring": map[string]any{
 				"serviceMonitor": settings.Monitoring.ServiceMonitor,
 			},

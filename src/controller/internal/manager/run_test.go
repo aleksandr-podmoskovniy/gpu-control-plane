@@ -42,11 +42,12 @@ import (
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/webhook"
 )
 
 func TestMetricsOptionsFromEnvDefault(t *testing.T) {
@@ -211,12 +212,14 @@ func TestRunSuccess(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -301,12 +304,14 @@ func TestRunMetricsTLSFallbackOnError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -340,12 +345,14 @@ func TestRunFailsOnInvalidModuleSettings(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -372,12 +379,14 @@ func TestRunWithSecureMetrics(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -451,12 +460,14 @@ func TestRunRegisterControllersError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -478,10 +489,47 @@ func TestRunRegisterControllersError(t *testing.T) {
 	}
 }
 
+func TestRunRegisterWebhooksError(t *testing.T) {
+	origNewManager := newManager
+	origRegisterHandlers := registerHandlers
+	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
+	origGetConfig := getConfigOrDie
+
+	t.Cleanup(func() {
+		newManager = origNewManager
+		registerHandlers = origRegisterHandlers
+		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
+		getConfigOrDie = origGetConfig
+	})
+
+	fakeMgr := newFakeManager()
+	newManager = func(*rest.Config, ctrlmanager.Options) (ctrlmanager.Manager, error) {
+		return fakeMgr, nil
+	}
+	registerHandlers = func(log logr.Logger, deps *handlers.Handlers) {
+		origRegisterHandlers(log, deps)
+	}
+	registerControllers = func(context.Context, ctrlmanager.Manager, config.ControllersConfig, *config.ModuleConfigStore, controllers.Dependencies) error {
+		return nil
+	}
+	registerWebhooks = func(context.Context, ctrlmanager.Manager, webhook.Dependencies) error {
+		return errors.New("webhook fail")
+	}
+	getConfigOrDie = func() *rest.Config { return &rest.Config{} }
+
+	err := Run(context.Background(), nil, config.DefaultSystem())
+	if err == nil || err.Error() != "register webhooks: webhook fail" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunManagerStartError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 	origAddGPUScheme := addGPUScheme
 	origAddNFDScheme := addNFDScheme
@@ -490,6 +538,7 @@ func TestRunManagerStartError(t *testing.T) {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 		addGPUScheme = origAddGPUScheme
 		addNFDScheme = origAddNFDScheme
@@ -518,12 +567,14 @@ func TestRunRegisterGPUSchemeError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 	origAddGPUScheme := addGPUScheme
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 		addGPUScheme = origAddGPUScheme
 	})
@@ -551,6 +602,7 @@ func TestRunRegisterNFDSchemeError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 	origAddGPUScheme := addGPUScheme
 	origAddNFDScheme := addNFDScheme
@@ -558,6 +610,7 @@ func TestRunRegisterNFDSchemeError(t *testing.T) {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 		addGPUScheme = origAddGPUScheme
 		addNFDScheme = origAddNFDScheme
@@ -586,11 +639,13 @@ func TestRunHealthzCheckError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -617,11 +672,13 @@ func TestRunReadyzCheckError(t *testing.T) {
 	origNewManager := newManager
 	origRegisterHandlers := registerHandlers
 	origRegisterControllers := registerControllers
+	origRegisterWebhooks := registerWebhooks
 	origGetConfig := getConfigOrDie
 	t.Cleanup(func() {
 		newManager = origNewManager
 		registerHandlers = origRegisterHandlers
 		registerControllers = origRegisterControllers
+		registerWebhooks = origRegisterWebhooks
 		getConfigOrDie = origGetConfig
 	})
 
@@ -727,7 +784,7 @@ func (f *fakeManager) AddReadyzCheck(string, healthz.Checker) error {
 	return nil
 }
 
-func (f *fakeManager) GetWebhookServer() webhook.Server { return nil }
+func (f *fakeManager) GetWebhookServer() ctrlwebhook.Server { return nil }
 
 func (f *fakeManager) GetLogger() logr.Logger { return ctrl.Log }
 

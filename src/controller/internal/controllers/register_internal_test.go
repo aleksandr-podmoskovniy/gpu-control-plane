@@ -42,9 +42,6 @@ func TestEnsureRegistriesInitialisesDependencies(t *testing.T) {
 	if deps.PoolHandlers == nil {
 		t.Fatal("pool registry must be initialised")
 	}
-	if deps.AdmissionHandlers == nil {
-		t.Fatal("admission registry must be initialised")
-	}
 
 	deps.InventoryHandlers.Register(testInventoryHandler{})
 	if len(deps.InventoryHandlers.List()) != 1 {
@@ -66,9 +63,6 @@ func TestDefaultControllerConstructors(t *testing.T) {
 	}
 	if _, err := newPoolController(testr.New(t), config.ControllerConfig{}, store, nil); err != nil {
 		t.Fatalf("newPoolController returned error: %v", err)
-	}
-	if _, err := newAdmissionController(testr.New(t), config.ControllerConfig{}, store, nil); err != nil {
-		t.Fatalf("newAdmissionController returned error: %v", err)
 	}
 }
 
@@ -95,20 +89,17 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
-	origAdm := newAdmissionController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
-		newAdmissionController = origAdm
 	})
 
 	moduleStub := &stubSetupController{}
 	invStub := &stubSetupController{}
 	bootStub := &stubSetupController{}
 	poolStub := &stubSetupController{}
-	admStub := &stubSetupController{}
 
 	newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
 		return moduleStub, nil
@@ -122,9 +113,6 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 		return poolStub, nil
 	}
-	newAdmissionController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.AdmissionHandler) (setupController, error) {
-		return admStub, nil
-	}
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
 	deps := Dependencies{Logger: testr.New(t)}
@@ -137,7 +125,6 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 		"inventory":    invStub,
 		"bootstrap":    bootStub,
 		"gpupool":      poolStub,
-		"admission":    admStub,
 	}
 	for name, stub := range expectedCalls {
 		if stub.called != 1 {
@@ -151,13 +138,11 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
-	origAdm := newAdmissionController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
-		newAdmissionController = origAdm
 	})
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
@@ -226,30 +211,6 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 					return nil, errors.New("pool constructor")
 				}
-				newAdmissionController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.AdmissionHandler) (setupController, error) {
-					t.Fatal("admission should not run after pool failure")
-					return nil, nil
-				}
-			},
-		},
-		{
-			name: "admission constructor error",
-			configure: func(t *testing.T) {
-				newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
-					return &stubSetupController{}, nil
-				}
-				newInventoryController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.InventoryHandler) (setupController, error) {
-					return &stubSetupController{}, nil
-				}
-				newBootstrapController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.BootstrapHandler) (setupController, error) {
-					return &stubSetupController{}, nil
-				}
-				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
-					return &stubSetupController{}, nil
-				}
-				newAdmissionController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.AdmissionHandler) (setupController, error) {
-					return nil, errors.New("admission constructor")
-				}
 			},
 		},
 	}
@@ -261,7 +222,6 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 			newInventoryController = origInv
 			newBootstrapController = origBoot
 			newPoolController = origPool
-			newAdmissionController = origAdm
 
 			tc.configure(t)
 			err := Register(context.Background(), nil, config.ControllersConfig{}, store, Dependencies{Logger: testr.New(t)})
@@ -277,13 +237,11 @@ func TestRegisterPropagatesSetupErrors(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
-	origAdm := newAdmissionController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
-		newAdmissionController = origAdm
 	})
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
@@ -360,33 +318,8 @@ func TestRegisterPropagatesSetupErrors(t *testing.T) {
 				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 					return buildStub(errors.New("pool setup")), nil
 				}
-				newAdmissionController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.AdmissionHandler) (setupController, error) {
-					t.Fatal("admission should not be called after pool failure")
-					return nil, nil
-				}
 			},
 			expectedError: "pool setup",
-		},
-		{
-			name: "admission setup error",
-			configure: func(t *testing.T) {
-				newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
-					return buildStub(nil), nil
-				}
-				newInventoryController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.InventoryHandler) (setupController, error) {
-					return buildStub(nil), nil
-				}
-				newBootstrapController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.BootstrapHandler) (setupController, error) {
-					return buildStub(nil), nil
-				}
-				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
-					return buildStub(nil), nil
-				}
-				newAdmissionController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.AdmissionHandler) (setupController, error) {
-					return buildStub(errors.New("admission setup")), nil
-				}
-			},
-			expectedError: "admission setup",
 		},
 	}
 
@@ -397,7 +330,6 @@ func TestRegisterPropagatesSetupErrors(t *testing.T) {
 			newInventoryController = origInv
 			newBootstrapController = origBoot
 			newPoolController = origPool
-			newAdmissionController = origAdm
 
 			tc.configure(t)
 

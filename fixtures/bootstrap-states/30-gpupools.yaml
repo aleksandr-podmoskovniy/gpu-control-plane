@@ -1,0 +1,40 @@
+# Example values to exercise rendering with multiple GPUPools (Card and MIG).
+# These values are not used by templates directly, but keep helm-template
+# coverage consistent when we start emitting pools from values in tests.
+gpuControlPlane:
+  gpupools:
+    - name: pool-card
+      resource:
+        unit: Card
+        slicesPerUnit: 1
+      deviceSelector:
+        include:
+          - vendor: "10de"
+            device: "2203"
+      scheduling:
+        strategy: Spread
+        topologyKey: topology.kubernetes.io/zone
+    - name: pool-mig
+      resource:
+        unit: MIG
+        migProfile: "1g.5gb"
+        slicesPerUnit: 1
+      deviceSelector:
+        include:
+          - vendor: "10de"
+            migProfiles:
+              - "1g.5gb"
+      scheduling:
+        strategy: BinPack
+
+    # Card pool with time-slicing (slicesPerUnit > 1) to exercise validation/rendering paths.
+    - name: pool-timeslice
+      resource:
+        unit: Card
+        slicesPerUnit: 4
+      deviceSelector:
+        include:
+          - vendor: "10de"
+      scheduling:
+        strategy: Spread
+        topologyKey: topology.kubernetes.io/zone

@@ -53,11 +53,21 @@ spec:
                   fieldPath: metadata.namespace
             - name: LEADER_ELECTION_ID
               value: {{ include "gpuControlPlane.controllerName" . }}-leader-election
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: CONFIG_PATH
               value: /etc/gpu-control-plane/config.yaml
             {{- include "kube_api_rewriter.kubeconfig_env" . | nindent 12 }}
             - name: METRICS_BIND_ADDRESS
               value: 127.0.0.1:8080
+            - name: NVIDIA_DEVICE_PLUGIN_IMAGE
+              value: {{ include "helm_lib_module_image" (list . "nvidiaDevicePlugin" (include "gpuControlPlane.moduleName" .)) }}
+            - name: NVIDIA_MIG_MANAGER_IMAGE
+              value: {{ include "helm_lib_module_image" (list . "nvidiaMigManager" (include "gpuControlPlane.moduleName" .)) }}
+            - name: DEFAULT_MIG_STRATEGY
+              value: {{ default "none" ($moduleValues.bootstrap.migStrategy | default "none") | lower | quote }}
             {{- range $item := default (list) $controllerRuntime.env }}
             - name: {{ $item.name }}
               {{- if hasKey $item "valueFrom" }}
@@ -83,6 +93,9 @@ spec:
               protocol: TCP
             - name: health
               containerPort: 8081
+              protocol: TCP
+            - name: webhooks
+              containerPort: 9443
               protocol: TCP
           livenessProbe:
             httpGet:

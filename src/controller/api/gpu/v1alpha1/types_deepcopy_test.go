@@ -25,6 +25,7 @@ import (
 
 func TestDeepCopyCoversAllTypes(t *testing.T) {
 	now := metav1.Now()
+	migCapable := true
 
 	device := &v1alpha1.GPUDevice{
 		TypeMeta: metav1.TypeMeta{Kind: "GPUDevice", APIVersion: v1alpha1.GroupVersion.String()},
@@ -214,9 +215,25 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 			Name: "pool-a",
 		},
 		Spec: v1alpha1.GPUPoolSpec{
+			Provider: "Nvidia",
+			Backend:  "DevicePlugin",
 			Resource: v1alpha1.GPUPoolResourceSpec{
-				Name: "resources.gpu.deckhouse.io/a",
-				Unit: "device",
+				Unit:       "MIG",
+				MIGProfile: "1g.10gb",
+				MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
+					UUIDs: []string{"GPU-uuid"},
+					Profiles: []v1alpha1.GPUPoolMIGProfile{{
+						Name:  "1g.10gb",
+						Count: func() *int32 { v := int32(2); return &v }(),
+					}},
+					SlicesPerUnit: func() *int32 { v := int32(2); return &v }(),
+				}},
+				MaxDevicesPerNode: func() *int32 { v := int32(2); return &v }(),
+				SlicesPerUnit:     4,
+				TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{{
+					Name:          "resources.gpu.deckhouse.io/a",
+					SlicesPerUnit: 3,
+				}},
 			},
 			NodeSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"gpu.deckhouse.io/role": "compute"},
@@ -224,19 +241,15 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 			DeviceSelector: &v1alpha1.GPUPoolDeviceSelector{
 				Include: v1alpha1.GPUPoolSelectorRules{
 					InventoryIDs: []string{"node-a-0000"},
-					PCIIDs:       []string{"10de:20b0"},
-					Indexes:      []string{"0"},
-					Labels:       map[string]string{"gpu.deckhouse.io/purpose": "training"},
+					Products:     []string{"NVIDIA A100"},
+					PCIVendors:   []string{"10de"},
+					PCIDevices:   []string{"20b0"},
+					MIGCapable:   &migCapable,
+					MIGProfiles:  []string{"1g.10gb"},
 				},
 				Exclude: v1alpha1.GPUPoolSelectorRules{
-					Labels: map[string]string{"gpu.deckhouse.io/maintenance": "true"},
+					Products: []string{"NVIDIA T4"},
 				},
-			},
-			Allocation: v1alpha1.GPUPoolAllocationSpec{
-				Mode:              v1alpha1.GPUPoolAllocationMIG,
-				MIGProfile:        "1g.10gb",
-				MaxDevicesPerNode: func() *int32 { v := int32(2); return &v }(),
-				TimeSlice:         &v1alpha1.GPUPoolTimeSlice{MaxSlicesPerDevice: 10},
 			},
 			DeviceAssignment: v1alpha1.GPUPoolAssignmentSpec{
 				RequireAnnotation: true,
@@ -267,7 +280,7 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 				Total:     4,
 				Used:      1,
 				Available: 3,
-				Unit:      "device",
+				Unit:      "Card",
 			},
 			Nodes: []v1alpha1.GPUPoolNodeStatus{{
 				Name:            "node-a",
@@ -292,8 +305,8 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 		},
 	}
 
-	if copy := pool.DeepCopy(); !reflect.DeepEqual(copy.Spec.Allocation, pool.Spec.Allocation) {
-		t.Fatal("GPUPool DeepCopy must copy allocation spec")
+	if copy := pool.DeepCopy(); !reflect.DeepEqual(copy.Spec.Resource, pool.Spec.Resource) {
+		t.Fatal("GPUPool DeepCopy must copy resource spec")
 	}
 	if obj := pool.DeepCopyObject(); obj == nil {
 		t.Fatal("GPUPool DeepCopyObject must not return nil")
@@ -303,7 +316,7 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 		TypeMeta: metav1.TypeMeta{Kind: "GPUPoolList", APIVersion: v1alpha1.GroupVersion.String()},
 		Items:    []v1alpha1.GPUPool{*pool},
 	}
-	if copy := poolList.DeepCopy(); len(copy.Items) != 1 || copy.Items[0].Spec.Resource.Name != pool.Spec.Resource.Name {
+	if copy := poolList.DeepCopy(); len(copy.Items) != 1 || copy.Items[0].Spec.Resource.Unit != pool.Spec.Resource.Unit {
 		t.Fatal("GPUPoolList DeepCopy must copy items")
 	}
 	if obj := poolList.DeepCopyObject(); obj == nil {
@@ -332,8 +345,8 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 	if ref := (&v1alpha1.GPUPoolReference{Name: "pool"}).DeepCopy(); ref.Name != "pool" {
 		t.Fatal("GPUPoolReference DeepCopy must copy fields")
 	}
-	if rules := (&v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"a"}}).DeepCopy(); len(rules.InventoryIDs) != 1 {
-		t.Fatal("GPUPoolSelectorRules DeepCopy must copy slice")
+	if rules := (&v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"a"}, MIGCapable: &migCapable, MIGProfiles: []string{"1g.10gb"}}).DeepCopy(); len(rules.InventoryIDs) != 1 || rules.MIGCapable == nil || !*rules.MIGCapable || len(rules.MIGProfiles) != 1 {
+		t.Fatal("GPUPoolSelectorRules DeepCopy must copy fields")
 	}
 	if assign := (&v1alpha1.GPUPoolAssignment{Pool: "pool"}).DeepCopy(); assign.Pool != "pool" {
 		t.Fatal("GPUPoolAssignment DeepCopy must copy fields")
@@ -383,7 +396,6 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 		nilPoolSchedulingSpec    *v1alpha1.GPUPoolSchedulingSpec
 		nilPoolAccessSpec        *v1alpha1.GPUPoolAccessSpec
 		nilPoolResourceSpec      *v1alpha1.GPUPoolResourceSpec
-		nilPoolTimeSlice         *v1alpha1.GPUPoolTimeSlice
 		nilPoolCandidate         *v1alpha1.GPUPoolCandidate
 		nilPoolCapacityStatus    *v1alpha1.GPUPoolCapacityStatus
 		nilPoolDeviceStatus      *v1alpha1.GPUPoolDeviceStatus
@@ -400,7 +412,6 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 		nilPoolSpec              *v1alpha1.GPUPoolSpec
 		nilPoolTaintSpec         *v1alpha1.GPUPoolTaintSpec
 		nilPoolScheduling        *v1alpha1.GPUPoolSchedulingSpec
-		nilPoolAllocation        *v1alpha1.GPUPoolAllocationSpec
 		nilPoolDeviceSelectorPtr *v1alpha1.GPUPoolDeviceSelector
 		nilPartition             *v1alpha1.GPUMIGPartition
 		nilEngines               *v1alpha1.GPUMIGEngines
@@ -491,9 +502,6 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 	if nilPoolResourceSpec.DeepCopy() != nil {
 		t.Fatal("nil GPUPoolResourceSpec DeepCopy must return nil")
 	}
-	if nilPoolTimeSlice.DeepCopy() != nil {
-		t.Fatal("nil GPUPoolTimeSlice DeepCopy must return nil")
-	}
 	if nilPoolCandidate.DeepCopy() != nil {
 		t.Fatal("nil GPUPoolCandidate DeepCopy must return nil")
 	}
@@ -541,9 +549,6 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 	}
 	if nilPoolScheduling.DeepCopy() != nil {
 		t.Fatal("nil GPUPoolSchedulingSpec DeepCopy must return nil")
-	}
-	if nilPoolAllocation.DeepCopy() != nil {
-		t.Fatal("nil GPUPoolAllocationSpec DeepCopy must return nil")
 	}
 	if nilPoolDeviceSelectorPtr.DeepCopy() != nil {
 		t.Fatal("nil GPUPoolDeviceSelector pointer DeepCopy must return nil")
@@ -627,23 +632,23 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 		t.Fatal("GPUNodePendingPool DeepCopy must copy pool")
 	}
 
-	if poolSpec := (&pool.Spec).DeepCopy(); poolSpec == nil || poolSpec.Resource.Name == "" {
+	if poolSpec := (&pool.Spec).DeepCopy(); poolSpec == nil || poolSpec.Resource.Unit == "" {
 		t.Fatal("GPUPoolSpec DeepCopy must copy resource")
 	}
-	if poolResource := (&pool.Spec.Resource).DeepCopy(); poolResource == nil || poolResource.Name == "" {
-		t.Fatal("GPUPoolResourceSpec DeepCopy must copy resource name")
+	if poolResource := (&pool.Spec.Resource).DeepCopy(); poolResource == nil || poolResource.Unit == "" {
+		t.Fatal("GPUPoolResourceSpec DeepCopy must copy resource unit")
 	}
-	if poolSelector := pool.Spec.DeviceSelector.DeepCopy(); poolSelector == nil || len(poolSelector.Include.InventoryIDs) == 0 {
+	if len(pool.Spec.Resource.MIGLayout) == 0 || len(pool.Spec.Resource.TimeSlicingResources) == 0 {
+		t.Fatal("GPUPoolResourceSpec should contain MIGLayout and TimeSlicingResources in test")
+	}
+	if poolResource := (&pool.Spec.Resource).DeepCopy(); len(poolResource.MIGLayout) == 0 || len(poolResource.TimeSlicingResources) == 0 {
+		t.Fatal("GPUPoolResourceSpec DeepCopy must copy MIGLayout and TimeSlicingResources")
+	}
+	if poolSelector := pool.Spec.DeviceSelector.DeepCopy(); poolSelector == nil || len(poolSelector.Include.InventoryIDs) == 0 || poolSelector.Include.MIGCapable == nil || !*poolSelector.Include.MIGCapable {
 		t.Fatal("GPUPoolDeviceSelector DeepCopy must copy include rules")
 	}
-	if poolRules := (&pool.Spec.DeviceSelector.Include).DeepCopy(); poolRules == nil || len(poolRules.InventoryIDs) == 0 {
-		t.Fatal("GPUPoolSelectorRules DeepCopy must copy IDs")
-	}
-	if poolAllocation := (&pool.Spec.Allocation).DeepCopy(); poolAllocation == nil || poolAllocation.Mode == "" {
-		t.Fatal("GPUPoolAllocationSpec DeepCopy must copy mode")
-	}
-	if poolTimeSlice := pool.Spec.Allocation.TimeSlice.DeepCopy(); poolTimeSlice == nil || poolTimeSlice.MaxSlicesPerDevice == 0 {
-		t.Fatal("GPUPoolTimeSlice DeepCopy must copy value")
+	if poolRules := (&pool.Spec.DeviceSelector.Include).DeepCopy(); poolRules == nil || len(poolRules.InventoryIDs) == 0 || poolRules.MIGCapable == nil || !*poolRules.MIGCapable {
+		t.Fatal("GPUPoolSelectorRules DeepCopy must copy fields")
 	}
 	if poolAssignment := (&pool.Spec.DeviceAssignment).DeepCopy(); poolAssignment == nil || !poolAssignment.RequireAnnotation {
 		t.Fatal("GPUPoolAssignmentSpec DeepCopy must copy flag")
@@ -735,12 +740,12 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 	srcAssignmentSpec := &v1alpha1.GPUPoolAssignmentSpec{RequireAnnotation: true}
 	srcAssignmentSpec.DeepCopyInto(&v1alpha1.GPUPoolAssignmentSpec{})
 
-	srcSelectorRules := &v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"node-a-0000"}}
+	srcSelectorRules := &v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"node-a-0000"}, MIGCapable: &migCapable, MIGProfiles: []string{"1g.10gb"}}
 	srcSelectorRules.DeepCopyInto(&v1alpha1.GPUPoolSelectorRules{})
 
 	srcDeviceSelector := &v1alpha1.GPUPoolDeviceSelector{
 		Include: v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"node-a-0000"}},
-		Exclude: v1alpha1.GPUPoolSelectorRules{Labels: map[string]string{"gpu.deckhouse.io/maintenance": "true"}},
+		Exclude: v1alpha1.GPUPoolSelectorRules{Products: []string{"NVIDIA T4"}},
 	}
 	srcDeviceSelector.DeepCopyInto(&v1alpha1.GPUPoolDeviceSelector{})
 
@@ -758,20 +763,11 @@ func TestDeepCopyCoversAllTypes(t *testing.T) {
 	}
 	srcAccess.DeepCopyInto(&v1alpha1.GPUPoolAccessSpec{})
 
-	srcAllocation := &v1alpha1.GPUPoolAllocationSpec{
-		Mode:      v1alpha1.GPUPoolAllocationExclusive,
-		TimeSlice: &v1alpha1.GPUPoolTimeSlice{MaxSlicesPerDevice: 5},
-	}
-	srcAllocation.DeepCopyInto(&v1alpha1.GPUPoolAllocationSpec{})
-
-	srcResource := &v1alpha1.GPUPoolResourceSpec{Name: "resource", Unit: "device"}
+	srcResource := &v1alpha1.GPUPoolResourceSpec{Unit: "device"}
 	srcResource.DeepCopyInto(&v1alpha1.GPUPoolResourceSpec{})
 
 	srcTaint := &v1alpha1.GPUPoolTaintSpec{Key: "key", Value: "value", Effect: "NoSchedule"}
 	srcTaint.DeepCopyInto(&v1alpha1.GPUPoolTaintSpec{})
-
-	srcTimeSlice := &v1alpha1.GPUPoolTimeSlice{MaxSlicesPerDevice: 4}
-	srcTimeSlice.DeepCopyInto(&v1alpha1.GPUPoolTimeSlice{})
 
 	srcNodeDevice := &v1alpha1.GPUNodeDevice{
 		InventoryID: "node-a-0000",

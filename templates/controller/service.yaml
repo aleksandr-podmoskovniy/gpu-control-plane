@@ -14,4 +14,8 @@ spec:
       port: {{ include "gpuControlPlane.metricsPort" . | int }}
       protocol: TCP
       targetPort: https-metrics
+    - name: webhooks
+      port: 443
+      protocol: TCP
+      targetPort: webhooks
 {{- end }}
