@@ -1,6 +1,7 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
 {{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $bootstrap := $moduleValues.bootstrap | default dict }}
 {{- $runtime := $moduleValues.runtime | default dict }}
 {{- $controllerRuntime := $runtime.controller | default dict }}
 apiVersion: apps/v1
@@ -67,7 +68,7 @@ spec:
             - name: NVIDIA_MIG_MANAGER_IMAGE
               value: {{ include "helm_lib_module_image" (list . "nvidiaMigManager" (include "gpuControlPlane.moduleName" .)) }}
             - name: DEFAULT_MIG_STRATEGY
-              value: {{ default "none" ($moduleValues.bootstrap.migStrategy | default "none") | lower | quote }}
+              value: {{ default "none" ($bootstrap.migStrategy | default "none") | lower | quote }}
             {{- range $item := default (list) $controllerRuntime.env }}
             - name: {{ $item.name }}
               {{- if hasKey $item "valueFrom" }}
