@@ -154,16 +154,22 @@ func TestHandlePoolUsedExceedsTotal(t *testing.T) {
 func TestHandlePoolNodeSelectorExcludesAll(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "node1",
-			Labels: map[string]string{"role": "gpu"},
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
 				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
 			},
+		},
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{"role": "gpu"},
 		},
 	}
 	dev := &v1alpha1.GPUDevice{
@@ -173,7 +179,7 @@ func TestHandlePoolNodeSelectorExcludesAll(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady},
 	}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, node, dev).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},

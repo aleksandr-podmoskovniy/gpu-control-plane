@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,6 +72,17 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		}
 	}
 
+	nodeLabels := map[string]labels.Set{}
+	if selector != nil {
+		nodes := &corev1.NodeList{}
+		if err := h.client.List(ctx, nodes); err != nil {
+			return contracts.Result{}, err
+		}
+		for _, node := range nodes.Items {
+			nodeLabels[node.Name] = labels.Set(node.Labels)
+		}
+	}
+
 	var (
 		totalUnits  int32
 		baseUnits   int32
@@ -79,8 +91,14 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 	)
 
 	for _, inv := range inventories.Items {
-		if selector != nil && !selector.Matches(labels.Set(inv.Labels)) {
-			continue
+		if selector != nil {
+			lbls := labels.Set(inv.Labels)
+			if nodeLbls, ok := nodeLabels[inv.Name]; ok {
+				lbls = nodeLbls
+			}
+			if !selector.Matches(lbls) {
+				continue
+			}
 		}
 		candidates := FilterDevices(inv.Status.Hardware.Devices, pool.Spec.DeviceSelector)
 		var takenOnNode int32

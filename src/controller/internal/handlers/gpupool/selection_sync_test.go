@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr/testr"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -29,11 +30,11 @@ import (
 func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "node-a",
-			Labels: map[string]string{"node": "gpu"},
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
@@ -43,6 +44,12 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 					{InventoryID: "id-3", Product: "Ignore", State: v1alpha1.GPUDeviceStateFaulted},
 				},
 			},
+		},
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-a",
+			Labels: map[string]string{"node": "gpu"},
 		},
 	}
 
@@ -77,7 +84,7 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev1, dev2, dev3).Build()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, node, dev1, dev2, dev3).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{
@@ -117,16 +124,22 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "node-a",
-			Labels: map[string]string{"node": "gpu"},
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
 				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
 			},
+		},
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-a",
+			Labels: map[string]string{"node": "gpu"},
 		},
 	}
 
@@ -141,7 +154,7 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, node, dev).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{
@@ -161,14 +174,154 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 	}
 }
 
-func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
+func TestSelectionSyncUsesNodeLabelsWhenInventoryLabelMissing(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-a",
+		},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{
+				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
+			},
+		},
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-a",
+			Labels: map[string]string{"node": "gpu"},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "id-1",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, node, dev).Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource:       v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+			NodeSelector:   &metav1.LabelSelector{MatchLabels: map[string]string{"node": "gpu"}},
+			DeviceSelector: &v1alpha1.GPUPoolDeviceSelector{},
+		},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("handle pool: %v", err)
+	}
+	if len(pool.Status.Devices) != 1 || pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected devices matched by node labels, got %+v", pool.Status)
+	}
+}
+
+func TestSelectionSyncFallsBackToInventoryLabels(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "node-a",
-			Labels: map[string]string{"node": "gpu"},
+			Labels: map[string]string{"role": "gpu"},
+		},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{
+				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
+			},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "id-1",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource:       v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+			NodeSelector:   &metav1.LabelSelector{MatchLabels: map[string]string{"role": "gpu"}},
+			DeviceSelector: &v1alpha1.GPUPoolDeviceSelector{},
+		},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("handle pool: %v", err)
+	}
+	if len(pool.Status.Devices) != 1 || pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected device matched via inventory labels, got %+v", pool.Status)
+	}
+}
+
+func TestSelectionSyncSkipsUnassignedDevicesInPool(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{
+				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
+			},
+		},
+	}
+	// device exists but assigned to another pool
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "other"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "id-1",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("handle pool: %v", err)
+	}
+	if len(pool.Status.Devices) != 0 || pool.Status.Capacity.Total != 0 {
+		t.Fatalf("expected unassigned devices skipped, got %+v", pool.Status)
+	}
+}
+
+func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
@@ -188,6 +341,12 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 			},
 		},
 	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node-a",
+			Labels: map[string]string{"node": "gpu"},
+		},
+	}
 
 	dev := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
@@ -200,7 +359,7 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 		},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, node, dev).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{

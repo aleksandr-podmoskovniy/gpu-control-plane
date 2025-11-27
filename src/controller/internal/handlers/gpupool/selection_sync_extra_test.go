@@ -33,6 +33,7 @@ import (
 func TestSelectionSyncHandlesInvalidNodeSelector(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	handler := NewSelectionSyncHandler(testr.New(t), fake.NewClientBuilder().WithScheme(scheme).Build())
 	selector := metav1.LabelSelector{MatchLabels: map[string]string{"bad key": "v"}}
@@ -45,11 +46,13 @@ func TestSelectionSyncHandlesInvalidNodeSelector(t *testing.T) {
 func TestSelectionSyncHandlesConflicts(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	// client returns conflict on list to exercise conflict branch
 	cl := &failingClient{err: apierrors.NewConflict(v1alpha1.GroupVersion.WithResource("nodes").GroupResource(), "pool", nil)}
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
-	pool := &v1alpha1.GPUPool{}
+	selector := metav1.LabelSelector{MatchLabels: map[string]string{"role": "gpu"}}
+	pool := &v1alpha1.GPUPool{Spec: v1alpha1.GPUPoolSpec{NodeSelector: &selector}}
 	if _, err := handler.HandlePool(context.Background(), pool); err == nil {
 		t.Fatalf("expected conflict error")
 	}
@@ -58,6 +61,7 @@ func TestSelectionSyncHandlesConflicts(t *testing.T) {
 func TestSelectionSyncHandlesDeviceListError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 	inv := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv).Build()
 	cl := &selectiveFailClient{Client: base, failDevices: true}
@@ -65,6 +69,25 @@ func TestSelectionSyncHandlesDeviceListError(t *testing.T) {
 	pool := &v1alpha1.GPUPool{}
 	if _, err := handler.HandlePool(context.Background(), pool); err == nil {
 		t.Fatalf("expected device list error")
+	}
+}
+
+func TestSelectionSyncHandlesNodeListError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	inv := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev1", Annotations: map[string]string{assignmentAnnotation: "pool"}},
+		Status:     v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady},
+	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev).Build()
+	cl := &selectiveFailClient{Client: base, failNodes: true}
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	selector := metav1.LabelSelector{MatchLabels: map[string]string{"role": "gpu"}}
+	pool := &v1alpha1.GPUPool{Spec: v1alpha1.GPUPoolSpec{NodeSelector: &selector}}
+	if _, err := handler.HandlePool(context.Background(), pool); err == nil {
+		t.Fatalf("expected node list error")
 	}
 }
 
@@ -80,12 +103,18 @@ func (f *failingClient) List(ctx context.Context, list client.ObjectList, opts .
 type selectiveFailClient struct {
 	client.Client
 	failDevices bool
+	failNodes   bool
 }
 
 func (f *selectiveFailClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if f.failDevices {
 		if _, ok := list.(*v1alpha1.GPUDeviceList); ok {
 			return apierrors.NewBadRequest("fail devices")
+		}
+	}
+	if f.failNodes {
+		if _, ok := list.(*corev1.NodeList); ok {
+			return apierrors.NewBadRequest("fail nodes")
 		}
 	}
 	return f.Client.List(ctx, list, opts...)
@@ -316,6 +345,7 @@ func (f *failingDeleteClient) Delete(ctx context.Context, obj client.Object, opt
 func TestHandlePoolMultipleNodesAndFilters(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
 
 	inv1 := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"env": "prod"}},
@@ -362,7 +392,9 @@ func TestHandlePoolMultipleNodesAndFilters(t *testing.T) {
 		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev3", State: v1alpha1.GPUDeviceStateFaulted},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv1, inv2, dev1, dev2, dev3).Build()
+	nodeA := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"env": "prod"}}}
+	nodeB := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"env": "dev"}}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv1, inv2, nodeA, nodeB, dev1, dev2, dev3).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 
 	max := int32(1)
