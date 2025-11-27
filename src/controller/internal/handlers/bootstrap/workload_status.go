@@ -370,6 +370,11 @@ func (h *WorkloadStatusHandler) isMonitoringMissing(inventory *v1alpha1.GPUNodeI
 
 func (h *WorkloadStatusHandler) updateComponentEnablement(inventory *v1alpha1.GPUNodeInventory, phase v1alpha1.GPUNodeBootstrapPhase, validatorRequired bool) {
 	devicesPresent := hardwarePresent(inventory)
+	// Avoid tearing down workloads before inventory controller finishes initial discovery:
+	// until inventory is marked complete, assume devices may exist.
+	if !isInventoryComplete(inventory) {
+		devicesPresent = true
+	}
 	enabled := bootstrapcomponents.EnabledComponents(phase, devicesPresent)
 	// Keep validator DaemonSet running on GPU nodes even after initial validation
 	// to match upstream behaviour and avoid tearing down follow-up workloads.

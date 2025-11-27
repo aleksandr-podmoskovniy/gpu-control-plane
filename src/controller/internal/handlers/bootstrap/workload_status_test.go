@@ -214,6 +214,29 @@ func TestWorkloadStatusHandlerHandlesNodeWithoutHardware(t *testing.T) {
 	}
 }
 
+func TestWorkloadStatusHandlerKeepsComponentsUntilInventoryComplete(t *testing.T) {
+	scheme := newScheme(t)
+	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
+	handler.SetClient(fake.NewClientBuilder().WithScheme(scheme).Build())
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker-preinv"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: false},
+			// inventoryComplete is not set yet.
+		},
+	}
+
+	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
+		t.Fatalf("handler returned error: %v", err)
+	}
+	if len(inventory.Status.Bootstrap.Components) == 0 {
+		t.Fatalf("expected components to stay enabled before inventory completion")
+	}
+	if _, ok := inventory.Status.Bootstrap.Components[string(meta.ComponentValidator)]; !ok {
+		t.Fatalf("expected validator to stay enabled prior to inventory completion")
+	}
+}
+
 func TestWorkloadStatusHandlerMarksDegradedWorkloads(t *testing.T) {
 	scheme := newScheme(t)
 	node := "worker-degraded"
@@ -824,14 +847,18 @@ func TestUpdateBootstrapStatusCopiesHeartbeat(t *testing.T) {
 
 func TestUpdateComponentEnablementDisablesGpuWorkloadsWithoutDevices(t *testing.T) {
 	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
-	inventory := &v1alpha1.GPUNodeInventory{
-		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{Present: false},
-			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
-				Components: map[string]bool{
-					string(meta.ComponentGPUFeatureDiscovery): true,
-					string(meta.ComponentDCGM):                true,
-				},
+		inventory := &v1alpha1.GPUNodeInventory{
+			Status: v1alpha1.GPUNodeInventoryStatus{
+				Hardware: v1alpha1.GPUNodeHardware{Present: false},
+				Conditions: []metav1.Condition{{
+					Type:   conditionInventoryComplete,
+					Status: metav1.ConditionTrue,
+				}},
+				Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
+					Components: map[string]bool{
+						string(meta.ComponentGPUFeatureDiscovery): true,
+						string(meta.ComponentDCGM):                true,
+					},
 			},
 		},
 	}
