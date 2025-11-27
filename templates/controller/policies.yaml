@@ -18,7 +18,8 @@ spec:
     kind: Deployment
     name: {{ $controllerName }}
   updatePolicy:
-    updateMode: Auto
+    # Avoid controller restarts on recommendation updates; apply only on (re)create.
+    updateMode: Initial
   resourcePolicy:
     containerPolicies:
       - containerName: controller
