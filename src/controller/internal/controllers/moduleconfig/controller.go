@@ -147,7 +147,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := crlog.FromContext(ctx).WithValues("moduleConfig", req.NamespacedName.Name)
+	log := crlog.FromContext(ctx).WithValues("moduleConfig", req.Name)
 	ctx = logr.NewContext(ctx, log)
 
 	obj := &unstructured.Unstructured{}

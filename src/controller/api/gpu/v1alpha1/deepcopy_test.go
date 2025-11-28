@@ -21,26 +21,41 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestGPUNodeBootstrapStatusDeepCopy(t *testing.T) {
+func TestGPUNodeInventoryStatusDeepCopy(t *testing.T) {
 	ts := metav1.NewTime(time.Unix(1710000000, 0))
 
-	original := &GPUNodeBootstrapStatus{
-		Phase:        GPUNodeBootstrapPhaseMonitoring,
-		Components:   map[string]bool{"validator": true},
-		GFDReady:     true,
-		ToolkitReady: true,
-		LastRun:      &ts,
-		Workloads: []GPUNodeBootstrapWorkloadStatus{{
-			Name:    "validator",
-			Healthy: true,
-			Since:   &ts,
-			Message: "ok",
+	original := &GPUNodeInventoryStatus{
+		Driver: GPUNodeDriver{
+			Version:      "535.154.05",
+			CUDAVersion:  "12.4",
+			ToolkitReady: true,
+		},
+		Devices: []GPUNodeDevice{{
+			InventoryID: "node1-0000:01:00.0",
+			UUID:        "GPU-123",
+			Product:     "A100",
+			Family:      "Ampere",
+			PCI: PCIAddress{
+				Vendor:  "10de",
+				Device:  "20f1",
+				Class:   "0302",
+				Address: "0000:01:00.0",
+			},
+			NUMANode:   int32Ptr(0),
+			MemoryMiB:  40536,
+			MIG:        GPUMIGConfig{Capable: true, Strategy: GPUMIGStrategySingle, ProfilesSupported: []string{"1g.10gb"}},
+			ComputeCap: &GPUComputeCapability{Major: 8, Minor: 0},
+			State:      GPUDeviceStateReady,
+			LastError:  "recent error",
+			LastErrorReason: "XID",
+			LastUpdatedTime: &ts,
 		}},
-		PendingDevices: []string{"devA", "devB"},
-		Validations: []GPUNodeValidationState{{
-			InventoryID: "devA",
-			Attempts:    2,
-			LastFailure: &ts,
+		Conditions: []metav1.Condition{{
+			Type:               "ReadyForPooling",
+			Status:             metav1.ConditionTrue,
+			Reason:             "OK",
+			Message:            "node ready",
+			LastTransitionTime: ts,
 		}},
 	}
 
@@ -48,41 +63,30 @@ func TestGPUNodeBootstrapStatusDeepCopy(t *testing.T) {
 	if cloned == original {
 		t.Fatal("expected deep copy to allocate a new instance")
 	}
-	if cloned.LastRun == original.LastRun || cloned.Workloads[0].Since == original.Workloads[0].Since {
-		t.Fatal("expected timestamps to be copied")
+	if cloned.Devices[0].NUMANode == original.Devices[0].NUMANode {
+		t.Fatal("NUMA pointer should be copied")
 	}
-	if cloned.Components["validator"] != original.Components["validator"] {
-		t.Fatal("components map corrupted")
+	if cloned.Devices[0].ComputeCap == original.Devices[0].ComputeCap {
+		t.Fatal("compute capability pointer should be copied")
+	}
+	if cloned.Devices[0].LastUpdatedTime == original.Devices[0].LastUpdatedTime {
+		t.Fatal("timestamp pointers should be copied")
 	}
 
-	cloned.Components["validator"] = false
-	cloned.PendingDevices[0] = "mutated"
-	cloned.Validations[0].Attempts = 5
-	if original.Components["validator"] != true {
+	cloned.Devices[0].PCI.Vendor = "mutated"
+	cloned.Devices[0].MIG.ProfilesSupported[0] = "mutated"
+	cloned.Conditions[0].Reason = "Changed"
+	if original.Devices[0].PCI.Vendor != "10de" {
 		t.Fatal("mutating clone should not affect original")
 	}
-	if original.PendingDevices[0] != "devA" {
-		t.Fatal("pending devices should be copied by value")
+	if original.Devices[0].MIG.ProfilesSupported[0] != "1g.10gb" {
+		t.Fatal("profiles slice should be deep-copied")
 	}
-	if original.Validations[0].Attempts != 2 {
-		t.Fatal("validations slice should be copied")
+	if original.Conditions[0].Reason != "OK" {
+		t.Fatal("conditions slice should be deep-copied")
 	}
+}
 
-	workload := &GPUNodeBootstrapWorkloadStatus{Since: &ts}
-	if workload.DeepCopy() == workload {
-		t.Fatal("expected workload deepcopy to clone struct")
-	}
-	var nilWorkload *GPUNodeBootstrapWorkloadStatus
-	if nilWorkload.DeepCopy() != nil {
-		t.Fatal("nil workload deepcopy should return nil")
-	}
-
-	validation := &GPUNodeValidationState{LastFailure: &ts}
-	if validation.DeepCopy() == validation {
-		t.Fatal("expected validation deepcopy to clone struct")
-	}
-	var nilValidation *GPUNodeValidationState
-	if nilValidation.DeepCopy() != nil {
-		t.Fatal("nil validation deepcopy should return nil")
-	}
+func int32Ptr(v int32) *int32 {
+	return &v
 }

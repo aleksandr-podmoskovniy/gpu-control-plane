@@ -176,9 +176,6 @@ spec:
                       in MiB.
                     format: int32
                     type: integer
-                  uuid:
-                    description: UUID is the GPU UUID reported by NVML/DCGM.
-                    type: string
                   mig:
                     description: MIG describes Multi-Instance GPU capabilities and
                       available profiles.
@@ -331,36 +328,43 @@ spec:
                     description: SMCount is the number of streaming multiprocessors.
                     format: int32
                     type: integer
+                  uuid:
+                    description: UUID is the GPU UUID reported by NVML/DCGM.
+                    type: string
                 type: object
               health:
                 description: Health aggregates latest telemetry (temperatures, ECC
                   counters, vendor metrics).
                 properties:
+                  consecutiveHealthy:
+                    description: ConsecutiveHealthy reports the number of sequential
+                      healthy heartbeats.
+                    format: int32
+                    type: integer
                   eccErrorsTotal:
                     description: ECCErrorsTotal is the cumulative count of ECC errors
                       reported by DCGM.
                     format: int64
                     type: integer
-                  lastUpdated:
-                    description: LastUpdatedTime is when telemetry was last refreshed.
-                    format: date-time
-                    type: string
-                  lastHealthyTime:
-                    description: LastHealthyTime stores the timestamp of the last heartbeat without faults.
-                    format: date-time
-                    type: string
-                  consecutiveHealthy:
-                    description: ConsecutiveHealthy reports the number of sequential healthy heartbeats.
-                    format: int32
-                    type: integer
                   lastError:
-                    description: LastError contains the latest fault message detected for the device.
+                    description: LastError contains the latest fault message detected
+                      for the device.
                     type: string
                   lastErrorReason:
-                    description: LastErrorReason categorises the latest fault (XID, ECC, etc.).
+                    description: LastErrorReason categorises the latest fault (XID,
+                      ECC, etc.).
                     type: string
                   lastErrorTime:
                     description: LastErrorTime records when the latest fault was observed.
+                    format: date-time
+                    type: string
+                  lastHealthyTime:
+                    description: LastHealthyTime stores the timestamp of the last
+                      heartbeat without faults.
+                    format: date-time
+                    type: string
+                  lastUpdated:
+                    description: LastUpdatedTime is when telemetry was last refreshed.
                     format: date-time
                     type: string
                   metrics:
@@ -401,8 +405,7 @@ spec:
                 type: object
               state:
                 description: State reflects current lifecycle state of the device
-                  (discovered, validating, ready, pending assignment, assigned/reserved/in
-                  use, faulted).
+                  (unassigned, reserved, assigned, faulted).
                 enum:
                 - Discovered
                 - Validating

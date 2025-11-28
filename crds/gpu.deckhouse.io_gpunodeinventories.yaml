@@ -26,9 +26,6 @@ spec:
     - jsonPath: .spec.nodeName
       name: Node
       type: string
-    - jsonPath: .status.hw.present
-      name: Present
-      type: boolean
     - jsonPath: .status.conditions[?(@.type=="ReadyForPooling")].status
       name: ReadyForPooling
       type: string
@@ -232,6 +229,180 @@ spec:
                   - type
                   type: object
                 type: array
+              devices:
+                description: Devices lists all detected GPUs with mirrored device
+                  metadata.
+                items:
+                  properties:
+                    computeCapability:
+                      description: ComputeCap is the reported CUDA compute capability.
+                      properties:
+                        major:
+                          description: Major is the major version of CUDA compute
+                            capability.
+                          format: int32
+                          type: integer
+                        minor:
+                          description: Minor is the minor version of CUDA compute
+                            capability.
+                          format: int32
+                          type: integer
+                      type: object
+                    family:
+                      description: Family is the GPU family name.
+                      type: string
+                    inventoryID:
+                      description: InventoryID mirrors GPUDevice.status.inventoryID
+                        for quick lookup.
+                      type: string
+                    lastError:
+                      description: LastError contains the latest fault message detected
+                        for the device.
+                      type: string
+                    lastErrorReason:
+                      description: LastErrorReason categorises the latest fault (XID,
+                        ECC, etc.).
+                      type: string
+                    lastUpdatedTime:
+                      description: LastUpdatedTime records when the latest device
+                        data was observed.
+                      format: date-time
+                      type: string
+                    memoryMiB:
+                      description: MemoryMiB is device memory capacity in MiB.
+                      format: int32
+                      type: integer
+                    mig:
+                      description: MIG summarises MIG capabilities for this device.
+                      properties:
+                        capable:
+                          description: Capable indicates whether MIG (Multi-Instance
+                            GPU) is supported by the device.
+                          type: boolean
+                        profilesSupported:
+                          description: ProfilesSupported enumerates MIG profiles that
+                            can be provisioned on this device.
+                          items:
+                            type: string
+                          type: array
+                        strategy:
+                          description: Strategy reflects current MIG strategy detected
+                            on the node (None, Single, Mixed).
+                          enum:
+                          - None
+                          - Single
+                          - Mixed
+                          type: string
+                        types:
+                          description: Types lists capacity counters for each MIG
+                            profile provisioned on the device.
+                          items:
+                            properties:
+                              count:
+                                description: Count represents the number of profiles
+                                  of this type currently configured.
+                                format: int32
+                                type: integer
+                              engines:
+                                description: Engines lists the number of acceleration
+                                  engines exposed to the partition (copy/encoder/decoder/ofa).
+                                properties:
+                                  copy:
+                                    description: Copy is the number of copy engines
+                                      assigned to the partition.
+                                    format: int32
+                                    type: integer
+                                  decoder:
+                                    description: Decoder is the number of NVDEC engines
+                                      assigned to the partition.
+                                    format: int32
+                                    type: integer
+                                  encoder:
+                                    description: Encoder is the number of NVENC engines
+                                      assigned to the partition.
+                                    format: int32
+                                    type: integer
+                                  ofa:
+                                    description: OFAs is the number of Optical Flow
+                                      Accelerators available in the partition.
+                                    format: int32
+                                    type: integer
+                                type: object
+                              memoryMiB:
+                                description: MemoryMiB is the per-partition memory
+                                  size in MiB.
+                                format: int32
+                                type: integer
+                              multiprocessors:
+                                description: Multiprocessors indicates the number
+                                  of SMs allocated to this partition.
+                                format: int32
+                                type: integer
+                              name:
+                                description: Name is the MIG profile name (for example,
+                                  1g.10gb).
+                                type: string
+                              partition:
+                                description: Partition details the GPU and Compute
+                                  instance identifiers associated with the profile.
+                                properties:
+                                  computeInstance:
+                                    description: ComputeInstance is the identifier
+                                      of the compute instance allocated for the partition.
+                                    format: int32
+                                    type: integer
+                                  gpuInstance:
+                                    description: GPUInstance is the identifier of
+                                      the GPU instance allocated for the partition.
+                                    format: int32
+                                    type: integer
+                                type: object
+                            type: object
+                          type: array
+                      type: object
+                    numaNode:
+                      description: NUMANode is the NUMA node id associated with the
+                        device.
+                      format: int32
+                      type: integer
+                    pci:
+                      description: PCI describes vendor/device/class identifiers for
+                        the PCI function.
+                      properties:
+                        address:
+                          description: Address is the full PCI address (domain:bus:slot.func).
+                          type: string
+                        class:
+                          description: Class is the PCI class code in hexadecimal.
+                          type: string
+                        device:
+                          description: Device is the PCI device id in hexadecimal.
+                          type: string
+                        vendor:
+                          description: Vendor is the PCI vendor id in hexadecimal
+                            (e.g. 10de).
+                          type: string
+                      type: object
+                    product:
+                      description: Product is the GPU model available on this node.
+                      type: string
+                    state:
+                      description: State mirrors GPUDevice.state for convenience.
+                      enum:
+                      - Discovered
+                      - Validating
+                      - Ready
+                      - PendingAssignment
+                      - Assigned
+                      - Reserved
+                      - InUse
+                      - Faulted
+                      type: string
+                    uuid:
+                      description: UUID is the GPU UUID obtained from NVML/DCGM.
+                      type: string
+                  type: object
+                type: array
               driver:
                 description: Driver captures driver/toolkit versions and readiness.
                 properties:
@@ -257,13 +428,6 @@ spec:
                       metadata.
                     items:
                       properties:
-                        autoAttach:
-                          description: AutoAttach flags whether automatic assignment
-                            is enabled for the device.
-                          type: boolean
-                        board:
-                          description: Board is the board identifier/model.
-                          type: string
                         computeCapability:
                           description: ComputeCap is the reported CUDA compute capability.
                           properties:
@@ -278,71 +442,30 @@ spec:
                               format: int32
                               type: integer
                           type: object
-                        displayMode:
-                          description: DisplayMode indicates whether display is enabled.
-                          type: string
                         family:
                           description: Family is the GPU family name.
                           type: string
-                        health:
-                          description: Health provides per-device telemetry snapshot.
-                          properties:
-                            eccErrorsTotal:
-                              description: ECCErrorsTotal is the cumulative count
-                                of ECC errors reported by DCGM.
-                              format: int64
-                              type: integer
-                            lastUpdated:
-                              description: LastUpdatedTime is when telemetry was last
-                                refreshed.
-                              format: date-time
-                              type: string
-                            lastHealthyTime:
-                              description: LastHealthyTime stores the timestamp of the last heartbeat without faults.
-                              format: date-time
-                              type: string
-                            consecutiveHealthy:
-                              description: ConsecutiveHealthy reports the number of sequential healthy heartbeats.
-                              format: int32
-                              type: integer
-                            lastError:
-                              description: LastError contains the latest fault message detected for the device.
-                              type: string
-                            lastErrorReason:
-                              description: LastErrorReason categorises the latest fault (XID, ECC, etc.).
-                              type: string
-                            lastErrorTime:
-                              description: LastErrorTime records when the latest fault was observed.
-                              format: date-time
-                              type: string
-                            metrics:
-                              additionalProperties:
-                                type: string
-                              description: Metrics contains vendor specific telemetry
-                                key/value pairs exported by controllers.
-                              type: object
-                            temperatureC:
-                              description: TemperatureC is the latest reported temperature
-                                in Celsius.
-                              format: int32
-                              type: integer
-                          type: object
                         inventoryID:
                           description: InventoryID mirrors GPUDevice.status.inventoryID
                             for quick lookup.
                           type: string
-                        memoryBandwidthMiB:
-                          description: MemoryBandwidthMiB is the memory bandwidth
-                            in MiB/s.
-                          format: int32
-                          type: integer
+                        lastError:
+                          description: LastError contains the latest fault message
+                            detected for the device.
+                          type: string
+                        lastErrorReason:
+                          description: LastErrorReason categorises the latest fault
+                            (XID, ECC, etc.).
+                          type: string
+                        lastUpdatedTime:
+                          description: LastUpdatedTime records when the latest device
+                            data was observed.
+                          format: date-time
+                          type: string
                         memoryMiB:
                           description: MemoryMiB is device memory capacity in MiB.
                           format: int32
                           type: integer
-                        uuid:
-                          description: UUID is the GPU UUID reported by NVML/DCGM.
-                          type: string
                         mig:
                           description: MIG summarises MIG capabilities for this device.
                           properties:
@@ -455,53 +578,10 @@ spec:
                                 (e.g. 10de).
                               type: string
                           type: object
-                        pcie:
-                          description: PCIE holds PCIe link characteristics.
-                          properties:
-                            generation:
-                              description: Generation is the PCIe generation (e.g.
-                                3,4,5).
-                              format: int32
-                              type: integer
-                            width:
-                              description: Width is the negotiated link width (e.g.
-                                16).
-                              format: int32
-                              type: integer
-                          type: object
-                        powerLimitMilliWatt:
-                          description: PowerLimitMilliWatt is the enforced power limit.
-                          format: int32
-                          type: integer
-                        precision:
-                          description: Precision lists math precisions supported by
-                            the device.
-                          properties:
-                            supported:
-                              description: Supported lists all math precisions supported
-                                by the device (e.g. fp32, fp16, bf16).
-                              items:
-                                type: string
-                              type: array
-                          type: object
                         product:
                           description: Product is the GPU model available on this
                             node.
                           type: string
-                        pstate:
-                          description: PState is the current performance state.
-                          type: string
-                        reason:
-                          description: Reason stores human readable reason why the
-                            device is pending/unassigned.
-                          type: string
-                        serial:
-                          description: Serial is the GPU serial number if reported.
-                          type: string
-                        smCount:
-                          description: SMCount is the number of streaming multiprocessors.
-                          format: int32
-                          type: integer
                         state:
                           description: State mirrors GPUDevice.state for convenience.
                           enum:
@@ -514,6 +594,9 @@ spec:
                           - InUse
                           - Faulted
                           type: string
+                        uuid:
+                          description: UUID is the GPU UUID obtained from NVML/DCGM.
+                          type: string
                       type: object
                     type: array
                   present:
@@ -521,111 +604,28 @@ spec:
                       are present on the node.
                     type: boolean
                 type: object
-              devices:
-                description: Devices summarises the device lifecycle states on the
-                  node.
-                properties:
-                  assigned:
-                    format: int32
-                    type: integer
-                  faulted:
-                    format: int32
-                    type: integer
-                  ignored:
-                    format: int32
-                    type: integer
-                  inUse:
-                    format: int32
-                    type: integer
-                  pendingAssignment:
-                    format: int32
-                    type: integer
-                  ready:
-                    format: int32
-                    type: integer
-                  reserved:
-                    format: int32
-                    type: integer
-                  total:
-                    format: int32
-                    type: integer
-                  validating:
-                    format: int32
-                    type: integer
-                type: object
               monitoring:
                 description: Monitoring indicates health of GFD/DCGM exporters.
                 properties:
-                  dcgmReady:
-                    description: DCGMReady shows whether DCGM exporter is running
-                      and responsive.
-                    type: boolean
+                  consecutiveFailures:
+                    description: ConsecutiveFailures counts sequential failed monitoring
+                      checks (missing pods/heartbeats).
+                    format: int32
+                    type: integer
                   consecutiveHeartbeats:
                     description: ConsecutiveHeartbeats counts sequential successful
                       heartbeats from DCGM exporter.
                     format: int32
                     type: integer
-                  consecutiveFailures:
-                    description: ConsecutiveFailures counts sequential failed monitoring checks.
-                    format: int32
-                    type: integer
+                  dcgmReady:
+                    description: DCGMReady shows whether DCGM exporter is running
+                      and responsive.
+                    type: boolean
                   lastHeartbeat:
                     description: LastHeartbeat records the timestamp of the last successful
                       monitoring heartbeat.
                     format: date-time
                     type: string
-                type: object
-              pools:
-                description: Pools summarises assignments and pending requests for
-                  pools on this node.
-                properties:
-                  assigned:
-                    description: Assigned lists pools currently consuming device capacity
-                      on the node.
-                    items:
-                      properties:
-                        name:
-                          description: Name is the GPUPool name serving workloads
-                            on the node.
-                          type: string
-                        resource:
-                          description: Resource is the device-plugin resource name
-                            exposed for the assignment.
-                          type: string
-                        since:
-                          description: Since records when the pool assignment became
-                            active.
-                          format: date-time
-                          type: string
-                        slotsReserved:
-                          description: SlotsReserved counts allocated devices or partitions
-                            for the pool on this node.
-                          format: int32
-                          type: integer
-                      type: object
-                    type: array
-                  pending:
-                    description: Pending describes pools awaiting operator approval
-                      or automatic assignment.
-                    items:
-                      properties:
-                        annotationHint:
-                          description: AnnotationHint contains suggested annotation
-                            key/value for manual assignment.
-                          type: string
-                        autoApproved:
-                          description: AutoApproved shows whether the assignment will
-                            happen automatically once requirements are satisfied.
-                          type: boolean
-                        pool:
-                          description: Pool is the GPUPool awaiting approval or matching
-                            devices.
-                          type: string
-                        reason:
-                          description: Reason explains why the pool remains pending.
-                          type: string
-                      type: object
-                    type: array
                 type: object
             type: object
         type: object

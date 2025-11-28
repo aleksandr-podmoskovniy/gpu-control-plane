@@ -211,7 +211,8 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, monitoringMissing, boolReason(!monitoringMissing, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMsg) || conditionsChanged
 
 	infraDegraded := !driverReady || !toolkitReady || monitoringMissing
-	degradedWorkloads := infraDegraded && (inventory.Status.Devices.Assigned+inventory.Status.Devices.Reserved+inventory.Status.Devices.InUse) > 0
+	stateCounters := inventoryDeviceCounters(inventory)
+	degradedWorkloads := infraDegraded && (stateCounters[v1alpha1.GPUDeviceStateAssigned]+stateCounters[v1alpha1.GPUDeviceStateReserved]+stateCounters[v1alpha1.GPUDeviceStateInUse]) > 0
 	infraMessage := "Infrastructure components are healthy"
 	if infraDegraded {
 		infraMessage = "Driver/toolkit or monitoring components require attention"
@@ -533,7 +534,7 @@ func scrapeExporterHeartbeat(ctx context.Context, pod *corev1.Pod) (*metav1.Time
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %s", resp.Status)
@@ -621,8 +622,8 @@ func (h *WorkloadStatusHandler) evaluateReadyForPooling(inventory *v1alpha1.GPUN
 		return false, reasonComponentPending, "Bootstrap workloads are still initialising"
 	case !monitoringHealthy:
 		return false, reasonMonitoringUnhealthy, "DCGM exporter is waiting for stable heartbeat measurements"
-	case inventory.Status.Devices.Faulted > 0:
-		return false, reasonDevicesFaulted, fmt.Sprintf("%d device(s) are faulted", inventory.Status.Devices.Faulted)
+	case inventoryDeviceCounters(inventory)[v1alpha1.GPUDeviceStateFaulted] > 0:
+		return false, reasonDevicesFaulted, fmt.Sprintf("%d device(s) are faulted", inventoryDeviceCounters(inventory)[v1alpha1.GPUDeviceStateFaulted])
 	default:
 		return true, reasonAllChecksPassed, "All bootstrap checks passed"
 	}
@@ -662,6 +663,9 @@ func (h *WorkloadStatusHandler) validatorRequired(phase v1alpha1.GPUNodeBootstra
 }
 
 func hardwarePresent(inventory *v1alpha1.GPUNodeInventory) bool {
+	if len(inventory.Status.Devices) > 0 {
+		return true
+	}
 	if inventory.Status.Hardware.Present {
 		return true
 	}
@@ -805,8 +809,12 @@ func podPendingMessage(pod *corev1.Pod) string {
 }
 
 func pendingDeviceIDs(inventory *v1alpha1.GPUNodeInventory) []string {
-	ids := make([]string, 0, len(inventory.Status.Hardware.Devices))
-	for idx, device := range inventory.Status.Hardware.Devices {
+	sourceDevices := inventory.Status.Devices
+	if len(sourceDevices) == 0 {
+		sourceDevices = inventory.Status.Hardware.Devices
+	}
+	ids := make([]string, 0, len(sourceDevices))
+	for idx, device := range sourceDevices {
 		if !deviceStateNeedsValidation(device.State) {
 			continue
 		}
@@ -833,4 +841,16 @@ func deviceStateNeedsValidation(state v1alpha1.GPUDeviceState) bool {
 	default:
 		return true
 	}
+}
+
+func inventoryDeviceCounters(inventory *v1alpha1.GPUNodeInventory) map[v1alpha1.GPUDeviceState]int32 {
+	counters := make(map[v1alpha1.GPUDeviceState]int32)
+	sourceDevices := inventory.Status.Devices
+	if len(sourceDevices) == 0 {
+		sourceDevices = inventory.Status.Hardware.Devices
+	}
+	for _, dev := range sourceDevices {
+		counters[normalizeDeviceState(dev.State)]++
+	}
+	return counters
 }

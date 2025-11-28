@@ -92,10 +92,11 @@ limitations under the License.
    - `d8:user-authz:gpu-control-plane:editor` — CRUD `GPUPool`.
    - `d8:user-authz:gpu-control-plane:cluster-admin` — break-glass: CRUD `GPUPool`, `get/list/watch/delete` `GPUDevice/GPUNodeInventory`.
      Назначение прав — обычным ClusterRoleBinding/Subject (Dex-группа, SA проекта).
-3. **Доступ workloads к пулам:** кластерный `ClusterGPUPool` доступен напрямую по ресурсу `gpu.deckhouse.io/<pool>` во всех namespaces (ограничение — RBAC/quotas). `GPUPool` — namespaced ресурс с полной спекой, работает только в своём namespace. Binding-модели нет (в отличие от Virtualization, где CVI и VI независимы); мутатор ищет GPUPool в ns → если нет, пробует ClusterGPUPool → иначе deny.
+3. **Доступ workloads к пулам:** кластерный `ClusterGPUPool` доступен напрямую по ресурсу `gpu.deckhouse.io/<pool>` во всех namespaces (ограничение — RBAC/quotas). `GPUPool` — namespaced ресурс с полной спекой, работает только в своём namespace. Binding-модели нет (в отличие от Virtualization, где CVI и VI независимы); мутатор ищет GPUPool в ns → если нет, пробует ClusterGPUPool → иначе deny. Коллизии имён предотвращаются: если существует ClusterGPUPool `x`, GPUPool `x` получает Condition `NameCollision=false`.
 4. **Практики DKP (рекомендации, опционально):**
    - **OperationPolicy** — навешивать на namespace с GPU workload через метку `operation-policy.deckhouse.io/gpu-control-plane=true`; модуль кладёт готовый `OperationPolicy/gpu-control-plane-baseline` (requests/limits CPU+memory, запрет `:latest`, обязательные probes, проверка DNSPolicy при hostNetwork).
    - **SecurityPolicy** — на те же ns лейбл `security.deckhouse.io/gpu-control-plane=restricted`; модуль кладёт `SecurityPolicy/gpu-control-plane-restricted` (без host\*, без privileged, baseline-разрешения на volumes).
+   - **ResourceQuota/LimitRange** — задавать квоты на `gpu.deckhouse.io/<pool>` и whitelist priorityClass через OperationPolicy, чтобы ограничивать потребление кластерных ресурсов в многотенантных ns.
 
 Типичные манифесты для админов/тенантов:
 
@@ -137,37 +138,44 @@ metadata:
 - `k8s-w1-gpu-apiac-ru-0-10de-2203` — RTX 3090 Ti.
 - `k8s-w2-gpu-apiac-ru-0-10de-2204` — RTX 3090.
 
-Шаги:
+Шаги (кластерный пул + локальный пул):
 
 ```bash
-# ns и SA для команд GPU-команды
+# ns и SA
 kubectl create namespace gpu-team-a
 kubectl create namespace gpu-team-b
+kubectl create namespace gpu-team-local
 kubectl create sa gpu-user -n gpu-team-a
 kubectl create sa gpu-user -n gpu-team-b
+kubectl create sa gpu-user -n gpu-team-local
 
 # Включить политики (опционально)
 kubectl label ns gpu-team-a operation-policy.deckhouse.io/gpu-control-plane=true security.deckhouse.io/gpu-control-plane=restricted
 kubectl label ns gpu-team-b operation-policy.deckhouse.io/gpu-control-plane=true security.deckhouse.io/gpu-control-plane=restricted
+kubectl label ns gpu-team-local operation-policy.deckhouse.io/gpu-control-plane=true security.deckhouse.io/gpu-control-plane=restricted
 
-# Назначить карты в пулы (аннотация на GPUDevice)
-kubectl annotate gpudevice k8s-w1-gpu-apiac-ru-0-10de-2203 gpu.deckhouse.io/assignment=pool-a --overwrite
-kubectl annotate gpudevice k8s-w2-gpu-apiac-ru-0-10de-2204 gpu.deckhouse.io/assignment=pool-b --overwrite
+# Назначить карты в пул (аннотация на GPUDevice)
+kubectl annotate gpudevice k8s-w1-gpu-apiac-ru-0-10de-2203 gpu.deckhouse.io/assignment=cluster-a --overwrite
+kubectl annotate gpudevice k8s-w2-gpu-apiac-ru-0-10de-2204 gpu.deckhouse.io/assignment=cluster-a --overwrite
+kubectl annotate gpudevice k8s-w3-gpu-apiac-ru-0-10de-2203 gpu.deckhouse.io/assignment=local-x --overwrite
 ```
 
-Манифесты пулов (namespaced, селектор по PCI ID; доступ ограничивается RBAC на ресурс `gpupools`):
+Манифесты пулов и квоты:
 
 ```yaml
+# Кластерный пул: ресурс gpu.deckhouse.io/cluster-a доступен во всех ns
 apiVersion: gpu.deckhouse.io/v1alpha1
-kind: GPUPool
+kind: ClusterGPUPool
 metadata:
-  name: pool-a
-  namespace: gpu-team-a
+  name: cluster-a
 spec:
-  allocationMode: Card
+  provider: Nvidia
+  backend: DevicePlugin
+  resource:
+    unit: Card
   deviceSelector:
     include:
-      pciVendors: ["10de"] # NVIDIA
+      pciVendors: ["10de"]
       pciDevices:
         - "2203" # GA102 / RTX 3090 Ti
         - "2204" # GA102 / RTX 3090
@@ -176,21 +184,41 @@ spec:
     topologyKey: topology.kubernetes.io/zone
   slicesPerUnit: 1
 ---
+# Локальный пул только в ns gpu-team-local
 apiVersion: gpu.deckhouse.io/v1alpha1
 kind: GPUPool
 metadata:
-  name: pool-b
-  namespace: gpu-team-b
+  name: local-x
+  namespace: gpu-team-local
 spec:
   allocationMode: Card
   deviceSelector:
     include:
-      pciVendors: ["10de"]
+      pciVendors: ["10de"] # NVIDIA
       pciDevices: ["2203"]
   scheduling:
     strategy: Spread
     topologyKey: topology.kubernetes.io/zone
   slicesPerUnit: 1
+---
+# Квоты на кластерный пул в ns gpu-team-a/b
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-cluster-a
+  namespace: gpu-team-a
+spec:
+  hard:
+    gpu.deckhouse.io/cluster-a: "2"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: gpu-cluster-a
+  namespace: gpu-team-b
+spec:
+  hard:
+    gpu.deckhouse.io/cluster-a: "1"
 ```
 
 Пример Pod’ов:
@@ -208,7 +236,7 @@ spec:
       image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
       resources:
         limits:
-          gpu.deckhouse.io/pool-a: "1"
+          gpu.deckhouse.io/cluster-a: "1"
 ---
 apiVersion: v1
 kind: Pod
@@ -222,7 +250,22 @@ spec:
       image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
       resources:
         limits:
-          gpu.deckhouse.io/pool-b: "1"
+          gpu.deckhouse.io/cluster-a: "1"
+---
+# Pod с локальным пулом
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-local
+  namespace: gpu-team-local
+spec:
+  serviceAccountName: gpu-user
+  containers:
+    - name: c
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
+      resources:
+        limits:
+          gpu.deckhouse.io/local-x: "1"
 ```
 
 - Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.

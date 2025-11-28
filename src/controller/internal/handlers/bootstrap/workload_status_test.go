@@ -258,7 +258,7 @@ func TestWorkloadStatusHandlerMarksDegradedWorkloads(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: node},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
-			Devices:  v1alpha1.GPUNodeDeviceSummary{InUse: 1},
+			Devices:  []v1alpha1.GPUNodeDevice{{State: v1alpha1.GPUDeviceStateInUse}},
 			Conditions: []metav1.Condition{{
 				Type:   conditionInventoryComplete,
 				Status: metav1.ConditionTrue,
@@ -799,7 +799,7 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 
 	// Devices pending validation block readiness.
 	pendingInventory := makeInventory()
-	pendingInventory.Status.Hardware.Devices = []v1alpha1.GPUNodeDevice{{State: v1alpha1.GPUDeviceStateDiscovered}}
+	pendingInventory.Status.Devices = []v1alpha1.GPUNodeDevice{{State: v1alpha1.GPUDeviceStateDiscovered}}
 	if ready, reason, _ := handler.evaluateReadyForPooling(pendingInventory, true, true, true, true, true, 1, nil); ready || reason != reasonDevicesPending {
 		t.Fatalf("expected reason %s when GPUs need validation, got ready=%t reason=%s", reasonDevicesPending, ready, reason)
 	}
@@ -815,9 +815,9 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 	check(true, true, false, true, reasonComponentPending)
 	check(true, true, true, false, reasonMonitoringUnhealthy)
 
-	// Faulted devices block readiness.
+// Faulted devices block readiness.
 	withFaulted := makeInventory()
-	withFaulted.Status.Devices.Faulted = 1
+	withFaulted.Status.Devices = []v1alpha1.GPUNodeDevice{{State: v1alpha1.GPUDeviceStateFaulted}}
 	if ready, reason, _ := handler.evaluateReadyForPooling(withFaulted, true, true, true, true, true, 0, nil); ready || reason != reasonDevicesFaulted {
 		t.Fatalf("expected %s when devices faulted, got ready=%t reason=%s", reasonDevicesFaulted, ready, reason)
 	}
@@ -1014,7 +1014,9 @@ func TestFlattenValidationStatesEmpty(t *testing.T) {
 func TestScrapeExporterHeartbeatSuccess(t *testing.T) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "dcgm_exporter_last_update_time_seconds 123.0")
+		if _, err := fmt.Fprint(w, "dcgm_exporter_last_update_time_seconds 123.0"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1216,7 +1218,7 @@ func TestExporterHeartbeatSuccess(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("expected single heartbeat invocation, got %d", called)
 	}
-	if hb == nil || hb.Time.Unix() != 7777 {
+	if hb == nil || hb.Unix() != 7777 {
 		t.Fatalf("unexpected heartbeat timestamp: %+v", hb)
 	}
 }
@@ -1281,7 +1283,9 @@ func TestScrapeExporterHeartbeatBadURL(t *testing.T) {
 
 func TestScrapeExporterHeartbeatParseError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "other_metric 1")
+		if _, err := fmt.Fprint(w, "other_metric 1"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer server.Close()
 

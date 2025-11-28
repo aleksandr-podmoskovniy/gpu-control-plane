@@ -4,6 +4,6 @@ core:
   prometheus-client-golang: v1.19.0
 package:
   golang: go1.25.2
-  module-sdk: v0.3.7
+  module-sdk: v0.5.0
   kubernetes-api: v0.30.11
-  golangci-lint: v1.64.8
+  golangci-lint: v2.6.2

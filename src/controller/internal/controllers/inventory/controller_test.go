@@ -113,6 +113,24 @@ func (f *failingListClient) List(context.Context, client.ObjectList, ...client.L
 	return f.err
 }
 
+type listErrorClient struct {
+	client.Client
+	err          error
+	failOnSecond bool
+	calls        int
+}
+
+func (c *listErrorClient) List(ctx context.Context, obj client.ObjectList, opts ...client.ListOption) error {
+	c.calls++
+	if c.failOnSecond && c.calls == 2 {
+		return c.err
+	}
+	if !c.failOnSecond {
+		return c.err
+	}
+	return c.Client.List(ctx, obj, opts...)
+}
+
 type failingGetListClient struct {
 	client.Client
 	getErr         error
@@ -656,9 +674,6 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if inventoryDevice.UUID != "GPU-TEST-UUID-0001" {
 		t.Fatalf("unexpected inventory UUID: %s", inventoryDevice.UUID)
 	}
-	if !stringSlicesEqual(inventoryDevice.Precision.Supported, []string{"fp16", "fp32"}) {
-		t.Fatalf("unexpected inventory precision: %+v", inventoryDevice.Precision.Supported)
-	}
 	if fetchedInventory.Status.Driver.Version != "535.86.05" {
 		t.Fatalf("unexpected driver version: %s", fetchedInventory.Status.Driver.Version)
 	}
@@ -1054,8 +1069,12 @@ func TestReconcileTelemetryErrorDoesNotFail(t *testing.T) {
 
 func TestReconcileCollectsTelemetryWhenAvailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "dcgm_exporter_last_update_time_seconds 100")
-		fmt.Fprintln(w, "DCGM_FI_DEV_GPU_TEMP{gpu=\"0\"} 50")
+		if _, err := fmt.Fprintln(w, "dcgm_exporter_last_update_time_seconds 100"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
+		if _, err := fmt.Fprintln(w, "DCGM_FI_DEV_GPU_TEMP{gpu=\"0\"} 50"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1121,7 +1140,9 @@ func TestReconcileCollectsTelemetryWhenAvailable(t *testing.T) {
 func TestReconcileCollectsDetectionWhenAvailable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `[{"index":0,"uuid":"GPU-AAA","product":"A100","memoryInfo":{"Total":1073741824,"Free":536870912,"Used":536870912},"powerUsage":1000,"powerManagementDefaultLimit":2000,"utilization":{"Gpu":50,"Memory":25},"memoryMiB":1024,"computeMajor":8,"computeMinor":0,"pci":{"address":"0000:17:00.0","vendor":"10de","device":"2203","class":"0302"},"pcie":{"generation":4,"width":16},"board":"board-1","family":"ampere","serial":"serial-1","displayMode":"Enabled","mig":{"capable":true,"profilesSupported":["mig-1g.10gb"]}}]`)
+		if _, err := fmt.Fprint(w, `[{"index":0,"uuid":"GPU-AAA","product":"A100","memoryInfo":{"Total":1073741824,"Free":536870912,"Used":536870912},"powerUsage":1000,"powerManagementDefaultLimit":2000,"utilization":{"Gpu":50,"Memory":25},"memoryMiB":1024,"computeMajor":8,"computeMinor":0,"pci":{"address":"0000:17:00.0","vendor":"10de","device":"2203","class":"0302"},"pcie":{"generation":4,"width":16},"board":"board-1","family":"ampere","serial":"serial-1","displayMode":"Enabled","mig":{"capable":true,"profilesSupported":["mig-1g.10gb"]}}]`); err != nil {
+			t.Fatalf("write detections: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1195,7 +1216,9 @@ func TestReconcileCollectsDetectionWhenAvailable(t *testing.T) {
 func TestReconcilePassesDetectionsToDevice(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `[{"index":0,"uuid":"GPU-AAA","product":"A100","memoryInfo":{"Total":1024,"Free":512,"Used":512},"powerUsage":1000,"utilization":{"Gpu":10,"Memory":5},"memoryMiB":1024,"computeMajor":8,"computeMinor":0}]`)
+		if _, err := fmt.Fprint(w, `[{"index":0,"uuid":"GPU-AAA","product":"A100","memoryInfo":{"Total":1024,"Free":512,"Used":512},"powerUsage":1000,"utilization":{"Gpu":10,"Memory":5},"memoryMiB":1024,"computeMajor":8,"computeMinor":0}]`); err != nil {
+			t.Fatalf("write detections: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2940,7 +2963,7 @@ func TestRequeueAllNodes(t *testing.T) {
 	}
 	expected := map[string]struct{}{"node-a": {}, "node-b": {}}
 	for _, req := range reqs {
-		if _, ok := expected[req.NamespacedName.Name]; !ok {
+		if _, ok := expected[req.Name]; !ok {
 			t.Fatalf("unexpected request %#v", req)
 		}
 	}
@@ -3002,7 +3025,7 @@ func TestMapModuleConfigRequeuesNodes(t *testing.T) {
 	}
 
 	reqs := reconciler.mapModuleConfig(context.Background(), nil)
-	if len(reqs) != 1 || reqs[0].NamespacedName.Name != node.Name {
+	if len(reqs) != 1 || reqs[0].Name != node.Name {
 		t.Fatalf("unexpected requests returned from mapModuleConfig: %#v", reqs)
 	}
 }
@@ -3016,6 +3039,63 @@ func TestMapModuleConfigSkipsNodesWithoutDevices(t *testing.T) {
 
 	if reqs := reconciler.mapModuleConfig(context.Background(), nil); len(reqs) != 0 {
 		t.Fatalf("expected no requests when there are no GPU devices, got %#v", reqs)
+	}
+}
+
+func TestMapModuleConfigCleansResourcesWhenDisabled(t *testing.T) {
+	scheme := newTestScheme(t)
+	inv := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
+	dev := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev1"}, Status: v1alpha1.GPUDeviceStatus{NodeName: "node1"}}
+	client := newTestClient(scheme, inv, dev)
+
+	store := config.NewModuleConfigStore(moduleconfig.State{Enabled: false, Settings: moduleconfig.DefaultState().Settings})
+
+	rec := &Reconciler{
+		client:          client,
+		store:           store,
+		fallbackManaged: ManagedNodesPolicy{LabelKey: "gpu.deckhouse.io/enabled", EnabledByDefault: true},
+	}
+	if reqs := rec.mapModuleConfig(context.Background(), nil); len(reqs) != 0 {
+		t.Fatalf("expected no requeues when module disabled")
+	}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "node1"}, &v1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("inventory should be deleted on disable, got %v", err)
+	}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "dev1"}, &v1alpha1.GPUDevice{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("device should be deleted on disable, got %v", err)
+	}
+}
+
+func TestMapModuleConfigCleanupErrorIsIgnored(t *testing.T) {
+	rec := &Reconciler{
+		client: &listErrorClient{err: errors.New("cleanup fail")},
+		log:    testr.New(t),
+		store:  config.NewModuleConfigStore(moduleconfig.State{Enabled: false, Settings: moduleconfig.DefaultState().Settings}),
+	}
+	if reqs := rec.mapModuleConfig(context.Background(), nil); reqs != nil {
+		t.Fatalf("expected nil requests when cleanup fails, got %#v", reqs)
+	}
+}
+
+func TestCleanupAllInventoriesListError(t *testing.T) {
+	rec := &Reconciler{
+		client: &listErrorClient{err: errors.New("list inv")},
+	}
+	if err := rec.cleanupAllInventories(context.Background()); err == nil || !strings.Contains(err.Error(), "list inv") {
+		t.Fatalf("expected list error, got %v", err)
+	}
+}
+
+func TestCleanupAllInventoriesDevicesListError(t *testing.T) {
+	scheme := newTestScheme(t)
+	inv := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
+	dev := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev1"}, Status: v1alpha1.GPUDeviceStatus{NodeName: "node1"}}
+	base := newTestClient(scheme, inv, dev)
+	rec := &Reconciler{
+		client: &listErrorClient{Client: base, err: errors.New("list devs"), failOnSecond: true},
+	}
+	if err := rec.cleanupAllInventories(context.Background()); err == nil || !strings.Contains(err.Error(), "list devs") {
+		t.Fatalf("expected device list error, got %v", err)
 	}
 }
 
@@ -4448,9 +4528,6 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 	}
 	if len(inventory.Status.Hardware.Devices) != 1 {
 		t.Fatalf("expected 1 device, got %+v", inventory.Status.Hardware.Devices)
-	}
-	if !stringSlicesEqual(inventory.Status.Hardware.Devices[0].Precision.Supported, []string{"fp16", "fp32"}) {
-		t.Fatalf("expected precision from snapshot, got %+v", inventory.Status.Hardware.Devices[0].Precision.Supported)
 	}
 }
 

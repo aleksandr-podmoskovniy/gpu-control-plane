@@ -42,12 +42,13 @@ spec:
             description: Spec declares desired rules for selecting and slicing devices.
             properties:
               backend:
-                description: Backend chooses integration backend (device-plugin or DRA).
+                default: DevicePlugin
+                description: Backend chooses integration backend (device-plugin or
+                  DRA).
                 enum:
                 - DevicePlugin
                 - DRA
                 type: string
-                default: DevicePlugin
               deviceAssignment:
                 description: DeviceAssignment controls manual vs automatic assignment
                   flows.
@@ -231,14 +232,28 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              provider:
+                default: Nvidia
+                description: Provider selects GPU vendor implementation (only "Nvidia"
+                  is supported for now).
+                enum:
+                - Nvidia
+                type: string
               resource:
-                description: Resource defines the custom resource name and unit exposed
-                  to workloads.
+                description: Resource defines the resource unit exposed to workloads.
+                  Resource name is derived from pool name.
                 properties:
+                  maxDevicesPerNode:
+                    description: MaxDevicesPerNode caps number of devices contributed
+                      per node.
+                    format: int32
+                    type: integer
                   migLayout:
-                    description: MIGLayout allows specifying per-device MIG profiles with counts
-                      (only when Unit=MIG).
+                    description: MIGLayout allows specifying per-device MIG profiles
+                      with counts (only when Unit=MIG).
                     items:
+                      description: GPUPoolMIGDeviceLayout describes MIG profiles per
+                        device selector.
                       properties:
                         deviceFilter:
                           description: DeviceFilter allows matching by vendor:device
@@ -255,6 +270,8 @@ spec:
                         profiles:
                           description: Profiles lists MIG profiles with optional counts.
                           items:
+                            description: GPUPoolMIGProfile represents desired MIG
+                              profile count.
                             properties:
                               count:
                                 description: Count is how many instances of the profile
@@ -264,6 +281,11 @@ spec:
                               name:
                                 description: Name is the MIG profile name (e.g. 1g.10gb).
                                 type: string
+                              slicesPerUnit:
+                                description: SlicesPerUnit overrides resource or layout
+                                  slices for this profile (optional).
+                                format: int32
+                                type: integer
                             type: object
                           type: array
                         slicesPerUnit:
@@ -278,32 +300,32 @@ spec:
                           type: array
                       type: object
                     type: array
-                  maxDevicesPerNode:
-                    description: MaxDevicesPerNode caps number of devices contributed
-                      per node.
-                    format: int32
-                    type: integer
                   migProfile:
-                    description: MIGProfile specifies the MIG profile to use when
-                      unit=MIG.
+                    description: MIGProfile specifies the MIG profile when Unit=MIG
+                      (single profile shortcut).
                     type: string
                   slicesPerUnit:
+                    default: 1
                     description: SlicesPerUnit configures oversubscription per base
                       unit (card or MIG partition).
                     format: int32
+                    maximum: 64
+                    minimum: 1
                     type: integer
                   timeSlicingResources:
                     description: TimeSlicingResources allows overriding slicesPerUnit
                       per resource.
                     items:
+                      description: GPUPoolTimeSlicingResource overrides slicesPerUnit
+                        for a specific resource.
                       properties:
                         name:
                           description: Name is the resource name to override (defaults
                             to pool resource name).
                           type: string
                         slicesPerUnit:
-                          description: SlicesPerUnit is the number of slices for
-                            this resource.
+                          description: SlicesPerUnit is the number of slices for this
+                            resource.
                           format: int32
                           type: integer
                       type: object
@@ -317,19 +339,10 @@ spec:
                 required:
                 - unit
                 type: object
-              provider:
-                description: Provider selects GPU vendor implementation.
-                enum:
-                - Nvidia
-                type: string
-                default: Nvidia
               scheduling:
                 description: Scheduling configures topology spreading, taints and
                   other scheduling hints.
                 properties:
-                  taintsEnabled:
-                    description: TaintsEnabled controls whether per-pool taints/tolerations are applied.
-                    type: boolean
                   strategy:
                     description: Strategy controls balancing strategy among nodes
                       (BinPack or Spread).
@@ -356,6 +369,10 @@ spec:
                       - key
                       type: object
                     type: array
+                  taintsEnabled:
+                    description: TaintsEnabled controls whether per-pool taints/tolerations
+                      are applied.
+                    type: boolean
                   topologyKey:
                     description: TopologyKey configures topology spreading key when
                       strategy=Spread.
@@ -406,16 +423,18 @@ spec:
                 description: Capacity summarises total/used/available capacity inside
                   the pool.
                 properties:
+                  available:
+                    description: Available is free capacity that may still be assigned.
+                    format: int32
+                    type: integer
                   baseUnits:
-                    description: BaseUnits is the number of base devices/partitions contributing to capacity.
+                    description: BaseUnits is the number of base devices/partitions
+                      contributing to capacity.
                     format: int32
                     type: integer
                   slicesPerUnit:
-                    description: SlicesPerUnit shows how many slices each base unit provides.
-                    format: int32
-                    type: integer
-                  available:
-                    description: Available is free capacity that may still be assigned.
+                    description: SlicesPerUnit shows how many slices each base unit
+                      provides.
                     format: int32
                     type: integer
                   total:

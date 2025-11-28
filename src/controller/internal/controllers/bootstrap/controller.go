@@ -366,7 +366,7 @@ func (r *Reconciler) requeueAllInventories(ctx context.Context) []reconcile.Requ
 
 	requests := make([]reconcile.Request, 0, len(list.Items))
 	for _, item := range list.Items {
-		if !item.Status.Hardware.Present {
+		if len(item.Status.Devices) == 0 {
 			continue
 		}
 		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: item.Name}})

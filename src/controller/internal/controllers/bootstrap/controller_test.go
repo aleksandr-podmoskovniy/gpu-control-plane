@@ -444,11 +444,11 @@ func TestRequeueAllInventories(t *testing.T) {
 	scheme := newScheme(t)
 	invA := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Hardware: v1alpha1.GPUNodeHardware{Present: true}},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-a"}}},
 	}
 	invB := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-b"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Hardware: v1alpha1.GPUNodeHardware{Present: true}},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-b"}}},
 	}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(invA, invB).Build()
 
@@ -471,11 +471,11 @@ func TestRequeueAllInventoriesSkipsNodesWithoutHardware(t *testing.T) {
 	scheme := newScheme(t)
 	withGPU := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-ready"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Hardware: v1alpha1.GPUNodeHardware{Present: true}},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-ready"}}},
 	}
 	withoutGPU := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-empty"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Hardware: v1alpha1.GPUNodeHardware{Present: false}},
+		Status:     v1alpha1.GPUNodeInventoryStatus{},
 	}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(withGPU, withoutGPU).Build()
 
@@ -492,7 +492,7 @@ func TestMapModuleConfigRequeuesInventories(t *testing.T) {
 	scheme := newScheme(t)
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Hardware: v1alpha1.GPUNodeHardware{Present: true}},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-a"}}},
 	}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
 
@@ -500,7 +500,7 @@ func TestMapModuleConfigRequeuesInventories(t *testing.T) {
 	rec.client = client
 
 	reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{})
-	if len(reqs) != 1 || reqs[0].NamespacedName.Name != "node-a" {
+	if len(reqs) != 1 || reqs[0].Name != "node-a" {
 		t.Fatalf("unexpected requests: %#v", reqs)
 	}
 }

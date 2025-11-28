@@ -1,349 +1,593 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: clustergpupools.gpu.deckhouse.io
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
   labels:
-    heritage: deckhouse
     module: gpu-control-plane
+  name: clustergpupools.gpu.deckhouse.io
 spec:
   group: gpu.deckhouse.io
-  scope: Cluster
   names:
-    plural: clustergpupools
-    singular: clustergpupool
+    categories:
+    - deckhouse
+    - gpu
     kind: ClusterGPUPool
+    listKind: ClusterGPUPoolList
+    plural: clustergpupools
     shortNames:
-      - cgpupool
-      - cgpu
-  preserveUnknownFields: false
+    - cgpupool
+    - cgpu
+    singular: clustergpupool
+  scope: Cluster
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Backend
-          type: string
-          jsonPath: .spec.backend
-        - name: Resource
-          type: string
-          jsonPath: .spec.resource.unit
-        - name: MaxDevicesPerNode
-          type: integer
-          jsonPath: .spec.resource.maxDevicesPerNode
-        - name: SlicesPerUnit
-          type: integer
-          jsonPath: .spec.resource.slicesPerUnit
-        - name: Total
-          type: integer
-          jsonPath: .status.capacity.total
-        - name: Available
-          type: integer
-          jsonPath: .status.capacity.available
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: ["spec"]
-          description: |
-            ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
-          properties:
-            apiVersion:
-              type: string
-              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values.'
-            kind:
-              type: string
-              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to.'
-            metadata:
-              type: object
-            spec:
-              type: object
-              required: ["resource"]
-              properties:
-                provider:
-                  type: string
-                  enum: ["Nvidia"]
-                  default: "Nvidia"
-                backend:
-                  type: string
-                  enum: ["DevicePlugin", "DRA"]
-                  default: "DevicePlugin"
-                resource:
-                  type: object
-                  required: ["unit"]
-                  properties:
-                    unit:
-                      type: string
-                      enum: ["Card", "MIG"]
-                    migProfile:
-                      type: string
-                    migLayout:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          uuids:
-                            type: array
-                            items:
-                              type: string
-                          pciBusIDs:
-                            type: array
-                            items:
-                              type: string
-                          deviceFilter:
-                            type: array
-                            items:
-                              type: string
-                          profiles:
-                            type: array
-                            items:
-                              type: object
-                              properties:
-                                name:
-                                  type: string
-                                count:
-                                  type: integer
-                                  minimum: 1
-                                slicesPerUnit:
-                                  type: integer
-                                  minimum: 1
-                                  maximum: 64
-                          slicesPerUnit:
-                            type: integer
-                            minimum: 1
-                            maximum: 64
-                    maxDevicesPerNode:
-                      type: integer
-                      minimum: 1
-                    slicesPerUnit:
-                      type: integer
-                      minimum: 1
-                      maximum: 64
-                      default: 1
-                    timeSlicingResources:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          name:
-                            type: string
-                          slicesPerUnit:
-                            type: integer
-                            minimum: 1
-                            maximum: 64
-                nodeSelector:
-                  type: object
-                  properties:
-                    matchLabels:
-                      type: object
-                      additionalProperties:
-                        type: string
-                    matchExpressions:
-                      type: array
-                      items:
-                        type: object
-                        required: ["key", "operator"]
-                        properties:
-                          key:
-                            type: string
-                          operator:
-                            type: string
-                          values:
-                            type: array
-                            items:
-                              type: string
-                deviceSelector:
-                  type: object
-                  properties:
-                    include:
-                      type: object
-                      properties:
-                        inventoryIDs:
-                          type: array
-                          items:
-                            type: string
-                        products:
-                          type: array
-                          items:
-                            type: string
-                        pciVendors:
-                          type: array
-                          items:
-                            type: string
-                        pciDevices:
-                          type: array
-                          items:
-                            type: string
-                        migCapable:
-                          type: boolean
-                        migProfiles:
-                          type: array
-                          items:
-                            type: string
-                    exclude:
-                      type: object
-                      properties:
-                        inventoryIDs:
-                          type: array
-                          items:
-                            type: string
-                        products:
-                          type: array
-                          items:
-                            type: string
-                        pciVendors:
-                          type: array
-                          items:
-                            type: string
-                        pciDevices:
-                          type: array
-                          items:
-                            type: string
-                        migCapable:
-                          type: boolean
-                        migProfiles:
-                          type: array
-                          items:
-                            type: string
-                deviceAssignment:
-                  type: object
-                  properties:
-                    requireAnnotation:
-                      type: boolean
-                    autoApproveSelector:
-                      type: object
-                      properties:
-                        matchLabels:
-                          type: object
-                          additionalProperties:
-                            type: string
-                        matchExpressions:
-                          type: array
-                          items:
-                            type: object
-                            required: ["key", "operator"]
-                            properties:
-                              key:
-                                type: string
-                              operator:
-                                type: string
-                              values:
-                                type: array
-                                items:
-                                  type: string
-                scheduling:
-                  type: object
-                  properties:
-                    strategy:
-                      type: string
-                      enum: ["BinPack", "Spread"]
-                    topologyKey:
-                      type: string
-                    taintsEnabled:
-                      type: boolean
-                    taints:
-                      type: array
-                      items:
-                        type: object
-                        properties:
-                          key:
-                            type: string
-                          value:
-                            type: string
-                          effect:
-                            type: string
-                            enum: ["NoSchedule", "PreferNoSchedule", "NoExecute"]
-            status:
-              type: object
-              properties:
-                capacity:
-                  type: object
-                  properties:
-                    total:
-                      type: integer
-                    available:
-                      type: integer
-                    used:
-                      type: integer
-                    baseUnits:
-                      type: integer
-                    slicesPerUnit:
-                      type: integer
-                nodes:
-                  type: array
-                  items:
-                    type: object
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed
+          to workloads.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec declares desired rules for selecting and slicing devices.
+            properties:
+              backend:
+                default: DevicePlugin
+                description: Backend chooses integration backend (device-plugin or
+                  DRA).
+                enum:
+                - DevicePlugin
+                - DRA
+                type: string
+              deviceAssignment:
+                description: DeviceAssignment controls manual vs automatic assignment
+                  flows.
+                properties:
+                  autoApproveSelector:
+                    description: AutoApproveSelector lists nodes/devices that may
+                      be auto-approved.
                     properties:
-                      name:
-                        type: string
-                      totalDevices:
-                        type: integer
-                      slicesPerUnit:
-                        type: integer
-                      baseUnits:
-                        type: integer
-                      total:
-                        type: integer
-                      used:
-                        type: integer
-                candidates:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      node:
-                        type: string
-                      pools:
-                        type: array
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
                         items:
-                          type: object
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
                           properties:
-                            pool:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
                               type: string
-                            reason:
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
                               type: string
-                            autoApproved:
-                              type: boolean
-                      lastEvent:
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
                         type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  requireAnnotation:
+                    description: RequireAnnotation forces manual approval before attaching
+                      devices to the pool.
+                    type: boolean
+                type: object
+              deviceSelector:
+                description: DeviceSelector filters devices that may join the pool.
+                properties:
+                  exclude:
+                    description: Exclude defines negative selection rules that remove
+                      devices from the pool.
+                    properties:
+                      inventoryIDs:
+                        description: InventoryIDs matches specific devices by inventory
+                          identifier.
+                        items:
+                          type: string
+                        type: array
+                      migCapable:
+                        description: MIGCapable restricts selection to devices that
+                          are (or are not) MIG capable.
+                        type: boolean
+                      migProfiles:
+                        description: MIGProfiles matches devices that support at least
+                          one of the listed MIG profiles.
+                        items:
+                          type: string
+                        type: array
+                      pciDevices:
+                        description: PCIDevices matches devices by PCI device identifier
+                          (hex without 0x, e.g. 20b0).
+                        items:
+                          type: string
+                        type: array
+                      pciVendors:
+                        description: PCIVendors matches devices by PCI vendor identifier
+                          (hex without 0x, e.g. 10de).
+                        items:
+                          type: string
+                        type: array
+                      products:
+                        description: Products matches devices by reported hardware
+                          product name (exact match).
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  include:
+                    description: Include defines positive selection rules for devices.
+                    properties:
+                      inventoryIDs:
+                        description: InventoryIDs matches specific devices by inventory
+                          identifier.
+                        items:
+                          type: string
+                        type: array
+                      migCapable:
+                        description: MIGCapable restricts selection to devices that
+                          are (or are not) MIG capable.
+                        type: boolean
+                      migProfiles:
+                        description: MIGProfiles matches devices that support at least
+                          one of the listed MIG profiles.
+                        items:
+                          type: string
+                        type: array
+                      pciDevices:
+                        description: PCIDevices matches devices by PCI device identifier
+                          (hex without 0x, e.g. 20b0).
+                        items:
+                          type: string
+                        type: array
+                      pciVendors:
+                        description: PCIVendors matches devices by PCI vendor identifier
+                          (hex without 0x, e.g. 10de).
+                        items:
+                          type: string
+                        type: array
+                      products:
+                        description: Products matches devices by reported hardware
+                          product name (exact match).
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
+              nodeSelector:
+                description: NodeSelector limits the pool to specific nodes.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              provider:
+                default: Nvidia
+                description: Provider selects GPU vendor implementation (only "Nvidia"
+                  is supported for now).
+                enum:
+                - Nvidia
+                type: string
+              resource:
+                description: Resource defines the resource unit exposed to workloads.
+                  Resource name is derived from pool name.
+                properties:
+                  maxDevicesPerNode:
+                    description: MaxDevicesPerNode caps number of devices contributed
+                      per node.
+                    format: int32
+                    type: integer
+                  migLayout:
+                    description: MIGLayout allows specifying per-device MIG profiles
+                      with counts (only when Unit=MIG).
+                    items:
+                      description: GPUPoolMIGDeviceLayout describes MIG profiles per
+                        device selector.
+                      properties:
+                        deviceFilter:
+                          description: DeviceFilter allows matching by vendor:device
+                            hex strings (e.g. 0x20B010DE).
+                          items:
+                            type: string
+                          type: array
+                        pciBusIDs:
+                          description: PCIBusIDs restricts layout to specific PCI
+                            bus IDs (domain:bus:slot.func).
+                          items:
+                            type: string
+                          type: array
+                        profiles:
+                          description: Profiles lists MIG profiles with optional counts.
+                          items:
+                            description: GPUPoolMIGProfile represents desired MIG
+                              profile count.
+                            properties:
+                              count:
+                                description: Count is how many instances of the profile
+                                  to create (defaults to 1).
+                                format: int32
+                                type: integer
+                              name:
+                                description: Name is the MIG profile name (e.g. 1g.10gb).
+                                type: string
+                              slicesPerUnit:
+                                description: SlicesPerUnit overrides resource or layout
+                                  slices for this profile (optional).
+                                format: int32
+                                type: integer
+                            type: object
+                          type: array
+                        slicesPerUnit:
+                          description: SlicesPerUnit overrides resource.slicesPerUnit
+                            for this layout group.
+                          format: int32
+                          type: integer
+                        uuids:
+                          description: UUIDs restricts layout to specific GPU UUIDs.
+                          items:
+                            type: string
+                          type: array
+                      type: object
+                    type: array
+                  migProfile:
+                    description: MIGProfile specifies the MIG profile when Unit=MIG
+                      (single profile shortcut).
+                    type: string
+                  slicesPerUnit:
+                    default: 1
+                    description: SlicesPerUnit configures oversubscription per base
+                      unit (card or MIG partition).
+                    format: int32
+                    maximum: 64
+                    minimum: 1
+                    type: integer
+                  timeSlicingResources:
+                    description: TimeSlicingResources allows overriding slicesPerUnit
+                      per resource.
+                    items:
+                      description: GPUPoolTimeSlicingResource overrides slicesPerUnit
+                        for a specific resource.
+                      properties:
+                        name:
+                          description: Name is the resource name to override (defaults
+                            to pool resource name).
+                          type: string
+                        slicesPerUnit:
+                          description: SlicesPerUnit is the number of slices for this
+                            resource.
+                          format: int32
+                          type: integer
+                      type: object
+                    type: array
+                  unit:
+                    description: Unit describes the resource unit (Card or MIG).
+                    enum:
+                    - Card
+                    - MIG
+                    type: string
+                required:
+                - unit
+                type: object
+              scheduling:
+                description: Scheduling configures topology spreading, taints and
+                  other scheduling hints.
+                properties:
+                  strategy:
+                    description: Strategy controls balancing strategy among nodes
+                      (BinPack or Spread).
+                    enum:
+                    - BinPack
+                    - Spread
+                    type: string
+                  taints:
+                    description: Taints enumerates taints applied to nodes that host
+                      workloads from this pool.
+                    items:
+                      properties:
+                        effect:
+                          description: Effect is the Kubernetes taint effect.
+                          type: string
+                        key:
+                          description: Key is the taint key applied to nodes hosting
+                            the pool.
+                          type: string
+                        value:
+                          description: Value is the taint value.
+                          type: string
+                      required:
+                      - key
+                      type: object
+                    type: array
+                  taintsEnabled:
+                    description: TaintsEnabled controls whether per-pool taints/tolerations
+                      are applied.
+                    type: boolean
+                  topologyKey:
+                    description: TopologyKey configures topology spreading key when
+                      strategy=Spread.
+                    type: string
+                type: object
+            required:
+            - resource
+            type: object
+          status:
+            description: Status reports aggregated usage, candidates and conditions
+              for the pool.
+            properties:
+              candidates:
+                description: Candidates enumerates nodes/devices pending for acceptance.
+                items:
+                  properties:
+                    lastEvent:
+                      description: LastEvent records when candidate state last changed.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the node or device awaiting assignment.
+                      type: string
+                    pools:
+                      description: Pools lists pending pool assignments for this candidate.
+                      items:
                         properties:
-                          message:
+                          annotationHint:
+                            description: AnnotationHint suggests annotation to apply
+                              for manual approval.
+                            type: string
+                          autoApproved:
+                            description: AutoApproved indicates whether assignment
+                              will be granted automatically.
+                            type: boolean
+                          pool:
+                            description: Pool is the GPUPool name awaiting assignment.
                             type: string
                           reason:
+                            description: Reason describes why the assignment is pending
+                              or rejected.
                             type: string
-                          type:
-                            type: string
-                          eventTime:
-                            type: string
-                            format: date-time
-                devices:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      inventoryID:
-                        type: string
-                      node:
-                        type: string
-                      state:
-                        type: string
-                      autoAttach:
-                        type: boolean
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    required: ["type", "status"]
-                    properties:
-                      type:
-                        type: string
-                      status:
-                        type: string
-                        enum: ["True", "False", "Unknown"]
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      reason:
-                        type: string
-                      message:
-                        type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              capacity:
+                description: Capacity summarises total/used/available capacity inside
+                  the pool.
+                properties:
+                  available:
+                    description: Available is free capacity that may still be assigned.
+                    format: int32
+                    type: integer
+                  baseUnits:
+                    description: BaseUnits is the number of base devices/partitions
+                      contributing to capacity.
+                    format: int32
+                    type: integer
+                  slicesPerUnit:
+                    description: SlicesPerUnit shows how many slices each base unit
+                      provides.
+                    format: int32
+                    type: integer
+                  total:
+                    description: Total is total pool capacity expressed in declared
+                      units.
+                    format: int32
+                    type: integer
+                  unit:
+                    description: Unit repeats the resource unit for clarity.
+                    type: string
+                  used:
+                    description: Used is currently consumed capacity.
+                    format: int32
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions surfaces pool-level status conditions.
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              devices:
+                description: Devices mirrors per-device state for quick pool-centric
+                  lookups.
+                items:
+                  properties:
+                    autoAttach:
+                      description: AutoAttach mirrors the auto-attach flag for the
+                        device.
+                      type: boolean
+                    inventoryID:
+                      description: InventoryID references the GPUDevice included in
+                        the pool.
+                      type: string
+                    node:
+                      description: Node is the node hosting the device.
+                      type: string
+                    state:
+                      description: State is the current state of the device inside
+                        the pool.
+                      enum:
+                      - Discovered
+                      - Validating
+                      - Ready
+                      - PendingAssignment
+                      - Assigned
+                      - Reserved
+                      - InUse
+                      - Faulted
+                      type: string
+                  type: object
+                type: array
+              nodes:
+                description: Nodes lists per-node usage statistics.
+                items:
+                  properties:
+                    assignedDevices:
+                      description: AssignedDevices counts devices from this node currently
+                        in use.
+                      format: int32
+                      type: integer
+                    health:
+                      description: Health summarises node-level readiness (e.g. Healthy/Misconfigured).
+                      type: string
+                    lastEvent:
+                      description: LastEvent points to the latest significant event
+                        impacting the node in context of the pool.
+                      format: date-time
+                      type: string
+                    name:
+                      description: Name is the node identifier.
+                      type: string
+                    totalDevices:
+                      description: TotalDevices is the number of devices contributing
+                        to the pool on this node.
+                      format: int32
+                      type: integer
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

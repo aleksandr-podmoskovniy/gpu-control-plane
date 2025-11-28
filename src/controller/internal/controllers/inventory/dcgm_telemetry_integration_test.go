@@ -32,13 +32,15 @@ import (
 
 func TestCollectNodeTelemetrySuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `
+		if _, err := fmt.Fprint(w, `
 dcgm_exporter_last_update_time_seconds 42
 DCGM_FI_DEV_GPU_TEMP{gpu="0"} 60
 DCGM_FI_DEV_ECC_DBE_AGG_TOTAL{uuid="GPU-123"} 7
 DCGM_FI_DEV_GPU_TEMP{uuid="UUID-ONLY"} 70
 dcgm_exporter_last_update_time_seconds bad
-`)
+`); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -192,7 +194,9 @@ func TestScrapeExporterMetricsErrors(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "DCGM_FI_DEV_GPU_TEMP 1")
+		if _, err := fmt.Fprint(w, "DCGM_FI_DEV_GPU_TEMP 1"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer server.Close()
 	host, portStr, _ := strings.Cut(server.Listener.Addr().String(), ":")
@@ -206,7 +210,9 @@ func TestScrapeExporterMetricsErrors(t *testing.T) {
 	}
 
 	badHeartbeat := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "dcgm_exporter_last_update_time_seconds NaN\n")
+		if _, err := fmt.Fprint(w, "dcgm_exporter_last_update_time_seconds NaN\n"); err != nil {
+			t.Fatalf("write metrics: %v", err)
+		}
 	}))
 	defer badHeartbeat.Close()
 	host, portStr, _ = strings.Cut(badHeartbeat.Listener.Addr().String(), ":")

@@ -100,7 +100,11 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				continue
 			}
 		}
-		candidates := FilterDevices(inv.Status.Hardware.Devices, pool.Spec.DeviceSelector)
+		deviceSet := inv.Status.Devices
+		if len(deviceSet) == 0 {
+			deviceSet = inv.Status.Hardware.Devices
+		}
+		candidates := FilterDevices(deviceSet, pool.Spec.DeviceSelector)
 		var takenOnNode int32
 		for _, dev := range candidates {
 			devCR, ok := assigned[dev.InventoryID]
@@ -111,12 +115,12 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				continue
 			}
 			dev.State = devCR.Status.State
-			dev.AutoAttach = devCR.Status.AutoAttach
+			autoAttach := devCR.Status.AutoAttach
 			devStatuses = append(devStatuses, v1alpha1.GPUPoolDeviceStatus{
 				InventoryID: dev.InventoryID,
 				Node:        inv.Name,
 				State:       dev.State,
-				AutoAttach:  dev.AutoAttach,
+				AutoAttach:  autoAttach,
 			})
 			nodeTotals[inv.Name]++
 			if dev.State == v1alpha1.GPUDeviceStateReady {

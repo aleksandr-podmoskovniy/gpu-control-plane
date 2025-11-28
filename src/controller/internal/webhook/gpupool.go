@@ -50,7 +50,7 @@ func (v *gpupoolValidator) Handle(ctx context.Context, req cradmission.Request) 
 		return cradmission.Errored(http.StatusUnprocessableEntity, err)
 	}
 
-	if req.AdmissionRequest.Operation == admv1.Update && len(req.OldObject.Raw) > 0 {
+	if req.Operation == admv1.Update && len(req.OldObject.Raw) > 0 {
 		old := &v1alpha1.GPUPool{}
 		if err := v.decoder.DecodeRaw(req.OldObject, old); err != nil {
 			return cradmission.Errored(http.StatusUnprocessableEntity, err)

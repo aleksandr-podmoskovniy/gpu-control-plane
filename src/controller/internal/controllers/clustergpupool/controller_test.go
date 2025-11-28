@@ -286,7 +286,7 @@ func TestRuntimeControllerBuilderDelegates(t *testing.T) {
 		Complete(nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !(adapter.named && adapter.forCalled && adapter.opts && adapter.watch && adapter.complete) {
+	if !adapter.named || !adapter.forCalled || !adapter.opts || !adapter.watch || !adapter.complete {
 		t.Fatalf("runtimeControllerBuilder did not delegate all calls")
 	}
 }
@@ -326,7 +326,7 @@ func TestBuilderControllerAdapterDelegates(t *testing.T) {
 	if err := adapter.Complete(nopReconciler{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !(delegate.named && delegate.forCalled && delegate.opts && delegate.watch && delegate.complete) {
+	if !delegate.named || !delegate.forCalled || !delegate.opts || !delegate.watch || !delegate.complete {
 		t.Fatalf("builderControllerAdapter did not delegate all calls")
 	}
 }

@@ -341,7 +341,7 @@ func TestMapModuleConfigRequeuesPools(t *testing.T) {
 	rec.client = client
 
 	reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{})
-	if len(reqs) != 1 || reqs[0].NamespacedName.Name != "pool-a" || reqs[0].NamespacedName.Namespace != "ns" {
+	if len(reqs) != 1 || reqs[0].Name != "pool-a" || reqs[0].Namespace != "ns" {
 		t.Fatalf("unexpected requests: %#v", reqs)
 	}
 }

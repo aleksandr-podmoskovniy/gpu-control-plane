@@ -261,7 +261,6 @@ type GPUDeviceList struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=gpunodeinventories,scope=Cluster,shortName=gpunode;gpnode,categories=deckhouse;gpu
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.nodeName`
-// +kubebuilder:printcolumn:name="Present",type=boolean,JSONPath=`.status.hw.present`
 // +kubebuilder:printcolumn:name="ReadyForPooling",type=string,JSONPath=`.status.conditions[?(@.type=="ReadyForPooling")].status`
 // GPUNodeInventory aggregates GPU-related state for a Kubernetes node.
 type GPUNodeInventory struct {
@@ -282,16 +281,14 @@ type GPUNodeInventorySpec struct {
 type GPUNodeInventoryStatus struct {
 	// Hardware contains the list of GPUs discovered on the node.
 	Hardware GPUNodeHardware `json:"hw,omitempty"`
-	// Devices summarises the device lifecycle states on the node.
-	Devices GPUNodeDeviceSummary `json:"devices,omitempty"`
 	// Driver captures driver/toolkit versions and readiness.
 	Driver GPUNodeDriver `json:"driver,omitempty"`
+	// Devices lists all detected GPUs with mirrored device metadata.
+	Devices []GPUNodeDevice `json:"devices,omitempty"`
 	// Monitoring indicates health of GFD/DCGM exporters.
 	Monitoring GPUNodeMonitoring `json:"monitoring,omitempty"`
 	// Bootstrap describes results of bootstrap-controller checks for the node.
 	Bootstrap GPUNodeBootstrapStatus `json:"bootstrap,omitempty"`
-	// Pools summarises assignments and pending requests for pools on this node.
-	Pools GPUNodePoolsStatus `json:"pools,omitempty"`
 	// Conditions surfaces aggregated readiness/alerting conditions for the node.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -303,64 +300,33 @@ type GPUNodeHardware struct {
 	Devices []GPUNodeDevice `json:"devices,omitempty"`
 }
 
-// GPUNodeDeviceSummary aggregates device states for quick diagnostics.
-type GPUNodeDeviceSummary struct {
-	Total             int32 `json:"total,omitempty"`
-	Ready             int32 `json:"ready,omitempty"`
-	PendingAssignment int32 `json:"pendingAssignment,omitempty"`
-	Assigned          int32 `json:"assigned,omitempty"`
-	Reserved          int32 `json:"reserved,omitempty"`
-	InUse             int32 `json:"inUse,omitempty"`
-	Validating        int32 `json:"validating,omitempty"`
-	Faulted           int32 `json:"faulted,omitempty"`
-	Ignored           int32 `json:"ignored,omitempty"`
-}
-
 type GPUNodeDevice struct {
 	// InventoryID mirrors GPUDevice.status.inventoryID for quick lookup.
 	InventoryID string `json:"inventoryID,omitempty"`
+	// UUID is the GPU UUID obtained from NVML/DCGM.
+	UUID string `json:"uuid,omitempty"`
 	// Product is the GPU model available on this node.
 	Product string `json:"product,omitempty"`
+	// Family is the GPU family name.
+	Family string `json:"family,omitempty"`
 	// PCI describes vendor/device/class identifiers for the PCI function.
 	PCI PCIAddress `json:"pci,omitempty"`
 	// NUMANode is the NUMA node id associated with the device.
 	NUMANode *int32 `json:"numaNode,omitempty"`
-	// PowerLimitMilliWatt is the enforced power limit.
-	PowerLimitMilliWatt *int32 `json:"powerLimitMilliWatt,omitempty"`
-	// SMCount is the number of streaming multiprocessors.
-	SMCount *int32 `json:"smCount,omitempty"`
-	// MemoryBandwidthMiB is the memory bandwidth in MiB/s.
-	MemoryBandwidthMiB *int32 `json:"memoryBandwidthMiB,omitempty"`
-	// PCIE holds PCIe link characteristics.
-	PCIE PCIELink `json:"pcie,omitempty"`
-	// Board is the board identifier/model.
-	Board string `json:"board,omitempty"`
-	// Family is the GPU family name.
-	Family string `json:"family,omitempty"`
-	// Serial is the GPU serial number if reported.
-	Serial string `json:"serial,omitempty"`
-	// PState is the current performance state.
-	PState string `json:"pstate,omitempty"`
-	// DisplayMode indicates whether display is enabled.
-	DisplayMode string `json:"displayMode,omitempty"`
 	// MemoryMiB is device memory capacity in MiB.
 	MemoryMiB int32 `json:"memoryMiB,omitempty"`
 	// MIG summarises MIG capabilities for this device.
 	MIG GPUMIGConfig `json:"mig,omitempty"`
-	// UUID is the GPU UUID obtained from NVML/DCGM.
-	UUID string `json:"uuid,omitempty"`
 	// ComputeCap is the reported CUDA compute capability.
 	ComputeCap *GPUComputeCapability `json:"computeCapability,omitempty"`
-	// Precision lists math precisions supported by the device.
-	Precision GPUPrecision `json:"precision,omitempty"`
 	// State mirrors GPUDevice.state for convenience.
 	State GPUDeviceState `json:"state,omitempty"`
-	// AutoAttach flags whether automatic assignment is enabled for the device.
-	AutoAttach bool `json:"autoAttach,omitempty"`
-	// Reason stores human readable reason why the device is pending/unassigned.
-	Reason string `json:"reason,omitempty"`
-	// Health provides per-device telemetry snapshot.
-	Health GPUDeviceHealth `json:"health,omitempty"`
+	// LastError contains the latest fault message detected for the device.
+	LastError string `json:"lastError,omitempty"`
+	// LastErrorReason categorises the latest fault (XID, ECC, etc.).
+	LastErrorReason string `json:"lastErrorReason,omitempty"`
+	// LastUpdatedTime records when the latest device data was observed.
+	LastUpdatedTime *metav1.Time `json:"lastUpdatedTime,omitempty"`
 }
 
 type GPUNodeDriver struct {
@@ -443,35 +409,6 @@ type GPUNodeValidationState struct {
 	Attempts int32 `json:"attempts,omitempty"`
 	// LastFailure records the timestamp of the last failed attempt.
 	LastFailure *metav1.Time `json:"lastFailure,omitempty"`
-}
-
-type GPUNodePoolsStatus struct {
-	// Assigned lists pools currently consuming device capacity on the node.
-	Assigned []GPUNodeAssignedPool `json:"assigned,omitempty"`
-	// Pending describes pools awaiting operator approval or automatic assignment.
-	Pending []GPUNodePendingPool `json:"pending,omitempty"`
-}
-
-type GPUNodeAssignedPool struct {
-	// Name is the GPUPool name serving workloads on the node.
-	Name string `json:"name,omitempty"`
-	// Resource is the device-plugin resource name exposed for the assignment.
-	Resource string `json:"resource,omitempty"`
-	// SlotsReserved counts allocated devices or partitions for the pool on this node.
-	SlotsReserved int32 `json:"slotsReserved,omitempty"`
-	// Since records when the pool assignment became active.
-	Since *metav1.Time `json:"since,omitempty"`
-}
-
-type GPUNodePendingPool struct {
-	// Pool is the GPUPool awaiting approval or matching devices.
-	Pool string `json:"pool,omitempty"`
-	// AutoApproved shows whether the assignment will happen automatically once requirements are satisfied.
-	AutoApproved bool `json:"autoApproved,omitempty"`
-	// Reason explains why the pool remains pending.
-	Reason string `json:"reason,omitempty"`
-	// AnnotationHint contains suggested annotation key/value for manual assignment.
-	AnnotationHint string `json:"annotationHint,omitempty"`
 }
 
 // +kubebuilder:object:root=true

@@ -48,7 +48,7 @@ func newGPUDeviceAssignmentValidator(log logr.Logger, decoder cradmission.Decode
 }
 
 func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmission.Request) cradmission.Response {
-	if req.AdmissionRequest.Operation != admv1.Create && req.AdmissionRequest.Operation != admv1.Update {
+	if req.Operation != admv1.Create && req.Operation != admv1.Update {
 		return cradmission.Allowed("")
 	}
 

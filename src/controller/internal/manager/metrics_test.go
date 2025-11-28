@@ -100,11 +100,11 @@ func TestMetricsEndpointServesPrometheus(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-	resp, err := client.Get(fmt.Sprintf("https://%s/metrics", bindAddr))
+resp, err := client.Get(fmt.Sprintf("https://%s/metrics", bindAddr))
 	if err != nil {
 		t.Fatalf("request metrics endpoint: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

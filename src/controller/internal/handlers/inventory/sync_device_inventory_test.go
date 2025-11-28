@@ -118,7 +118,6 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 				Devices: []v1alpha1.GPUNodeDevice{{
 					InventoryID: "node-a-0000",
 					State:       v1alpha1.GPUDeviceStateDiscovered,
-					AutoAttach:  false,
 				}},
 			},
 		},
@@ -151,7 +150,7 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 		t.Fatalf("expected single device, got %d", len(updated.Status.Hardware.Devices))
 	}
 	got := updated.Status.Hardware.Devices[0]
-	if got.State != v1alpha1.GPUDeviceStateAssigned || !got.AutoAttach {
+	if got.State != v1alpha1.GPUDeviceStateAssigned {
 		t.Fatalf("device fields not updated: %+v", got)
 	}
 }
@@ -218,6 +217,178 @@ func TestDeviceInventorySyncRetriesOnConflict(t *testing.T) {
 	}
 	if !res.Requeue {
 		t.Fatal("expected requeue on conflict")
+	}
+}
+
+func TestDeviceInventorySyncReturnsErrorOnGetFailure(t *testing.T) {
+	client := &failingGetClient{err: errors.New("get failed")}
+	h := NewDeviceInventorySync(testr.New(t), client)
+
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{NodeName: "node-a"},
+	}
+	if _, err := h.HandleDevice(context.Background(), device); err == nil {
+		t.Fatal("expected error on Get failure")
+	}
+}
+
+func TestDeviceInventorySyncReturnsErrorOnUpdateFailure(t *testing.T) {
+	scheme := newInventoryScheme(t)
+	base := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(&v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
+		Build()
+	updateErr := errors.New("update failed")
+	writer := &updatingStatusWriter{
+		StatusWriter: base.Status(),
+		update: func(context.Context, client.Object, ...client.SubResourceUpdateOption) error {
+			return updateErr
+		},
+	}
+	client := &statusClient{Client: base, status: writer}
+	h := NewDeviceInventorySync(testr.New(t), client)
+
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName:    "node-a",
+			InventoryID: "node-a-0002",
+			State:       v1alpha1.GPUDeviceStateReady,
+			Hardware: v1alpha1.GPUDeviceHardware{
+				Product: "A100",
+				UUID:    "UUID-123",
+			},
+		},
+	}
+
+	if _, err := h.HandleDevice(context.Background(), device); err == nil {
+		t.Fatal("expected update error to be returned")
+	}
+}
+
+func TestDeviceInventorySyncUpdatesDevicesSliceOnly(t *testing.T) {
+	scheme := newInventoryScheme(t)
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{{
+				InventoryID: "dev-1",
+				State:       v1alpha1.GPUDeviceStateDiscovered,
+			}},
+		},
+	}
+	client := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(inventory).
+		Build()
+	h := NewDeviceInventorySync(testr.New(t), client)
+
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName:    "node-a",
+			InventoryID: "dev-1",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+	if _, err := h.HandleDevice(context.Background(), device); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	updated := &v1alpha1.GPUNodeInventory{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
+		t.Fatalf("get inventory: %v", err)
+	}
+	if updated.Status.Devices[0].State != v1alpha1.GPUDeviceStateReady {
+		t.Fatalf("state not updated: %+v", updated.Status.Devices[0])
+	}
+	if updated.Status.Hardware.Present {
+		t.Fatalf("hardware should remain absent when not mirrored")
+	}
+}
+
+func TestDeviceInventorySyncUpdatesHardwareSliceOnly(t *testing.T) {
+	scheme := newInventoryScheme(t)
+	inventory := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{
+				Devices: []v1alpha1.GPUNodeDevice{{
+					InventoryID: "dev-2",
+					State:       v1alpha1.GPUDeviceStateDiscovered,
+				}},
+			},
+		},
+	}
+	client := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(inventory).
+		Build()
+	h := NewDeviceInventorySync(testr.New(t), client)
+
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName:    "node-a",
+			InventoryID: "dev-2",
+			State:       v1alpha1.GPUDeviceStateAssigned,
+		},
+	}
+	if _, err := h.HandleDevice(context.Background(), device); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	updated := &v1alpha1.GPUNodeInventory{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
+		t.Fatalf("get inventory: %v", err)
+	}
+	if len(updated.Status.Devices) != 0 {
+		t.Fatalf("devices slice should remain empty: %+v", updated.Status.Devices)
+	}
+	if updated.Status.Hardware.Devices[0].State != v1alpha1.GPUDeviceStateAssigned || !updated.Status.Hardware.Present {
+		t.Fatalf("hardware not updated: %+v", updated.Status.Hardware)
+	}
+}
+
+func TestDeviceInventorySyncSetsDevicesSlice(t *testing.T) {
+	scheme := newInventoryScheme(t)
+	client := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithObjects(&v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}).
+		Build()
+	h := NewDeviceInventorySync(testr.New(t), client)
+
+	device := &v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName:    "node-a",
+			InventoryID: "node-a-0003",
+			State:       v1alpha1.GPUDeviceStateReady,
+			Hardware: v1alpha1.GPUDeviceHardware{
+				Product: "A100",
+				UUID:    "UUID-456",
+			},
+			Health: v1alpha1.GPUDeviceHealth{
+				LastError:       "fault",
+				LastErrorReason: "XID",
+			},
+		},
+	}
+
+	if _, err := h.HandleDevice(context.Background(), device); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated := &v1alpha1.GPUNodeInventory{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
+		t.Fatalf("fetch inventory: %v", err)
+	}
+	if len(updated.Status.Devices) != 1 {
+		t.Fatalf("expected device recorded in status.devices, got %+v", updated.Status.Devices)
+	}
+	if !updated.Status.Hardware.Present || len(updated.Status.Hardware.Devices) != 1 {
+		t.Fatalf("hardware mirror not populated: %+v", updated.Status.Hardware)
+	}
+	if updated.Status.Devices[0].UUID != "UUID-456" || updated.Status.Devices[0].LastErrorReason != "XID" {
+		t.Fatalf("device fields not propagated: %+v", updated.Status.Devices[0])
 	}
 }
 

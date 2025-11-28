@@ -144,7 +144,7 @@ func (r *Reconciler) collectNodeDetections(ctx context.Context, node string) (no
 		// При старте pod может не слушать ещё; не шумим и не блокируем reconcile.
 		return result, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return result, nil
