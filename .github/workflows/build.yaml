@@ -47,6 +47,12 @@ jobs:
     name: Lint
     steps:
       - uses: actions/checkout@v4
+      - name: Install trdl
+        uses: werf/trdl/actions/setup@main
+      - name: Preload dmt channel
+        run: |
+          trdl add dmt --repo https://repo.deckhouse.io/trdl/dmt || true
+          trdl update dmt 0 stable
       - uses: deckhouse/modules-actions/lint@v2
         env:
           DMT_METRICS_URL: ${{ secrets.DMT_METRICS_URL }}
