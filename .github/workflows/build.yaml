@@ -28,7 +28,6 @@ on:
 env:
   GO_VERSION: "1.24.6"
   WERF_VERSION: "1.2.457"
-  TRDL_VERSION: "0.12.2"
   CI_COMMIT_REF_NAME: ${{ github.ref_name }}
   MODULES_REGISTRY: ghcr.io
   MODULES_REGISTRY_LOGIN: ${{ github.actor }}
@@ -48,13 +47,11 @@ jobs:
     name: Lint
     steps:
       - uses: actions/checkout@v4
-      - name: Install trdl
+      - name: Install dmt
         run: |
-          curl -sSfL "https://tuf.trdl.dev/targets/releases/${TRDL_VERSION}/linux-amd64/bin/trdl" -o /usr/local/bin/trdl
-          sudo chmod +x /usr/local/bin/trdl
-          trdl add dmt --repo https://repo.deckhouse.io/trdl/dmt || true
-          trdl update dmt 0 stable
-          echo "$(trdl bin-path dmt 0 stable)" >> "$GITHUB_PATH"
+          chmod +x tools/install-dmt.sh
+          INSTALL_DIR=/usr/local/bin DMT_VERSION=0.1.55 ./tools/install-dmt.sh
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
       - uses: deckhouse/modules-actions/lint@v2
         env:
           DMT_METRICS_URL: ${{ secrets.DMT_METRICS_URL }}
