@@ -147,4 +147,9 @@ func TestValidateResourceAdditionalBranches(t *testing.T) {
 	if err := h.validateScheduling(&v1alpha1.GPUPoolSpec{Scheduling: v1alpha1.GPUPoolSchedulingSpec{}}); err != nil {
 		t.Fatalf("expected empty scheduling strategy to be allowed")
 	}
+
+	// Ensure empty unit rejected
+	if err := h.validateResource(&v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: ""}}); err == nil {
+		t.Fatalf("expected error when unit is empty")
+	}
 }

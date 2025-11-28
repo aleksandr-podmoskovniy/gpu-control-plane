@@ -1,0 +1,47 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $labels := (dict "app" "gpu-control-plane") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: d8:user-authz:gpu-control-plane:user
+  annotations:
+    user-authz.deckhouse.io/access-level: User
+  {{- include "helm_lib_module_labels" (list . $labels) | nindent 2 }}
+rules:
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools", "gpupools/status"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: d8:user-authz:gpu-control-plane:editor
+  annotations:
+    user-authz.deckhouse.io/access-level: Editor
+  {{- include "helm_lib_module_labels" (list . $labels) | nindent 2 }}
+rules:
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools/status"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: d8:user-authz:gpu-control-plane:cluster-admin
+  annotations:
+    user-authz.deckhouse.io/access-level: ClusterAdmin
+  {{- include "helm_lib_module_labels" (list . $labels) | nindent 2 }}
+rules:
+  # Break-glass rights to clean stuck inventory if controller is disabled.
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpupools", "gpupools/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpudevices", "gpudevices/status", "gpunodeinventories", "gpunodeinventories/status"]
+    verbs: ["get", "list", "watch", "delete"]
+{{- end }}

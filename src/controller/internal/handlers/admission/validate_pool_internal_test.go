@@ -306,23 +306,6 @@ func TestValidateResourceAdditionalPaths(t *testing.T) {
 	}
 }
 
-func TestValidateAccessDedup(t *testing.T) {
-	h := &PoolValidationHandler{}
-	spec := &v1alpha1.GPUPoolSpec{
-		Access: v1alpha1.GPUPoolAccessSpec{
-			Namespaces:      []string{" ns ", "ns"},
-			ServiceAccounts: []string{"sa", "sa"},
-			DexGroups:       []string{" g1", "g1"},
-		},
-	}
-	if err := h.validateAccess(spec); err != nil {
-		t.Fatalf("expected valid access, got %v", err)
-	}
-	if len(spec.Access.Namespaces) != 1 || len(spec.Access.ServiceAccounts) != 1 || len(spec.Access.DexGroups) != 1 {
-		t.Fatalf("expected access lists deduped, got %+v", spec.Access)
-	}
-}
-
 func TestDedupStringsHelper(t *testing.T) {
 	out := dedupStrings([]string{"", " ", "a", "a", " b "})
 	if len(out) != 2 || out[0] != "a" || out[1] != "b" {

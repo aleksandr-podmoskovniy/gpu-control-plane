@@ -37,6 +37,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&GPUNodeInventoryList{},
 		&GPUPool{},
 		&GPUPoolList{},
+		&ClusterGPUPool{},
+		&ClusterGPUPoolList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil
@@ -510,8 +512,6 @@ type GPUPoolSpec struct {
 	DeviceSelector *GPUPoolDeviceSelector `json:"deviceSelector,omitempty"`
 	// DeviceAssignment controls manual vs automatic assignment flows.
 	DeviceAssignment GPUPoolAssignmentSpec `json:"deviceAssignment,omitempty"`
-	// Access lists namespaces/service accounts allowed to consume the pool.
-	Access GPUPoolAccessSpec `json:"access,omitempty"`
 	// Scheduling configures topology spreading, taints and other scheduling hints.
 	Scheduling GPUPoolSchedulingSpec `json:"scheduling,omitempty"`
 }
@@ -596,15 +596,6 @@ type GPUPoolAssignmentSpec struct {
 	AutoApproveSelector *metav1.LabelSelector `json:"autoApproveSelector,omitempty"`
 }
 
-type GPUPoolAccessSpec struct {
-	// Namespaces enumerates Kubernetes namespaces allowed to request the pool.
-	Namespaces []string `json:"namespaces,omitempty"`
-	// ServiceAccounts restricts access to specific service accounts.
-	ServiceAccounts []string `json:"serviceAccounts,omitempty"`
-	// DexGroups lists Dex groups that receive access.
-	DexGroups []string `json:"dexGroups,omitempty"`
-}
-
 // +kubebuilder:validation:Enum=BinPack;Spread
 type GPUPoolSchedulingStrategy string
 
@@ -644,6 +635,28 @@ type GPUPoolStatus struct {
 	Devices []GPUPoolDeviceStatus `json:"devices,omitempty"`
 	// Conditions surfaces pool-level status conditions.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:path=clustergpupools,scope=Cluster,shortName=cgpupool;cgpu,categories=deckhouse;gpu
+// ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
+type ClusterGPUPool struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Spec declares desired rules for selecting and slicing devices.
+	Spec GPUPoolSpec `json:"spec,omitempty"`
+	// Status reports aggregated usage, candidates and conditions for the pool.
+	Status GPUPoolStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// ClusterGPUPoolList holds a list of ClusterGPUPool objects.
+type ClusterGPUPoolList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ClusterGPUPool `json:"items"`
 }
 
 type GPUPoolCapacityStatus struct {

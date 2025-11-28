@@ -118,6 +118,8 @@ if [[ ! -d schemas ]]; then
   curl -sLo scrapeconfigs.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/scrapeconfigs.yaml
   curl -sLo prometheusrules.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/200-operator-prometheus/crds/internal/prometheusrules.yaml
   curl -sLo verticalpodautoscalers.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/302-vertical-pod-autoscaler/crds/verticalpodautoscaler.yaml
+  curl -sLo operation-policy.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/015-admission-policy-engine/crds/operation-policy.yaml
+  curl -sLo security-policy.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/015-admission-policy-engine/crds/security-policy.yaml
   curl -sLo nodegroupconfiguration.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/040-node-manager/crds/nodegroupconfiguration.yaml
   curl -sLo certificates.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/101-cert-manager/crds/crd-certificates.yaml
   curl -sLo grafanadashboarddefinition.yaml https://raw.githubusercontent.com/deckhouse/deckhouse/main/modules/300-prometheus/crds/grafanadashboarddefinition.yaml

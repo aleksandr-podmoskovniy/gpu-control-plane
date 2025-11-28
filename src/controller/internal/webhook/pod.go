@@ -90,7 +90,10 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		poolName = p
 	}
 	poolKey := poolLabelKey(poolName)
-	poolObj := m.getPool(ctx, poolName)
+	poolObj, err := m.resolvePool(ctx, poolName, pod.Namespace)
+	if err != nil {
+		return cradmission.Denied(err.Error())
+	}
 
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
@@ -317,13 +320,24 @@ func (m *podMutator) poolScheduling(pool *v1alpha1.GPUPool) (string, string) {
 	return strategy, topologyKey
 }
 
-func (m *podMutator) getPool(ctx context.Context, name string) *v1alpha1.GPUPool {
+func (m *podMutator) resolvePool(ctx context.Context, name, ns string) (*v1alpha1.GPUPool, error) {
 	if m.client == nil {
-		return nil
+		return nil, fmt.Errorf("GPUPool %q: webhook client is not configured", name)
 	}
-	var pool v1alpha1.GPUPool
-	if err := m.client.Get(ctx, client.ObjectKey{Name: name}, &pool); err != nil {
-		return nil
+	if ns == "" {
+		return nil, fmt.Errorf("GPUPool %q: pod namespace is empty", name)
 	}
-	return &pool
+	pool := &v1alpha1.GPUPool{}
+	if err := m.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, pool); err == nil {
+		return pool, nil
+	}
+
+	cluster := &v1alpha1.ClusterGPUPool{}
+	if err := m.client.Get(ctx, client.ObjectKey{Name: name}, cluster); err == nil {
+		return &v1alpha1.GPUPool{
+			ObjectMeta: metav1.ObjectMeta{Name: cluster.Name},
+			Spec:       cluster.Spec,
+		}, nil
+	}
+	return nil, fmt.Errorf("GPUPool/ClusterGPUPool %q not found for namespace %q", name, ns)
 }

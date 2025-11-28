@@ -1,0 +1,53 @@
+{{- /* Restrict direct mutations of controller-owned GPU CRs to module/system accounts */ -}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $kubeVersion := coalesce .Values.global.discovery.kubernetesVersion .Values.global.clusterConfiguration.kubernetesVersion "" }}
+{{- $moduleNS := include "gpuControlPlane.namespace" . }}
+{{- $apiVersion := "" }}
+{{- if and $kubeVersion (semverCompare ">=1.30.0" $kubeVersion) }}
+{{- $apiVersion = "admissionregistration.k8s.io/v1" }}
+{{- else if and $kubeVersion (semverCompare ">=1.28.0" $kubeVersion) }}
+{{- $apiVersion = "admissionregistration.k8s.io/v1beta1" }}
+{{- else if and $kubeVersion (semverCompare ">=1.26.0" $kubeVersion) }}
+{{- $apiVersion = "admissionregistration.k8s.io/v1alpha1" }}
+{{- end }}
+{{- if $apiVersion }}
+---
+apiVersion: {{ $apiVersion }}
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: gpu-control-plane-restricted-access
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["gpu.deckhouse.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources:
+          - gpudevices
+          - gpudevices/status
+          - gpunodeinventories
+          - gpunodeinventories/status
+  validations:
+    - expression: |
+        request.userInfo.groups.exists(g, g == "system:masters") ||
+        request.userInfo.username.startsWith("system:serviceaccount:kube-system:") ||
+        request.userInfo.username.startsWith("system:serviceaccount:d8-system:") ||
+        request.userInfo.username.startsWith("system:serviceaccount:{{ $moduleNS }}:")
+      message: "Only system or gpu-control-plane service accounts may mutate GPU inventory resources."
+---
+apiVersion: {{ $apiVersion }}
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: gpu-control-plane-restricted-access
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+spec:
+  policyName: gpu-control-plane-restricted-access
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector: {}
+    objectSelector: {}
+{{- end }}
+{{- end }}

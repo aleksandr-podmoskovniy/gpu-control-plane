@@ -24,11 +24,11 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -643,30 +643,64 @@ func mergeTolerations(base []corev1.Toleration, extra []corev1.Toleration) []cor
 
 func (h *RendererHandler) createOrUpdate(ctx context.Context, obj client.Object, pool *v1alpha1.GPUPool) error {
 	desired := obj.DeepCopyObject().(client.Object)
-	_, err := controllerutil.CreateOrUpdate(ctx, h.client, obj, func() error {
-		addOwner(obj, pool)
-		switch cur := obj.(type) {
-		case *corev1.ConfigMap:
-			d := desired.(*corev1.ConfigMap)
-			cur.Labels = d.Labels
-			cur.Annotations = d.Annotations
-			cur.Data = d.Data
-			cur.BinaryData = d.BinaryData
-		case *appsv1.DaemonSet:
-			d := desired.(*appsv1.DaemonSet)
-			cur.Labels = d.Labels
-			cur.Annotations = d.Annotations
-			cur.Spec = d.Spec
+
+	switch want := desired.(type) {
+	case *corev1.ConfigMap:
+		current := &corev1.ConfigMap{}
+		if err := h.client.Get(ctx, client.ObjectKeyFromObject(want), current); err != nil {
+			if apierrors.IsNotFound(err) {
+				addOwner(want, pool)
+				return h.client.Create(ctx, want)
+			}
+			return err
 		}
-		return nil
-	})
-	return err
+		hadOwner := hasOwner(current, pool)
+		addOwner(want, pool)
+		addOwner(current, pool)
+		if hadOwner && h.configMapEqual(current, want) {
+			return nil
+		}
+		current.Labels = want.Labels
+		current.Annotations = want.Annotations
+		current.Data = want.Data
+		current.BinaryData = want.BinaryData
+		return h.client.Update(ctx, current)
+	case *appsv1.DaemonSet:
+		current := &appsv1.DaemonSet{}
+		if err := h.client.Get(ctx, client.ObjectKeyFromObject(want), current); err != nil {
+			if apierrors.IsNotFound(err) {
+				addOwner(want, pool)
+				return h.client.Create(ctx, want)
+			}
+			return err
+		}
+		hadOwner := hasOwner(current, pool)
+		addOwner(want, pool)
+		addOwner(current, pool)
+		if hadOwner && h.daemonSetEqual(current, want) {
+			return nil
+		}
+		current.Labels = want.Labels
+		current.Annotations = want.Annotations
+		current.Spec = want.Spec
+		return h.client.Update(ctx, current)
+	default:
+		return fmt.Errorf("unsupported object type %T", obj)
+	}
 }
 
 func addOwner(obj client.Object, pool *v1alpha1.GPUPool) {
+	kind := pool.Kind
+	if kind == "" {
+		if pool.Namespace == "" {
+			kind = "ClusterGPUPool"
+		} else {
+			kind = "GPUPool"
+		}
+	}
 	owner := metav1.OwnerReference{
 		APIVersion: v1alpha1.GroupVersion.String(),
-		Kind:       "GPUPool",
+		Kind:       kind,
 		Name:       pool.Name,
 		UID:        pool.UID,
 		Controller: ptr.To(true),
@@ -680,8 +714,40 @@ func addOwner(obj client.Object, pool *v1alpha1.GPUPool) {
 	obj.SetOwnerReferences(append(refs, owner))
 }
 
+func hasOwner(obj client.Object, pool *v1alpha1.GPUPool) bool {
+	kind := pool.Kind
+	if kind == "" {
+		if pool.Namespace == "" {
+			kind = "ClusterGPUPool"
+		} else {
+			kind = "GPUPool"
+		}
+	}
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.APIVersion == v1alpha1.GroupVersion.String() && ref.Kind == kind && ref.Name == pool.Name {
+			return true
+		}
+	}
+	return false
+}
+
 func hostPathType(t corev1.HostPathType) *corev1.HostPathType {
 	return &t
+}
+
+func (h *RendererHandler) configMapEqual(current, desired *corev1.ConfigMap) bool {
+	return apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
+		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
+		apiequality.Semantic.DeepEqual(current.Data, desired.Data) &&
+		apiequality.Semantic.DeepEqual(current.BinaryData, desired.BinaryData) &&
+		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences)
+}
+
+func (h *RendererHandler) daemonSetEqual(current, desired *appsv1.DaemonSet) bool {
+	return apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
+		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
+		apiequality.Semantic.DeepEqual(current.Spec, desired.Spec) &&
+		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences)
 }
 
 // cleanupPoolResources removes per-pool workloads when backend/provider changes.

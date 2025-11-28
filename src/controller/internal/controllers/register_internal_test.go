@@ -49,6 +49,22 @@ func TestEnsureRegistriesInitialisesDependencies(t *testing.T) {
 	}
 }
 
+func TestEnsureRegistriesSetsDefaultClusterController(t *testing.T) {
+	orig := newClusterPoolController
+	t.Cleanup(func() { newClusterPoolController = orig })
+
+	newClusterPoolController = nil
+	deps := Dependencies{Logger: testr.New(t)}
+	ensureRegistries(&deps)
+	if newClusterPoolController == nil {
+		t.Fatal("newClusterPoolController must be initialised by ensureRegistries")
+	}
+	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
+	if _, err := newClusterPoolController(testr.New(t), config.ControllerConfig{}, store, nil); err != nil {
+		t.Fatalf("default cluster pool controller should be constructible: %v", err)
+	}
+}
+
 func TestDefaultControllerConstructors(t *testing.T) {
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
 
@@ -89,17 +105,20 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
+	origClusterPool := newClusterPoolController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
+		newClusterPoolController = origClusterPool
 	})
 
 	moduleStub := &stubSetupController{}
 	invStub := &stubSetupController{}
 	bootStub := &stubSetupController{}
 	poolStub := &stubSetupController{}
+	clusterPoolStub := &stubSetupController{}
 
 	newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
 		return moduleStub, nil
@@ -113,6 +132,9 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 		return poolStub, nil
 	}
+	newClusterPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
+		return clusterPoolStub, nil
+	}
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
 	deps := Dependencies{Logger: testr.New(t)}
@@ -125,6 +147,7 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 		"inventory":    invStub,
 		"bootstrap":    bootStub,
 		"gpupool":      poolStub,
+		"clusterpool":  clusterPoolStub,
 	}
 	for name, stub := range expectedCalls {
 		if stub.called != 1 {
@@ -138,11 +161,13 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
+	origClusterPool := newClusterPoolController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
+		newClusterPoolController = origClusterPool
 	})
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
@@ -210,6 +235,30 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 				}
 				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 					return nil, errors.New("pool constructor")
+				}
+				newClusterPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
+					t.Fatal("cluster pool should not run after pool failure")
+					return nil, nil
+				}
+			},
+		},
+		{
+			name: "cluster pool constructor error",
+			configure: func(t *testing.T) {
+				newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
+					return &stubSetupController{}, nil
+				}
+				newInventoryController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.InventoryHandler) (setupController, error) {
+					return &stubSetupController{}, nil
+				}
+				newBootstrapController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.BootstrapHandler) (setupController, error) {
+					return &stubSetupController{}, nil
+				}
+				newPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
+					return &stubSetupController{}, nil
+				}
+				newClusterPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
+					return nil, errors.New("cluster pool constructor")
 				}
 			},
 		},

@@ -16,6 +16,7 @@ package gpupool
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
@@ -485,6 +487,311 @@ func TestAddOwnerIdempotent(t *testing.T) {
 	if len(cm.OwnerReferences) != 1 {
 		t.Fatalf("expected single owner ref, got %d", len(cm.OwnerReferences))
 	}
+}
+
+func TestAddOwnerResolvesKind(t *testing.T) {
+	// namespaced pool without explicit Kind should resolve to GPUPool
+	nsPool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns", UID: "uid-a"},
+	}
+	obj := &corev1.ConfigMap{}
+	addOwner(obj, nsPool)
+	if got := obj.OwnerReferences[0].Kind; got != "GPUPool" {
+		t.Fatalf("expected GPUPool kind, got %s", got)
+	}
+
+	// explicit Kind must be preserved even for cluster-scoped pool
+	clusterPool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-b", UID: "uid-b"},
+		TypeMeta:   metav1.TypeMeta{Kind: "CustomKind"},
+	}
+	obj2 := &corev1.ConfigMap{}
+	addOwner(obj2, clusterPool)
+	if got := obj2.OwnerReferences[0].Kind; got != "CustomKind" {
+		t.Fatalf("expected CustomKind, got %s", got)
+	}
+}
+
+func TestCreateOrUpdateSkipsEqualObjects(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	existing := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "ns"},
+		Data:       map[string]string{"k": "v"},
+	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	cc := &countingClient{Client: base}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+
+	want := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "ns"},
+		Data:       map[string]string{"k": "v"},
+	}
+	// first call injects owner reference
+	if err := h.createOrUpdate(context.Background(), want, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 1 {
+		t.Fatalf("expected one update for owner injection, got %d", cc.updates)
+	}
+
+	// change data to trigger update
+	want.Data["k2"] = "v2"
+	if err := h.createOrUpdate(context.Background(), want, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 2 {
+		t.Fatalf("expected second update for data change, got %d", cc.updates)
+	}
+}
+
+func TestCreateOrUpdateDaemonSetOwnerInjection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "ds", Namespace: "ns"},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "x"}},
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "x"}}},
+		},
+	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds).Build()
+	cc := &countingClient{Client: base}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+
+	want := ds.DeepCopy()
+	if err := h.createOrUpdate(context.Background(), want, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 1 {
+		t.Fatalf("expected one update to inject owner, got %d", cc.updates)
+	}
+	if err := h.createOrUpdate(context.Background(), want, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 1 {
+		t.Fatalf("expected no extra updates when daemonset unchanged, got %d", cc.updates)
+	}
+}
+
+func TestCreateOrUpdateCreatePathAndOwnerPresent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cc := &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+
+	// create new configmap
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "new-cm", Namespace: "ns"}, Data: map[string]string{"a": "b"}}
+	if err := h.createOrUpdate(context.Background(), cm, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.creates != 1 || cc.updates != 0 {
+		t.Fatalf("expected create path, got creates=%d updates=%d", cc.creates, cc.updates)
+	}
+
+	// owner already present -> no update
+	withOwner := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned",
+			Namespace: "ns",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "GPUPool",
+				Name:       "pool",
+				Controller: ptr.To(true),
+			}},
+		},
+		Data: map[string]string{"x": "y"},
+	}
+	cc = &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(withOwner).Build()}
+	h = NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	if err := h.createOrUpdate(context.Background(), withOwner.DeepCopy(), pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 0 {
+		t.Fatalf("expected no update when owner already present, got %d", cc.updates)
+	}
+}
+
+func TestCreateOrUpdateUnsupported(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+	cc := &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+
+	if err := h.createOrUpdate(context.Background(), &corev1.Service{}, pool); err == nil {
+		t.Fatalf("expected error for unsupported object type")
+	}
+}
+
+func TestCreateOrUpdateConfigMapSkipWhenEqualAndOwned(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owned-cm",
+			Namespace: "ns",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "GPUPool",
+				Name:       "pool",
+				Controller: ptr.To(true),
+			}},
+		},
+		Data: map[string]string{"a": "b"},
+	}
+	cc := &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+	if err := h.createOrUpdate(context.Background(), cm.DeepCopy(), pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 0 {
+		t.Fatalf("expected no update when configmap already matches, got %d", cc.updates)
+	}
+}
+
+func TestCreateOrUpdateCreatesDaemonSetWhenMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cc := &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "new-ds", Namespace: "ns"},
+		Spec:       appsv1.DaemonSetSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "y"}}, Template: corev1.PodTemplateSpec{}},
+	}
+	if err := h.createOrUpdate(context.Background(), ds, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.creates != 1 || cc.updates != 0 {
+		t.Fatalf("expected daemonset create, got creates=%d updates=%d", cc.creates, cc.updates)
+	}
+}
+
+func TestHasOwnerClusterPool(t *testing.T) {
+	obj := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "ClusterGPUPool",
+				Name:       "cluster-pool",
+			}},
+		},
+	}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "cluster-pool"}, TypeMeta: metav1.TypeMeta{Kind: "ClusterGPUPool"}}
+	if !hasOwner(obj, pool) {
+		t.Fatalf("expected hasOwner true for cluster pool")
+	}
+}
+
+func TestCreateOrUpdateGetError(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), &errGetClientRenderer{}, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "ns"}}
+	if err := h.createOrUpdate(context.Background(), cm, pool); err == nil {
+		t.Fatalf("expected error when client.Get fails")
+	}
+}
+
+func TestCreateOrUpdateDaemonSetSkipWhenEqual(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	existing := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ds-owned",
+			Namespace: "ns",
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "GPUPool",
+				Name:       "pool",
+				Controller: ptr.To(true),
+			}},
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "x"}},
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "x"}}},
+		},
+	}
+	cc := &countingClient{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()}
+	h := NewRendererHandler(testr.New(t), cc, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+	want := existing.DeepCopy()
+	if err := h.createOrUpdate(context.Background(), want, pool); err != nil {
+		t.Fatalf("createOrUpdate returned error: %v", err)
+	}
+	if cc.updates != 0 {
+		t.Fatalf("expected no update when daemonset already matches, got %d", cc.updates)
+	}
+}
+
+func TestCreateOrUpdateDaemonSetGetError(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), &errGetClientRenderer{}, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns", UID: "uid"}}
+	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "ds", Namespace: "ns"}}
+	if err := h.createOrUpdate(context.Background(), ds, pool); err == nil {
+		t.Fatalf("expected error when client.Get fails for daemonset")
+	}
+}
+
+func TestHasOwnerClusterKindInference(t *testing.T) {
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "ClusterGPUPool",
+				Name:       "pool",
+			}},
+		},
+	}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	if !hasOwner(cm, pool) {
+		t.Fatalf("expected hasOwner true when Kind inferred for cluster pool")
+	}
+}
+
+type countingClient struct {
+	client.Client
+	creates int
+	updates int
+}
+
+func (c *countingClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	c.creates++
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func (c *countingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	c.updates++
+	return c.Client.Update(ctx, obj, opts...)
+}
+
+type errGetClientRenderer struct{ client.Client }
+
+func (errGetClientRenderer) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return apierrors.NewForbidden(corev1.Resource("configmaps"), "cm", fmt.Errorf("boom"))
 }
 
 func TestBuildCustomTolerations(t *testing.T) {

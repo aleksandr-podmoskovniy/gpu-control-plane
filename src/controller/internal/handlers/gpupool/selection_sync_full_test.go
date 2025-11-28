@@ -158,7 +158,7 @@ func TestHandlePoolNodeSelectorExcludesAll(t *testing.T) {
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node1",
+			Name: "node1",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{

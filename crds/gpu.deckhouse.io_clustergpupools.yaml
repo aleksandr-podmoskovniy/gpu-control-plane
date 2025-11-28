@@ -1,0 +1,349 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clustergpupools.gpu.deckhouse.io
+  labels:
+    heritage: deckhouse
+    module: gpu-control-plane
+spec:
+  group: gpu.deckhouse.io
+  scope: Cluster
+  names:
+    plural: clustergpupools
+    singular: clustergpupool
+    kind: ClusterGPUPool
+    shortNames:
+      - cgpupool
+      - cgpu
+  preserveUnknownFields: false
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Backend
+          type: string
+          jsonPath: .spec.backend
+        - name: Resource
+          type: string
+          jsonPath: .spec.resource.unit
+        - name: MaxDevicesPerNode
+          type: integer
+          jsonPath: .spec.resource.maxDevicesPerNode
+        - name: SlicesPerUnit
+          type: integer
+          jsonPath: .spec.resource.slicesPerUnit
+        - name: Total
+          type: integer
+          jsonPath: .status.capacity.total
+        - name: Available
+          type: integer
+          jsonPath: .status.capacity.available
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          description: |
+            ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
+          properties:
+            apiVersion:
+              type: string
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values.'
+            kind:
+              type: string
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to.'
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: ["resource"]
+              properties:
+                provider:
+                  type: string
+                  enum: ["Nvidia"]
+                  default: "Nvidia"
+                backend:
+                  type: string
+                  enum: ["DevicePlugin", "DRA"]
+                  default: "DevicePlugin"
+                resource:
+                  type: object
+                  required: ["unit"]
+                  properties:
+                    unit:
+                      type: string
+                      enum: ["Card", "MIG"]
+                    migProfile:
+                      type: string
+                    migLayout:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          uuids:
+                            type: array
+                            items:
+                              type: string
+                          pciBusIDs:
+                            type: array
+                            items:
+                              type: string
+                          deviceFilter:
+                            type: array
+                            items:
+                              type: string
+                          profiles:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                name:
+                                  type: string
+                                count:
+                                  type: integer
+                                  minimum: 1
+                                slicesPerUnit:
+                                  type: integer
+                                  minimum: 1
+                                  maximum: 64
+                          slicesPerUnit:
+                            type: integer
+                            minimum: 1
+                            maximum: 64
+                    maxDevicesPerNode:
+                      type: integer
+                      minimum: 1
+                    slicesPerUnit:
+                      type: integer
+                      minimum: 1
+                      maximum: 64
+                      default: 1
+                    timeSlicingResources:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name:
+                            type: string
+                          slicesPerUnit:
+                            type: integer
+                            minimum: 1
+                            maximum: 64
+                nodeSelector:
+                  type: object
+                  properties:
+                    matchLabels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    matchExpressions:
+                      type: array
+                      items:
+                        type: object
+                        required: ["key", "operator"]
+                        properties:
+                          key:
+                            type: string
+                          operator:
+                            type: string
+                          values:
+                            type: array
+                            items:
+                              type: string
+                deviceSelector:
+                  type: object
+                  properties:
+                    include:
+                      type: object
+                      properties:
+                        inventoryIDs:
+                          type: array
+                          items:
+                            type: string
+                        products:
+                          type: array
+                          items:
+                            type: string
+                        pciVendors:
+                          type: array
+                          items:
+                            type: string
+                        pciDevices:
+                          type: array
+                          items:
+                            type: string
+                        migCapable:
+                          type: boolean
+                        migProfiles:
+                          type: array
+                          items:
+                            type: string
+                    exclude:
+                      type: object
+                      properties:
+                        inventoryIDs:
+                          type: array
+                          items:
+                            type: string
+                        products:
+                          type: array
+                          items:
+                            type: string
+                        pciVendors:
+                          type: array
+                          items:
+                            type: string
+                        pciDevices:
+                          type: array
+                          items:
+                            type: string
+                        migCapable:
+                          type: boolean
+                        migProfiles:
+                          type: array
+                          items:
+                            type: string
+                deviceAssignment:
+                  type: object
+                  properties:
+                    requireAnnotation:
+                      type: boolean
+                    autoApproveSelector:
+                      type: object
+                      properties:
+                        matchLabels:
+                          type: object
+                          additionalProperties:
+                            type: string
+                        matchExpressions:
+                          type: array
+                          items:
+                            type: object
+                            required: ["key", "operator"]
+                            properties:
+                              key:
+                                type: string
+                              operator:
+                                type: string
+                              values:
+                                type: array
+                                items:
+                                  type: string
+                scheduling:
+                  type: object
+                  properties:
+                    strategy:
+                      type: string
+                      enum: ["BinPack", "Spread"]
+                    topologyKey:
+                      type: string
+                    taintsEnabled:
+                      type: boolean
+                    taints:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          key:
+                            type: string
+                          value:
+                            type: string
+                          effect:
+                            type: string
+                            enum: ["NoSchedule", "PreferNoSchedule", "NoExecute"]
+            status:
+              type: object
+              properties:
+                capacity:
+                  type: object
+                  properties:
+                    total:
+                      type: integer
+                    available:
+                      type: integer
+                    used:
+                      type: integer
+                    baseUnits:
+                      type: integer
+                    slicesPerUnit:
+                      type: integer
+                nodes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      totalDevices:
+                        type: integer
+                      slicesPerUnit:
+                        type: integer
+                      baseUnits:
+                        type: integer
+                      total:
+                        type: integer
+                      used:
+                        type: integer
+                candidates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      node:
+                        type: string
+                      pools:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            pool:
+                              type: string
+                            reason:
+                              type: string
+                            autoApproved:
+                              type: boolean
+                      lastEvent:
+                        type: object
+                        properties:
+                          message:
+                            type: string
+                          reason:
+                            type: string
+                          type:
+                            type: string
+                          eventTime:
+                            type: string
+                            format: date-time
+                devices:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      inventoryID:
+                        type: string
+                      node:
+                        type: string
+                      state:
+                        type: string
+                      autoAttach:
+                        type: boolean
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required: ["type", "status"]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

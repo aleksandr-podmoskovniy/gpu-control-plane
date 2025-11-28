@@ -37,6 +37,8 @@ func TestAddToSchemeRegistersAllTypes(t *testing.T) {
 		"GPUNodeInventoryList",
 		"GPUPool",
 		"GPUPoolList",
+		"ClusterGPUPool",
+		"ClusterGPUPoolList",
 	}
 
 	for _, kind := range kinds {

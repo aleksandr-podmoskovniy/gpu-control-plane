@@ -42,7 +42,7 @@ limitations under the License.
 
 ## Область
 
-- Управление жизненным циклом GPU на уровне Kubernetes: обнаружение (`GPUDevice`), агрегирование (`GPUNodeInventory`), формирование пулов (`GPUPool`) и интеграция с admission.
+- Управление жизненным циклом GPU на уровне Kubernetes: обнаружение (`GPUDevice`), агрегирование (`GPUNodeInventory`), формирование пулов (`ClusterGPUPool`/`GPUPool`) и интеграция с admission.
 - Автоматизация запуска GFD/DCGM/device plugin/MIG manager только на узлах, где карты подтверждены и отмечены как управляемые.
 - Интеграция с модулями DKP (multitenancy, observability, policy-engine), публикация статусов и метрик для внешних модулей.
 - Не включает установку проприетарных драйверов и инструментов на узлы, а также разработку пользовательских UI — эти области закрываются другими инициативами.
@@ -72,15 +72,162 @@ limitations under the License.
 
   - Перераспределяет карты: анализирует `GPUNodeInventory.status.pools.pending[]`/`assigned[]` и события `GPUNodeWithoutPool`, при необходимости обновляет `deviceSelector` или создаёт новые пулы.
   - Выводит узлы из эксплуатации: переводит пул/узел в `Maintenance`, устанавливает `gpu.deckhouse.io/enabled=false`, дожидается освобождения workloads, остановки DaemonSet’ов и очистки ресурсов.
-  - Обновляет драйверы/toolkit: реагирует на `DriverMissing`, координирует обновления, подтверждает возвращение узлов в пулы.
-  - Управляет аварийными ситуациями (например, критические Xid (ошибки драйвера NVIDIA)): помечает узлы на обслуживание, координирует замену карт; `UnassignedDevice` после восстановления исчезает автоматически, когда контроллер подтверждает готовность устройства.
+
+- Обновляет драйверы/toolkit: реагирует на `DriverMissing`, координирует обновления, подтверждает возвращение узлов в пулы.
+- Управляет аварийными ситуациями (например, критические Xid (ошибки драйвера NVIDIA)): помечает узлы на обслуживание, координирует замену карт; `UnassignedDevice` после восстановления исчезает автоматически, когда контроллер подтверждает готовность устройства.
 
 - **Разработчик приложения.**
 
   - Создаёт workload, указывая `resources.limits` с нужным пулом, и проверяет, что admission добавил подсказки и Pod запустился.
-  - Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.
-  - Переключает модель на другой пул (например, MIG ←→ Exclusive), обновляет deployment, следит за событиями и алертами при миграции.
-  - Диагностирует проблемы: читает условия Pod и события (`UnassignedDevice`, `ManagedDisabled`), обращается к платформенной команде при нехватке ресурсов.
+
+### Управление доступом (control plane + workload)
+
+Цели: а) не дать произвольно менять инвентаризацию (`GPUDevice/GPUNodeInventory`), б) дать явные «крутилки» для админов и тенантов, без дублирования политик.
+
+Слои:
+
+1. **Системный guard:** ValidatingAdmissionPolicy `gpu-control-plane-restricted-access` запрещает CREATE/UPDATE/DELETE `GPUDevice`/`GPUNodeInventory` всем, кроме сервис-аккаунтов модуля/`kube-system`/`d8-system`/`system:masters`.
+2. **Управление пулами через user-authz:** поставляются ClusterRole’ы (аннотации `user-authz.deckhouse.io/access-level` по паттерну виртуализации):
+   - `d8:user-authz:gpu-control-plane:user` — `get/list/watch` `GPUPool`.
+   - `d8:user-authz:gpu-control-plane:editor` — CRUD `GPUPool`.
+   - `d8:user-authz:gpu-control-plane:cluster-admin` — break-glass: CRUD `GPUPool`, `get/list/watch/delete` `GPUDevice/GPUNodeInventory`.
+     Назначение прав — обычным ClusterRoleBinding/Subject (Dex-группа, SA проекта).
+3. **Доступ workloads к пулам:** кластерный `ClusterGPUPool` доступен напрямую по ресурсу `gpu.deckhouse.io/<pool>` во всех namespaces (ограничение — RBAC/quotas). `GPUPool` — namespaced ресурс с полной спекой, работает только в своём namespace. Binding-модели нет (в отличие от Virtualization, где CVI и VI независимы); мутатор ищет GPUPool в ns → если нет, пробует ClusterGPUPool → иначе deny.
+4. **Практики DKP (рекомендации, опционально):**
+   - **OperationPolicy** — навешивать на namespace с GPU workload через метку `operation-policy.deckhouse.io/gpu-control-plane=true`; модуль кладёт готовый `OperationPolicy/gpu-control-plane-baseline` (requests/limits CPU+memory, запрет `:latest`, обязательные probes, проверка DNSPolicy при hostNetwork).
+   - **SecurityPolicy** — на те же ns лейбл `security.deckhouse.io/gpu-control-plane=restricted`; модуль кладёт `SecurityPolicy/gpu-control-plane-restricted` (без host\*, без privileged, baseline-разрешения на volumes).
+
+Типичные манифесты для админов/тенантов:
+
+```yaml
+# Выдать группе разработчиков право создавать пулы
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gpupool-edit-devs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: d8:user-authz:gpu-control-plane:editor
+subjects:
+  - kind: Group
+    name: devs@example.com # Dex группа
+---
+# Namespace с GPU workload под базовые Operation/Security policy
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ml-team-a
+  labels:
+    operation-policy.deckhouse.io/gpu-control-plane: "true" # включает OperationPolicy gpu-control-plane-baseline
+    security.deckhouse.io/gpu-control-plane: "restricted" # включает SecurityPolicy gpu-control-plane-restricted
+```
+
+Принцип: минимально инвазивно — политики не навязываются, но готовы из коробки; инвентаризация защищена, выдача ресурсов контролируется через RBAC/user-authz и квоты/полиси.
+
+- **Разработчик приложения.**
+
+  - Создаёт workload, указывая `resources.limits` с нужным пулом, и проверяет, что admission добавил подсказки и Pod запустился.
+  - Назначает карту в пул: `kubectl annotate gpudevice <name> gpu.deckhouse.io/assignment=<pool> --overwrite` (контроллер возьмёт только устройства с этой аннотацией и подходящие под `spec.deviceSelector`).
+
+#### Пример для кластера (две карты, два пула)
+
+Данные карт:
+
+- `k8s-w1-gpu-apiac-ru-0-10de-2203` — RTX 3090 Ti.
+- `k8s-w2-gpu-apiac-ru-0-10de-2204` — RTX 3090.
+
+Шаги:
+
+```bash
+# ns и SA для команд GPU-команды
+kubectl create namespace gpu-team-a
+kubectl create namespace gpu-team-b
+kubectl create sa gpu-user -n gpu-team-a
+kubectl create sa gpu-user -n gpu-team-b
+
+# Включить политики (опционально)
+kubectl label ns gpu-team-a operation-policy.deckhouse.io/gpu-control-plane=true security.deckhouse.io/gpu-control-plane=restricted
+kubectl label ns gpu-team-b operation-policy.deckhouse.io/gpu-control-plane=true security.deckhouse.io/gpu-control-plane=restricted
+
+# Назначить карты в пулы (аннотация на GPUDevice)
+kubectl annotate gpudevice k8s-w1-gpu-apiac-ru-0-10de-2203 gpu.deckhouse.io/assignment=pool-a --overwrite
+kubectl annotate gpudevice k8s-w2-gpu-apiac-ru-0-10de-2204 gpu.deckhouse.io/assignment=pool-b --overwrite
+```
+
+Манифесты пулов (namespaced, селектор по PCI ID; доступ ограничивается RBAC на ресурс `gpupools`):
+
+```yaml
+apiVersion: gpu.deckhouse.io/v1alpha1
+kind: GPUPool
+metadata:
+  name: pool-a
+  namespace: gpu-team-a
+spec:
+  allocationMode: Card
+  deviceSelector:
+    include:
+      pciVendors: ["10de"] # NVIDIA
+      pciDevices:
+        - "2203" # GA102 / RTX 3090 Ti
+        - "2204" # GA102 / RTX 3090
+  scheduling:
+    strategy: Spread
+    topologyKey: topology.kubernetes.io/zone
+  slicesPerUnit: 1
+---
+apiVersion: gpu.deckhouse.io/v1alpha1
+kind: GPUPool
+metadata:
+  name: pool-b
+  namespace: gpu-team-b
+spec:
+  allocationMode: Card
+  deviceSelector:
+    include:
+      pciVendors: ["10de"]
+      pciDevices: ["2203"]
+  scheduling:
+    strategy: Spread
+    topologyKey: topology.kubernetes.io/zone
+  slicesPerUnit: 1
+```
+
+Пример Pod’ов:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-a
+  namespace: gpu-team-a
+spec:
+  serviceAccountName: gpu-user
+  containers:
+    - name: c
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
+      resources:
+        limits:
+          gpu.deckhouse.io/pool-a: "1"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo-b
+  namespace: gpu-team-b
+spec:
+  serviceAccountName: gpu-user
+  containers:
+    - name: c
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
+      resources:
+        limits:
+          gpu.deckhouse.io/pool-b: "1"
+```
+
+- Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.
+- Переключает модель на другой пул (например, MIG ←→ Exclusive), обновляет deployment, следит за событиями и алертами при миграции.
+- Диагностирует проблемы: читает условия Pod и события (`UnassignedDevice`, `ManagedDisabled`), обращается к платформенной команде при нехватке ресурсов.
 
 - **SRE.**
   - Работает с мониторингом: использует автоматически включённые дашборды по `gpupool_capacity_*`, `gpu_device_unassigned_total`, следит за трендами utilization.
@@ -773,8 +920,6 @@ stateDiagram-v2
   - `unit: Card|MIG`; `slicesPerUnit`: сколько слоёв даёт одна карта/партиция (`1` — эксклюзив, `>1` — time-slice);
   - `maxDevicesPerNode`: ограничение устройств с одного узла (опционально);
   - `migProfile`: профиль MIG при `unit=MIG`.
-- **access** — дефолтные списки namespaces/Dex-групп/ServiceAccount. Заполняется
-  модулем multitenancy/admission-policy и редко меняется вручную.
 - **scheduling** — подсказки для размещения (`Spread`, `BinPack`, `topologyKey`,
   дополнительные affinity/tolerations). По умолчанию пул использует только
   `nodeAffinity`; если требуется жёсткая изоляция, оператор может описать taint
@@ -796,7 +941,7 @@ stateDiagram-v2
 - **Отвязка и перенос.** Удаление аннотации `assignment` переводит карту в `state=Ready` и возвращает запись в `pending[]`; после этого устройство можно назначить другому пулу.
 - **Переразметка пула.** Не поддерживается: поля resource/селекторы/планирование immutable, для новой схемы создаётся новый пул.
 - **Контроль аннотаций.** `gpupool-controller` регулярно сверяет состояние. Если обнаружена "висячая" аннотация (например, `assignment` без пула), создаётся событие `GPUAnnotationMismatch`, после чего лишние метки удаляются автоматически.
-- **Приоритеты workloads.** Распределение GPU не переопределяет стандартный механизм Kubernetes: Pod может задавать `priorityClassName`, kube-scheduler решает, кого вытеснить, а admission лишь проверяет наличие свободного ресурса пула. Дополнительные правила (например, резерв слотов под high-priority) описываются в `spec.access`/OperationPolicy.
+- **Приоритеты workloads.** Распределение GPU не переопределяет стандартный механизм Kubernetes: Pod может задавать `priorityClassName`, kube-scheduler решает, кого вытеснить, а admission лишь проверяет наличие свободного ресурса пула. Дополнительные правила (например, резерв слотов под high-priority) описываются через OperationPolicy/ResourceQuota.
 
 #### 5. GPUPool Controller
 
@@ -807,8 +952,6 @@ flowchart LR
     Reconcile --> Assignment["Подбор узлов<br/>и устройств"]
     Assignment --> Daemonsets["device-plugin / MIG manager<br/>per pool"]
     Assignment --> StatusUpdate["status.capacity / nodes"]
-    Reconcile --> AccessCfg["Шаблоны access / scheduling"]
-    AccessCfg --> AdmissionHints
 ```
 
 Контроллер отвечает за то, чтобы описание пула и фактическое состояние кластера
@@ -1436,6 +1579,13 @@ status:
 
 **Вывод.** Рассматриваем как опциональное расширение позже, но не как основу control plane.
 
+## VPA и стабильность раскатки
+
+- VPA: `gpu-control-plane-controller` — режим _Initial_ (как в Virtualization); DaemonSet-компоненты (device-plugin, MIG manager, gfd, dcgm, dcgm-exporter, validator) — без VPA, с фиксированными requests/limits и PDB на 100%.
+- Контроллер хранит checksum rendered DS/CM; перезаливает только при изменении спек пулов/образов/настроек, чтобы избежать флаппинга при старте.
+- При выключении модуля pre-delete hook удаляет CR и namespaced ресурсы модуля; контроллер очищает per-pool DaemonSet/ConfigMap при удалении пула или смене backend/provider.
+- Admission/Mutator не перезапускают Pod’ы, добавляют только селекторы/тейнты/спреды; отказ при конфликте защищает от неконсистентных патчей.
+
 ## Риски
 
 - **Неверная классификация устройств.** Если `NodeFeatureRule` не покрывает
@@ -1477,7 +1627,7 @@ status:
   `AwaitingApproval`, публикуется событие `GPUNodeWithoutPool`, отдельный
   дашборд подсвечивает свободные узлы. По умолчанию требуется ручное подтверждение
   новых площадок.
-- **Ошибки в конфигурации доступа.** Неправильные `spec.access` или политики
+- **Ошибки в конфигурации доступа.** Неправильные политики
   могут открыть пул не тем проектам. _Снижение:_ модуль генерирует
   `OperationPolicy` и шаблоны ResourceQuota/Toleration через multitenancy-manager,
   а admission проверяет namespace/Dex-группы перед выдачей ресурса.

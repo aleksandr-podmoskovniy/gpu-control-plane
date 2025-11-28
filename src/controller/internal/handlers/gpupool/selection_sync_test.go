@@ -34,7 +34,7 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node-a",
+			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
@@ -128,7 +128,7 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node-a",
+			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{
@@ -321,7 +321,7 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "node-a",
+			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{

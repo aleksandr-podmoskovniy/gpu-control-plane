@@ -47,6 +47,7 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	deps.Bootstrap.Register(bootstrap.NewNodeReadinessHandler(log.WithName("bootstrap.node-readiness")))
 	deps.Pool.Register(gpupool.NewCompatibilityCheckHandler())
 	if deps.Client != nil {
+		deps.Pool.Register(gpupool.NewConfigCheckHandler(deps.Client))
 		deps.Pool.Register(gpupool.NewSelectionSyncHandler(log.WithName("gpupool.selection-sync"), deps.Client))
 		deps.Pool.Register(gpupool.NewNodeMarkHandler(log.WithName("gpupool.node-mark"), deps.Client))
 	}

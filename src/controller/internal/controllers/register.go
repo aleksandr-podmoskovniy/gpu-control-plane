@@ -22,6 +22,7 @@ import (
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/bootstrap"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/clustergpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/gpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/inventory"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
@@ -45,6 +46,7 @@ var (
 	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
 		return gpupool.New(log, cfg, store, handlers), nil
 	}
+	newClusterPoolController func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error)
 )
 
 type Dependencies struct {
@@ -57,6 +59,11 @@ type Dependencies struct {
 }
 
 func ensureRegistries(deps *Dependencies) {
+	if newClusterPoolController == nil {
+		newClusterPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
+			return clustergpupool.New(log, cfg, store, handlers), nil
+		}
+	}
 	if deps.InventoryHandlers == nil {
 		deps.InventoryHandlers = contracts.NewInventoryRegistry()
 	}
@@ -89,6 +96,9 @@ func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfi
 		},
 		func() (setupController, error) {
 			return newPoolController(deps.Logger.WithName("gpupool"), cfg.GPUPool, deps.ModuleConfigStore, deps.PoolHandlers.List())
+		},
+		func() (setupController, error) {
+			return newClusterPoolController(deps.Logger.WithName("cluster-gpupool"), cfg.GPUPool, deps.ModuleConfigStore, deps.PoolHandlers.List())
 		},
 	}
 

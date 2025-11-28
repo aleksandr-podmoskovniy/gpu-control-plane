@@ -48,28 +48,6 @@ spec:
                 - DRA
                 type: string
                 default: DevicePlugin
-              access:
-                description: Access lists namespaces/service accounts allowed to consume
-                  the pool.
-                properties:
-                  dexGroups:
-                    description: DexGroups lists Dex groups that receive access.
-                    items:
-                      type: string
-                    type: array
-                  namespaces:
-                    description: Namespaces enumerates Kubernetes namespaces allowed
-                      to request the pool.
-                    items:
-                      type: string
-                    type: array
-                  serviceAccounts:
-                    description: ServiceAccounts restricts access to specific service
-                      accounts.
-                    items:
-                      type: string
-                    type: array
-                type: object
               deviceAssignment:
                 description: DeviceAssignment controls manual vs automatic assignment
                   flows.

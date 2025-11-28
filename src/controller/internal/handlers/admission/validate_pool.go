@@ -57,7 +57,6 @@ func (h *PoolValidationHandler) SyncPool(_ context.Context, pool *v1alpha1.GPUPo
 		func(spec *v1alpha1.GPUPoolSpec) error { return h.validateProvider(spec.Provider) },
 		h.validateResource,
 		h.validateSelectors,
-		h.validateAccess,
 		h.validateScheduling,
 	}
 	if err := runValidations(validators, &pool.Spec); err != nil {
@@ -200,13 +199,6 @@ func (h *PoolValidationHandler) validateSelectors(spec *v1alpha1.GPUPoolSpec) er
 			return fmt.Errorf("invalid deviceAssignment.autoApproveSelector: %w", err)
 		}
 	}
-	return nil
-}
-
-func (h *PoolValidationHandler) validateAccess(spec *v1alpha1.GPUPoolSpec) error {
-	spec.Access.Namespaces = dedupStrings(spec.Access.Namespaces)
-	spec.Access.ServiceAccounts = dedupStrings(spec.Access.ServiceAccounts)
-	spec.Access.DexGroups = dedupStrings(spec.Access.DexGroups)
 	return nil
 }
 

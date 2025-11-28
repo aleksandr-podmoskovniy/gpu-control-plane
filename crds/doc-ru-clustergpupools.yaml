@@ -4,34 +4,33 @@ spec:
       schema:
         openAPIV3Schema:
           description: >
-            Namespaced-ресурс, описывающий логический пул GPU (полная спека: селекторы,
-            нарезка, taints). Работает только в своём namespace.
+            Кластерный ресурс, описывающий пул GPU (selector/нарезка/backend/taints).
+            Доступен для workload’ов напрямую по ресурсу `gpu.deckhouse.io/<имя пула>`.
           properties:
             spec:
-              description: Желаемая конфигурация пула.
+              description: Желаемая конфигурация кластерного пула.
               properties:
                 provider:
                   description: GPU-вендор (сейчас поддерживается только `Nvidia`).
-                  enum:
-                    - Nvidia
+                  enum: [Nvidia]
                   default: Nvidia
                 backend:
                   description: Интеграционный бэкенд (`DevicePlugin` или `DRA`).
-                  enum:
-                    - DevicePlugin
-                    - DRA
+                  enum: [DevicePlugin, DRA]
                   default: DevicePlugin
                 resource:
-                  description: Единица ресурса и параметры нарезки (имя ресурса `gpu.deckhouse.io/<имя пула>`). Поле неизменяемо после создания.
+                  description: Единица ресурса и параметры нарезки (имя ресурса `gpu.deckhouse.io/<имя пула>`). Поле неизменяемо.
                   properties:
                     unit:
                       description: Единица («Card» или «MIG»).
                     migProfile:
                       description: MIG-профиль, когда unit=MIG.
-                    slicesPerUnit:
-                      description: Тайм-шеринговые слои на одну карту/партицию (1 — эксклюзив).
+                    migLayout:
+                      description: Кастомные профили MIG на устройство (список профилей с количеством).
                     maxDevicesPerNode:
                       description: Лимит устройств, который может предоставить один узел.
+                    slicesPerUnit:
+                      description: Тайм-шеринговые слои на одну карту/партицию (1 — эксклюзив).
                 nodeSelector:
                   description: Ограничение узлов, которые могут предоставлять карты в пул (immutable).
                 deviceSelector:

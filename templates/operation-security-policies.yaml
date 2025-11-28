@@ -1,0 +1,55 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+---
+apiVersion: deckhouse.io/v1alpha1
+kind: OperationPolicy
+metadata:
+  name: gpu-control-plane-baseline
+  {{- include "helm_lib_module_labels" (list . (dict "app" "gpu-control-plane" "component" "policy")) | nindent 2 }}
+spec:
+  enforcementAction: Deny
+  policies:
+    requiredResources:
+      limits: ["cpu", "memory"]
+      requests: ["cpu", "memory"]
+    requiredProbes:
+      - readinessProbe
+      - livenessProbe
+    disallowedImageTags:
+      - latest
+    checkHostNetworkDNSPolicy: true
+  match:
+    namespaceSelector:
+      labelSelector:
+        matchLabels:
+          operation-policy.deckhouse.io/gpu-control-plane: "true"
+---
+apiVersion: deckhouse.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: gpu-control-plane-restricted
+  {{- include "helm_lib_module_labels" (list . (dict "app" "gpu-control-plane" "component" "policy")) | nindent 2 }}
+spec:
+  enforcementAction: Deny
+  policies:
+    allowHostIPC: false
+    allowHostNetwork: false
+    allowHostPID: false
+    allowPrivileged: false
+    allowPrivilegeEscalation: true
+    allowedCapabilities: []
+    allowedHostPaths: []
+    allowedVolumes:
+      - emptyDir
+      - configMap
+      - downwardAPI
+      - projected
+      - secret
+      - persistentVolumeClaim
+    readOnlyRootFilesystem: false
+  match:
+    namespaceSelector:
+      labelSelector:
+        matchLabels:
+          security.deckhouse.io/gpu-control-plane: "restricted"
+{{- end }}
