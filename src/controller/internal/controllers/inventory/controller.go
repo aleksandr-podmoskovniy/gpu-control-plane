@@ -1121,10 +1121,7 @@ func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature)
 	if !hasGPUDeviceLabels(feature.Spec.Labels) {
 		return nil
 	}
-	nodeName := feature.GetName()
-	if strings.HasPrefix(nodeName, "nvidia-features-for-") {
-		nodeName = strings.TrimPrefix(nodeName, "nvidia-features-for-")
-	}
+	nodeName := strings.TrimPrefix(feature.GetName(), "nvidia-features-for-")
 	if nodeName == "" {
 		return nil
 	}
