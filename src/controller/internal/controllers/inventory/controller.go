@@ -454,10 +454,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	node := &corev1.Node{}
 	if err := r.client.Get(ctx, req.NamespacedName, node); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(1).Info("node removed, cleaning inventory data")
-			if err := r.cleanupNode(ctx, req.Name); err != nil {
-				return ctrl.Result{}, err
-			}
+			// Rely on ownerReferences GC; avoid aggressive cleanup that may fire on transient cache misses.
+			log.V(1).Info("node removed, skipping reconciliation")
+			r.clearInventoryMetrics(req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -1116,7 +1115,12 @@ func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature)
 	if !hasGPUDeviceLabels(feature.Spec.Labels) {
 		return nil
 	}
-	nodeName := strings.TrimPrefix(feature.GetName(), "nvidia-features-for-")
+
+	nodeName := feature.GetName()
+	if labeled := feature.GetLabels()[nodeFeatureNodeNameLabel]; labeled != "" {
+		nodeName = labeled
+	}
+	nodeName = strings.TrimPrefix(nodeName, "nvidia-features-for-")
 	if nodeName == "" {
 		return nil
 	}

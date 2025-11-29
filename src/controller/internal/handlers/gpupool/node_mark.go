@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -67,63 +68,66 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 }
 
 func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey string, hasDevices bool, taintsEnabled bool) error {
-	node := &corev1.Node{}
-	if err := h.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
-		if apierrors.IsNotFound(err) {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		node := &corev1.Node{}
+		if err := h.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		original := node.DeepCopy()
+
+		changed := false
+		if node.Labels == nil {
+			node.Labels = map[string]string{}
+		}
+		poolValue := poolValueFromKey(poolKey)
+		if hasDevices {
+			if node.Labels[poolKey] != poolValue {
+				node.Labels[poolKey] = poolValue
+				changed = true
+			}
+		} else if _, ok := node.Labels[poolKey]; ok {
+			delete(node.Labels, poolKey)
+			changed = true
+		}
+
+		// Default taint policy: apply NoSchedule when devices present; when devices gone, apply NoExecute to evict remaining pods of this pool.
+		if taintsEnabled {
+			var desiredTaints []corev1.Taint
+			if hasDevices {
+				desiredTaints = []corev1.Taint{{
+					Key:    poolKey,
+					Value:  poolValue,
+					Effect: corev1.TaintEffectNoSchedule,
+				}}
+			} else {
+				desiredTaints = []corev1.Taint{{
+					Key:    poolKey,
+					Value:  poolValue,
+					Effect: corev1.TaintEffectNoExecute,
+				}}
+			}
+
+			newTaints, taintsChanged := ensureTaints(node.Spec.Taints, desiredTaints, poolKey)
+			if taintsChanged {
+				node.Spec.Taints = newTaints
+				changed = true
+			}
+		} else {
+			newTaints, taintsChanged := ensureTaints(node.Spec.Taints, []corev1.Taint{}, poolKey)
+			if taintsChanged {
+				node.Spec.Taints = newTaints
+				changed = true
+			}
+		}
+
+		if !changed {
 			return nil
 		}
-		return err
-	}
-
-	changed := false
-	if node.Labels == nil {
-		node.Labels = map[string]string{}
-	}
-	poolValue := poolValueFromKey(poolKey)
-	if hasDevices {
-		if node.Labels[poolKey] != poolValue {
-			node.Labels[poolKey] = poolValue
-			changed = true
-		}
-	} else if _, ok := node.Labels[poolKey]; ok {
-		delete(node.Labels, poolKey)
-		changed = true
-	}
-
-	// Default taint policy: apply NoSchedule when devices present; when devices gone, apply NoExecute to evict remaining pods of this pool.
-	if taintsEnabled {
-		var desiredTaints []corev1.Taint
-		if hasDevices {
-			desiredTaints = []corev1.Taint{{
-				Key:    poolKey,
-				Value:  poolValue,
-				Effect: corev1.TaintEffectNoSchedule,
-			}}
-		} else {
-			desiredTaints = []corev1.Taint{{
-				Key:    poolKey,
-				Value:  poolValue,
-				Effect: corev1.TaintEffectNoExecute,
-			}}
-		}
-
-		newTaints, taintsChanged := ensureTaints(node.Spec.Taints, desiredTaints, poolKey)
-		if taintsChanged {
-			node.Spec.Taints = newTaints
-			changed = true
-		}
-	} else {
-		newTaints, taintsChanged := ensureTaints(node.Spec.Taints, []corev1.Taint{}, poolKey)
-		if taintsChanged {
-			node.Spec.Taints = newTaints
-			changed = true
-		}
-	}
-
-	if !changed {
-		return nil
-	}
-	return h.client.Update(ctx, node)
+		return h.client.Patch(ctx, node, client.MergeFrom(original))
+	})
 }
 
 func ensureTaints(current []corev1.Taint, desired []corev1.Taint, poolKey string) ([]corev1.Taint, bool) {

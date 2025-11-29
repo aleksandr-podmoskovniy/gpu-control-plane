@@ -304,6 +304,29 @@ func TestEnrichDevicesFromFeatureCreatesMissingDevices(t *testing.T) {
 	}
 }
 
+func TestEnrichDevicesFromFeatureSkipsEmptyAttributes(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "0", Vendor: "10de", Device: "1db5", Class: "0300"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: nil},
+							{Attributes: map[string]string{"index": "1", "vendor": "", "device": ""}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	enriched := enrichDevicesFromFeature(devices, feature)
+	if len(enriched) != 1 || enriched[0].Index != "0" {
+		t.Fatalf("expected devices untouched, got %+v", enriched)
+	}
+}
+
 func TestSortDeviceSnapshotsOrdersIndices(t *testing.T) {
 	devices := []deviceSnapshot{{Index: "10"}, {Index: "2"}, {Index: "001"}}
 	sortDeviceSnapshots(devices)
@@ -523,6 +546,71 @@ func TestEnrichDevicesFromFeatureOverridesMetrics(t *testing.T) {
 	}
 	if !reflect.DeepEqual(device.Precision, []string{"fp32", "fp64"}) {
 		t.Fatalf("expected precision override, got %+v", device.Precision)
+	}
+}
+
+func TestEnrichDevicesFromFeatureFillsMissingIds(t *testing.T) {
+	devices := []deviceSnapshot{{Index: "1"}}
+	feature := &nfdv1alpha1.NodeFeature{
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Features: nfdv1alpha1.Features{
+				Instances: map[string]nfdv1alpha1.InstanceFeatureSet{
+					"nvidia.com/gpu": {
+						Elements: []nfdv1alpha1.InstanceFeature{
+							{Attributes: map[string]string{
+								"index":            "1",
+								"vendor":           "10DE",
+								"device":           "2203",
+								"class":            "0300",
+								"pci.address":      "0000:01:00.0",
+								"memory.total":     "24576 MiB",
+								"compute.major":    "8",
+								"compute.minor":    "0",
+								"numa.node":        "0",
+								"power.limit":      "250",
+								"sm.count":         "108",
+								"memory.bandwidth": "1500",
+								"pcie.gen":         "4",
+								"pcie.link.width":  "16",
+								"board":            "PG132",
+								"family":           "Ampere",
+								"serial":           "ABC123",
+								"pstate":           "P0",
+								"display_mode":     "Disabled",
+								"precision":        "fp16,fp32",
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	result := enrichDevicesFromFeature(devices, feature)
+	if len(result) != 1 {
+		t.Fatalf("expected one device, got %+v", result)
+	}
+	dev := result[0]
+	if dev.Vendor != "10de" || dev.Device != "2203" || dev.Class != "0300" {
+		t.Fatalf("expected pci ids set, got %+v", dev)
+	}
+	if dev.PCIAddress != "0000:01:00.0" || dev.MemoryMiB != 24576 || dev.ComputeMajor != 8 || dev.ComputeMinor != 0 {
+		t.Fatalf("expected metrics filled, got %+v", dev)
+	}
+	if dev.NUMANode == nil || *dev.NUMANode != 0 {
+		t.Fatalf("expected NUMA set, got %+v", dev.NUMANode)
+	}
+	if dev.PowerLimitMW == nil || *dev.PowerLimitMW != 250 || dev.SMCount == nil || *dev.SMCount != 108 || dev.MemBandwidth == nil || *dev.MemBandwidth != 1500 {
+		t.Fatalf("expected power/SM/bandwidth set, got %+v", dev)
+	}
+	if dev.PCIEGen == nil || *dev.PCIEGen != 4 || dev.PCIELinkWid == nil || *dev.PCIELinkWid != 16 {
+		t.Fatalf("expected pcie fields set, got gen %v width %v", dev.PCIEGen, dev.PCIELinkWid)
+	}
+	if dev.Board != "PG132" || dev.Family != "Ampere" || dev.Serial != "ABC123" || dev.PState != "P0" || dev.DisplayMode != "Disabled" {
+		t.Fatalf("expected board/family/serial/pstate/display set, got %+v", dev)
+	}
+	if !reflect.DeepEqual(dev.Precision, []string{"fp16", "fp32"}) {
+		t.Fatalf("expected precision set, got %+v", dev.Precision)
 	}
 }
 

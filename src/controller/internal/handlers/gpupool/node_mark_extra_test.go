@@ -264,6 +264,10 @@ func (f *failingUpdateClient) Update(ctx context.Context, obj client.Object, opt
 	return apierrors.NewConflict(v1alpha1.GroupVersion.WithResource("nodes").GroupResource(), obj.GetName(), nil)
 }
 
+func (f *failingUpdateClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	return apierrors.NewConflict(v1alpha1.GroupVersion.WithResource("nodes").GroupResource(), obj.GetName(), nil)
+}
+
 type failingGetClient struct {
 	client.Client
 }

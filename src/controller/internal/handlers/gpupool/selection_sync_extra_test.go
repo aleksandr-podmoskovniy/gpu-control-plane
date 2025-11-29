@@ -434,3 +434,123 @@ func TestHandlePoolMultipleNodesAndFilters(t *testing.T) {
 		t.Fatalf("expected only ready non-ignored device counted, got %d", len(pool.Status.Devices))
 	}
 }
+
+func TestNeedsAssignmentUpdateVariants(t *testing.T) {
+	dev := v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateAssigned,
+			PoolRef: &v1alpha1.GPUPoolReference{
+				Name: "pool-a",
+			},
+		},
+	}
+	if needsAssignmentUpdate(dev, "pool-a") {
+		t.Fatalf("expected no update when already assigned")
+	}
+	dev.Status.State = v1alpha1.GPUDeviceStateReady
+	if !needsAssignmentUpdate(dev, "pool-a") {
+		t.Fatalf("expected update when state is ready")
+	}
+	dev.Status.State = v1alpha1.GPUDeviceStateInUse
+	dev.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: "other"}
+	if !needsAssignmentUpdate(dev, "pool-a") {
+		t.Fatalf("expected update when pool differs")
+	}
+}
+
+func TestSelectionSyncFallbacksToDeviceNameKey(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+		},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected capacity 1, got %d", pool.Status.Capacity.Total)
+	}
+}
+
+func TestSelectionSyncStatusUpdateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStateReady,
+		},
+	}
+
+	base := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	cl := &failingStatusClient{Client: base}
+
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err == nil {
+		t.Fatalf("expected status update error")
+	}
+}
+
+type failingStatusClient struct {
+	client.Client
+}
+
+func (f *failingStatusClient) Status() client.StatusWriter {
+	return failingStatusWriter{StatusWriter: f.Client.Status()}
+}
+
+type failingStatusWriter struct {
+	client.StatusWriter
+}
+
+func (f failingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	return apierrors.NewBadRequest("boom")
+}
