@@ -32,6 +32,8 @@ spec:
   validations:
     - expression: |
         request.userInfo.groups.exists(g, g == "system:masters") ||
+        request.userInfo.username == "kubernetes-admin" ||
+        request.userInfo.groups.exists(g, g == "cluster-admins") ||
         request.userInfo.username.startsWith("system:serviceaccount:kube-system:") ||
         request.userInfo.username.startsWith("system:serviceaccount:d8-system:") ||
         request.userInfo.username.startsWith("system:serviceaccount:{{ $moduleNS }}:")

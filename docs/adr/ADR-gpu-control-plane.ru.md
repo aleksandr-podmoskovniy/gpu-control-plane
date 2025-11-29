@@ -182,7 +182,6 @@ spec:
   scheduling:
     strategy: Spread
     topologyKey: topology.kubernetes.io/zone
-  slicesPerUnit: 1
 ---
 # Локальный пул только в ns gpu-team-local
 apiVersion: gpu.deckhouse.io/v1alpha1
@@ -191,7 +190,10 @@ metadata:
   name: local-x
   namespace: gpu-team-local
 spec:
-  allocationMode: Card
+  provider: Nvidia
+  backend: DevicePlugin
+  resource:
+    unit: Card
   deviceSelector:
     include:
       pciVendors: ["10de"] # NVIDIA
@@ -199,7 +201,6 @@ spec:
   scheduling:
     strategy: Spread
     topologyKey: topology.kubernetes.io/zone
-  slicesPerUnit: 1
 ---
 # Квоты на кластерный пул в ns gpu-team-a/b
 apiVersion: v1
