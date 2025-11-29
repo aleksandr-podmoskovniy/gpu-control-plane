@@ -1122,6 +1122,9 @@ func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature)
 		return nil
 	}
 	nodeName := feature.GetName()
+	if strings.HasPrefix(nodeName, "nvidia-features-for-") {
+		nodeName = strings.TrimPrefix(nodeName, "nvidia-features-for-")
+	}
 	if nodeName == "" {
 		return nil
 	}

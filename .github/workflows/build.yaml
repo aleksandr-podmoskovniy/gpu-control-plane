@@ -48,8 +48,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: deckhouse/modules-actions/lint@v2
-        with:
-          dmt_version: 0.1.55
         env:
           DMT_METRICS_URL: ${{ secrets.DMT_METRICS_URL }}
           DMT_METRICS_TOKEN: ${{ secrets.DMT_METRICS_TOKEN }}

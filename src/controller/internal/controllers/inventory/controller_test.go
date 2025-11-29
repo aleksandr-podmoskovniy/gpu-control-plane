@@ -4661,6 +4661,13 @@ func TestMapNodeFeatureToNode(t *testing.T) {
 	if reqs := mapNodeFeatureToNode(context.Background(), noGPU); len(reqs) != 0 {
 		t.Fatalf("expected empty requests for feature without GPU labels, got %+v", reqs)
 	}
+
+	prefixed := feature.DeepCopy()
+	prefixed.Name = "nvidia-features-for-worker-x"
+	reqs = mapNodeFeatureToNode(context.Background(), prefixed)
+	if len(reqs) != 1 || reqs[0].Name != "worker-x" {
+		t.Fatalf("expected trimmed node name, got %+v", reqs)
+	}
 }
 
 func TestCleanupNodeReturnsListError(t *testing.T) {
