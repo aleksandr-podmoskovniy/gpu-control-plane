@@ -149,7 +149,11 @@ func TestSelectionSyncHandlePoolHappyPath(t *testing.T) {
 		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev2", State: v1alpha1.GPUDeviceStateReady},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev1, dev2).Build()
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev1, dev2).
+		Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{
@@ -174,6 +178,19 @@ func TestSelectionSyncHandlePoolHappyPath(t *testing.T) {
 	}
 	if len(pool.Status.Nodes) != 1 {
 		t.Fatalf("expected one node, got %d", len(pool.Status.Nodes))
+	}
+	updated := &v1alpha1.GPUDevice{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
+		t.Fatalf("expected device present: %v", err)
+	}
+	if updated.Status.PoolRef == nil || updated.Status.PoolRef.Name != "pool" {
+		t.Fatalf("poolRef not set, got %+v", updated.Status.PoolRef)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
+		t.Fatalf("expected state Assigned, got %s", updated.Status.State)
+	}
+	if updated.Annotations[assignmentAnnotation] != "pool" {
+		t.Fatalf("assignment annotation lost")
 	}
 }
 

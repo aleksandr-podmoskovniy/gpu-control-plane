@@ -60,7 +60,11 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		if dev.Annotations[assignmentAnnotation] != pool.Name {
 			continue
 		}
-		assigned[dev.Status.InventoryID] = dev
+		key := dev.Status.InventoryID
+		if key == "" {
+			key = dev.Name
+		}
+		assigned[key] = dev
 	}
 
 	var selector labels.Selector
@@ -88,6 +92,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		baseUnits   int32
 		devStatuses []v1alpha1.GPUPoolDeviceStatus
 		nodeTotals  = map[string]int32{}
+		toUpdate    []v1alpha1.GPUDevice
 	)
 
 	for _, inv := range inventories.Items {
@@ -119,6 +124,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				State:       dev.State,
 				AutoAttach:  autoAttach,
 			})
+			if needsAssignmentUpdate(devCR, pool.Name) {
+				toUpdate = append(toUpdate, devCR)
+			}
 			nodeTotals[inv.Name]++
 			if dev.State == v1alpha1.GPUDeviceStateReady ||
 				dev.State == v1alpha1.GPUDeviceStatePendingAssignment ||
@@ -156,6 +164,17 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		})
 	}
 
+	for i := range toUpdate {
+		dev := toUpdate[i].DeepCopy()
+		dev.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: pool.Name}
+		if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStatePendingAssignment {
+			dev.Status.State = v1alpha1.GPUDeviceStateAssigned
+		}
+		if err := h.client.Status().Update(ctx, dev); err != nil && !apierrors.IsNotFound(err) {
+			return contracts.Result{}, err
+		}
+	}
+
 	h.log.V(2).Info("synchronised pool selection", "pool", pool.Name, "devices", len(devStatuses), "capacity", totalUnits)
 	return contracts.Result{}, nil
 }
@@ -183,4 +202,14 @@ func (h *SelectionSyncHandler) unitsForDevice(dev v1alpha1.GPUNodeDevice, pool *
 		return pool.Spec.Resource.SlicesPerUnit, 1
 	}
 	return 1, 1
+}
+
+func needsAssignmentUpdate(dev v1alpha1.GPUDevice, poolName string) bool {
+	if dev.Status.PoolRef == nil || dev.Status.PoolRef.Name != poolName {
+		return true
+	}
+	if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStatePendingAssignment {
+		return true
+	}
+	return false
 }
