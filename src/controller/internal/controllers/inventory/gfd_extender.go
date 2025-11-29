@@ -249,16 +249,16 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 			hw.ComputeCapability = capability
 		}
 	}
-	if entry.PCI.Vendor != "" {
+	if entry.PCI.Vendor != "" && hw.PCI.Vendor == "" {
 		hw.PCI.Vendor = strings.ToLower(entry.PCI.Vendor)
 	}
-	if entry.PCI.Device != "" {
+	if entry.PCI.Device != "" && hw.PCI.Device == "" {
 		hw.PCI.Device = strings.ToLower(entry.PCI.Device)
 	}
-	if entry.PCI.Class != "" {
+	if entry.PCI.Class != "" && hw.PCI.Class == "" {
 		hw.PCI.Class = strings.ToLower(entry.PCI.Class)
 	}
-	if entry.PCI.Address != "" {
+	if entry.PCI.Address != "" && hw.PCI.Address == "" {
 		hw.PCI.Address = strings.ToLower(entry.PCI.Address)
 	}
 	if entry.NUMANode != nil && !int32PtrEqual(hw.NUMANode, entry.NUMANode) {

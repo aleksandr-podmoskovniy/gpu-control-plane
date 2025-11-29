@@ -129,7 +129,7 @@ const (
 	defaultSchedulingStrategy     = "Spread"
 	defaultSchedulingTopologyKey  = "topology.kubernetes.io/zone"
 	defaultMonitoringService      = true
-	defaultInventoryResyncPeriod  = "30s"
+	defaultInventoryResyncPeriod  = ""
 	defaultHTTPSMode              = HTTPSModeCertManager
 	defaultHTTPSCertManagerIssuer = "letsencrypt"
 )

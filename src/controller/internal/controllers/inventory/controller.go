@@ -76,7 +76,7 @@ const (
 	eventInventoryChanged  = "GPUInventoryConditionChanged"
 	eventDetectUnavailable = "GPUDetectionUnavailable"
 
-	defaultResyncPeriod = 30 * time.Second
+	defaultResyncPeriod time.Duration = 0
 
 	nodeFeatureNodeNameLabel = "nfd.node.kubernetes.io/node-name"
 	deviceIgnoreAnnotation   = "gpu.deckhouse.io/ignore"
@@ -532,11 +532,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if hasDevices && aggregate.RequeueAfter > 0 {
 		if ctrlResult.RequeueAfter == 0 || aggregate.RequeueAfter < ctrlResult.RequeueAfter {
 			ctrlResult.RequeueAfter = aggregate.RequeueAfter
-		}
-	}
-	if hasDevices && !ctrlResult.Requeue && ctrlResult.RequeueAfter == 0 {
-		if period := r.getResyncPeriod(); period > 0 {
-			ctrlResult.RequeueAfter = period
 		}
 	}
 

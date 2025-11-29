@@ -312,18 +312,30 @@ func enrichDevicesFromFeature(devices []deviceSnapshot, feature *nfdv1alpha1.Nod
 		index := canonicalIndex(inst.Attributes["index"])
 		i, ok := indexMap[index]
 		if !ok {
-			snap := deviceSnapshot{
-				Index:  index,
-				Vendor: strings.ToLower(inst.Attributes["vendor"]),
-				Device: strings.ToLower(inst.Attributes["device"]),
-				Class:  strings.ToLower(inst.Attributes["class"]),
-			}
-			if snap.Vendor == "" || snap.Device == "" || snap.Class == "" {
+			vendor := strings.ToLower(inst.Attributes["vendor"])
+			device := strings.ToLower(inst.Attributes["device"])
+			class := strings.ToLower(inst.Attributes["class"])
+			if vendor == "" || device == "" || class == "" {
 				continue
 			}
-			devices = append(devices, snap)
+			devices = append(devices, deviceSnapshot{
+				Index:  index,
+				Vendor: vendor,
+				Device: device,
+				Class:  class,
+			})
 			i = len(devices) - 1
 			indexMap[index] = i
+		}
+
+		if vendor := strings.ToLower(inst.Attributes["vendor"]); vendor != "" && devices[i].Vendor == "" {
+			devices[i].Vendor = vendor
+		}
+		if device := strings.ToLower(inst.Attributes["device"]); device != "" && devices[i].Device == "" {
+			devices[i].Device = device
+		}
+		if class := strings.ToLower(inst.Attributes["class"]); class != "" && devices[i].Class == "" {
+			devices[i].Class = class
 		}
 
 		if uuid := strings.TrimSpace(inst.Attributes["uuid"]); uuid != "" {
