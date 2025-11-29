@@ -483,12 +483,10 @@ func TestWorkloadStatusHandlerKeepsWorkloadsDuringRevalidation(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Present: true,
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "gpu-ready", State: v1alpha1.GPUDeviceStateReady},
-					{InventoryID: "gpu-new", State: v1alpha1.GPUDeviceStateDiscovered},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "gpu-ready", State: v1alpha1.GPUDeviceStateReady},
+				{InventoryID: "gpu-new", State: v1alpha1.GPUDeviceStateDiscovered},
 			},
 			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
 				Phase: v1alpha1.GPUNodeBootstrapPhaseMonitoring,
@@ -542,11 +540,9 @@ func TestWorkloadStatusHandlerThrottlesValidatorOnRepeatedFailures(t *testing.T)
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: node},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Present: true,
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "gpu-throttle", State: v1alpha1.GPUDeviceStateDiscovered},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "gpu-throttle", State: v1alpha1.GPUDeviceStateDiscovered},
 			},
 		},
 	}
@@ -815,7 +811,7 @@ func TestEvaluateReadyForPoolingReasons(t *testing.T) {
 	check(true, true, false, true, reasonComponentPending)
 	check(true, true, true, false, reasonMonitoringUnhealthy)
 
-// Faulted devices block readiness.
+	// Faulted devices block readiness.
 	withFaulted := makeInventory()
 	withFaulted.Status.Devices = []v1alpha1.GPUNodeDevice{{State: v1alpha1.GPUDeviceStateFaulted}}
 	if ready, reason, _ := handler.evaluateReadyForPooling(withFaulted, true, true, true, true, true, 0, nil); ready || reason != reasonDevicesFaulted {
@@ -847,18 +843,18 @@ func TestUpdateBootstrapStatusCopiesHeartbeat(t *testing.T) {
 
 func TestUpdateComponentEnablementDisablesGpuWorkloadsWithoutDevices(t *testing.T) {
 	handler := NewWorkloadStatusHandler(testr.New(t), meta.WorkloadsNamespace)
-		inventory := &v1alpha1.GPUNodeInventory{
-			Status: v1alpha1.GPUNodeInventoryStatus{
-				Hardware: v1alpha1.GPUNodeHardware{Present: false},
-				Conditions: []metav1.Condition{{
-					Type:   conditionInventoryComplete,
-					Status: metav1.ConditionTrue,
-				}},
-				Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
-					Components: map[string]bool{
-						string(meta.ComponentGPUFeatureDiscovery): true,
-						string(meta.ComponentDCGM):                true,
-					},
+	inventory := &v1alpha1.GPUNodeInventory{
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Hardware: v1alpha1.GPUNodeHardware{Present: false},
+			Conditions: []metav1.Condition{{
+				Type:   conditionInventoryComplete,
+				Status: metav1.ConditionTrue,
+			}},
+			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
+				Components: map[string]bool{
+					string(meta.ComponentGPUFeatureDiscovery): true,
+					string(meta.ComponentDCGM):                true,
+				},
 			},
 		},
 	}
@@ -1103,12 +1099,11 @@ func TestPendingDeviceIDsFallbacks(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker-f"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "gpu-0", State: v1alpha1.GPUDeviceStateDiscovered},
-					{UUID: "uuid-1", State: v1alpha1.GPUDeviceStateFaulted},
-					{State: v1alpha1.GPUDeviceStateFaulted},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "gpu-0", State: v1alpha1.GPUDeviceStateDiscovered},
+				{UUID: "uuid-1", State: v1alpha1.GPUDeviceStateFaulted},
+				{State: v1alpha1.GPUDeviceStateFaulted},
 			},
 		},
 	}

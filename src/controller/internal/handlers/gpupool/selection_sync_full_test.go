@@ -44,9 +44,8 @@ func TestHandlePoolStatesAndAutoAttach(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-ready"}, {InventoryID: "dev-assigned"}, {InventoryID: "dev-auto"}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev-ready"}, {InventoryID: "dev-assigned"}, {InventoryID: "dev-auto"}},
 		},
 	}
 	devReady := &v1alpha1.GPUDevice{
@@ -86,8 +85,8 @@ func TestHandlePoolStatesAndAutoAttach(t *testing.T) {
 		t.Fatalf("expected 3 devices in status, got %d", len(pool.Status.Devices))
 	}
 	// only ready devices contribute to capacity
-	if pool.Status.Capacity.Total != 2 {
-		t.Fatalf("expected capacity 2 (ready+auto), got %d", pool.Status.Capacity.Total)
+	if pool.Status.Capacity.Total != 3 {
+		t.Fatalf("expected capacity 3 (ready+assigned+auto), got %d", pool.Status.Capacity.Total)
 	}
 }
 
@@ -98,9 +97,8 @@ func TestHandlePoolMaxDevicesPerNode(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}, {InventoryID: "dev2"}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}, {InventoryID: "dev2"}},
 		},
 	}
 	dev1 := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev1", Annotations: map[string]string{assignmentAnnotation: "pool"}}, Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady}}
@@ -129,7 +127,8 @@ func TestHandlePoolUsedExceedsTotal(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
 		},
 	}
 	dev := &v1alpha1.GPUDevice{
@@ -161,9 +160,8 @@ func TestHandlePoolNodeSelectorExcludesAll(t *testing.T) {
 			Name: "node1",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
 		},
 	}
 	node := &corev1.Node{
@@ -275,9 +273,8 @@ func TestHandlePoolIgnoresMarkedDevices(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
 		},
 	}
 	dev := &v1alpha1.GPUDevice{

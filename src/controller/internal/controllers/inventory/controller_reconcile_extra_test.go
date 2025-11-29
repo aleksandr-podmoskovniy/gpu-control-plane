@@ -129,7 +129,7 @@ func TestReconcileNodeInventorySetsPCIFromDetection(t *testing.T) {
 
 	updated := &v1alpha1.GPUNodeInventory{}
 	_ = cl.Get(context.Background(), client.ObjectKey{Name: node.Name}, updated)
-	if len(updated.Status.Hardware.Devices) == 0 || updated.Status.Hardware.Devices[0].PCI.Address != "0000:01:00.0" {
-		t.Fatalf("expected PCI address populated from detections, got %+v", updated.Status.Hardware.Devices)
+	if len(updated.Status.Devices) == 0 || updated.Status.Devices[0].PCI.Address != "0000:01:00.0" {
+		t.Fatalf("expected PCI address populated from detections, got %+v", updated.Status.Devices)
 	}
 }

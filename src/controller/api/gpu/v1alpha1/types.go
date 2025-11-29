@@ -279,7 +279,7 @@ type GPUNodeInventorySpec struct {
 }
 
 type GPUNodeInventoryStatus struct {
-	// Hardware contains the list of GPUs discovered on the node.
+	// Hardware captures node-level hardware presence flags.
 	Hardware GPUNodeHardware `json:"hw,omitempty"`
 	// Driver captures driver/toolkit versions and readiness.
 	Driver GPUNodeDriver `json:"driver,omitempty"`
@@ -296,8 +296,6 @@ type GPUNodeInventoryStatus struct {
 type GPUNodeHardware struct {
 	// Present indicates whether any supported GPU devices are present on the node.
 	Present bool `json:"present,omitempty"`
-	// Devices lists all detected GPUs with mirrored device metadata.
-	Devices []GPUNodeDevice `json:"devices,omitempty"`
 }
 
 type GPUNodeDevice struct {

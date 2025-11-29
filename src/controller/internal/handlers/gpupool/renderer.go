@@ -53,6 +53,7 @@ type RenderConfig struct {
 	MIGManagerImage      string
 	DefaultMIGStrategy   string
 	CustomTolerationKeys []string
+	ValidatorImage       string
 }
 
 // RendererHandler ensures per-pool workloads (device-plugin, MIG manager) are deployed.
@@ -78,6 +79,13 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 	if cfg.DefaultMIGStrategy == "" {
 		cfg.DefaultMIGStrategy = defaults.DefaultMIGStrategy
 	}
+	if cfg.ValidatorImage == "" {
+		if defaults.ValidatorImage != "" {
+			cfg.ValidatorImage = defaults.ValidatorImage
+		} else {
+			cfg.ValidatorImage = cfg.DevicePluginImage
+		}
+	}
 	return &RendererHandler{
 		log:               log,
 		client:            c,
@@ -100,6 +108,7 @@ func renderConfigFromEnv() RenderConfig {
 		DevicePluginImage:  strings.TrimSpace(os.Getenv("NVIDIA_DEVICE_PLUGIN_IMAGE")),
 		MIGManagerImage:    strings.TrimSpace(os.Getenv("NVIDIA_MIG_MANAGER_IMAGE")),
 		DefaultMIGStrategy: strategy,
+		ValidatorImage:     strings.TrimSpace(os.Getenv("NVIDIA_VALIDATOR_IMAGE")),
 	}
 }
 
@@ -125,8 +134,13 @@ func (h *RendererHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	if pool.Spec.Backend != "" && pool.Spec.Backend != "DevicePlugin" {
 		return contracts.Result{}, h.cleanupPoolResources(ctx, pool.Name)
 	}
-
+	if pool.Status.Capacity.Total == 0 {
+		return contracts.Result{}, h.cleanupPoolResources(ctx, pool.Name)
+	}
 	if err := h.reconcileDevicePlugin(ctx, pool); err != nil {
+		return contracts.Result{}, err
+	}
+	if err := h.reconcileValidator(ctx, pool); err != nil {
 		return contracts.Result{}, err
 	}
 
@@ -154,6 +168,19 @@ func (h *RendererHandler) reconcileDevicePlugin(ctx context.Context, pool *v1alp
 	ds := h.devicePluginDaemonSet(pool)
 	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
 		return fmt.Errorf("reconcile device-plugin DaemonSet: %w", err)
+	}
+
+	return nil
+}
+
+func (h *RendererHandler) reconcileValidator(ctx context.Context, pool *v1alpha1.GPUPool) error {
+	if h.cfg.ValidatorImage == "" {
+		return fmt.Errorf("validator image is not configured")
+	}
+
+	ds := h.validatorDaemonSet(pool)
+	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
+		return fmt.Errorf("reconcile validator DaemonSet: %w", err)
 	}
 
 	return nil
@@ -367,6 +394,130 @@ func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.
 									LocalObjectReference: corev1.LocalObjectReference{
 										Name: fmt.Sprintf("nvidia-device-plugin-%s-config", pool.Name),
 									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (h *RendererHandler) validatorDaemonSet(pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
+	poolKey := poolLabelKey(pool.Name)
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("nvidia-operator-validator-%s", pool.Name),
+			Namespace: h.cfg.Namespace,
+			Labels: map[string]string{
+				"app":  "nvidia-operator-validator",
+				"pool": pool.Name,
+			},
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app":  "nvidia-operator-validator",
+					"pool": pool.Name,
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app":    "nvidia-operator-validator",
+						"pool":   pool.Name,
+						"module": "gpu-control-plane",
+					},
+				},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "nvidia-operator-validator",
+					Tolerations: mergeTolerations([]corev1.Toleration{
+						{
+							Key:      poolKey,
+							Operator: corev1.TolerationOpEqual,
+							Value:    pool.Name,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+					}, h.customTolerations),
+					Affinity: &corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      poolKey,
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{pool.Name},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					InitContainers: []corev1.Container{
+						{
+							Name:            "plugin-validation",
+							Image:           h.cfg.ValidatorImage,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command:         []string{"/usr/bin/nvidia-validator"},
+							SecurityContext: &corev1.SecurityContext{
+								Privileged: ptr.To(true),
+							},
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+								{Name: "COMPONENT", Value: "plugin"},
+								{Name: "WITH_WAIT", Value: "false"},
+								{Name: "WITH_WORKLOAD", Value: "false"},
+								{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
+								{
+									Name: "NODE_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+									},
+								},
+								{
+									Name: "OPERATOR_NAMESPACE",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+									},
+								},
+								{Name: "OUTPUT_DIR", Value: "/run/nvidia/validations"},
+								{Name: "VALIDATOR_IMAGE", Value: h.cfg.ValidatorImage},
+								{Name: "VALIDATOR_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
+								{Name: "VALIDATOR_RUNTIME_CLASS", Value: "nvidia"},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "run-nvidia-validations", MountPath: "/run/nvidia/validations", MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0]},
+							},
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:            "watchdog",
+							Image:           h.cfg.ValidatorImage,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Command:         []string{"/bin/busybox", "sh", "-c", "echo all validations are successful; exec /bin/busybox sleep infinity"},
+							SecurityContext: &corev1.SecurityContext{
+								Privileged: ptr.To(true),
+							},
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "run-nvidia-validations", MountPath: "/run/nvidia/validations", MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0]},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "run-nvidia-validations",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/run/nvidia/validations",
+									Type: hostPathType(corev1.HostPathDirectoryOrCreate),
 								},
 							},
 						},
@@ -767,6 +918,13 @@ func (h *RendererHandler) cleanupPoolResources(ctx context.Context, poolName str
 		return err
 	}
 	if err := h.cleanupMIGResources(ctx, poolName); err != nil {
+		return err
+	}
+	validator := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{
+		Name:      fmt.Sprintf("nvidia-operator-validator-%s", poolName),
+		Namespace: h.cfg.Namespace,
+	}}
+	if err := h.client.Delete(ctx, validator); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil

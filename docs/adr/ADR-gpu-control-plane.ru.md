@@ -856,7 +856,8 @@ stateDiagram-v2
     Validating --> Faulted: Driver/Toolkit/Monitoring issue (Bootstrap)
     Faulted --> Validating: bootstrap починил драйвер/GFD/DCGM
     Ready --> PendingAssignment: gpupool добавил в pending[] (AwaitingApproval)
-    PendingAssignment --> Assigned: аннотация или autoApprove (GPUPool)
+    PendingAssignment --> DPStack: gpupool включает per-pool MIG/DP + plugin-validation
+    DPStack --> Assigned: аннотация или autoApprove (GPUPool), DP готов
     Assigned --> Reserved: временная бронь для Pod'а (Admission)
     Reserved --> InUse: Pod стартовал (Admission)
     Reserved --> Assigned: TTL истёк / Pod не стартовал (GPUPool)
@@ -870,14 +871,20 @@ stateDiagram-v2
 - **Bootstrap** управляет переходами `Discovered ⇄ Validating ⇄ Ready` и `Faulted`,
   выставляя conditions `DriverMissing/ToolkitMissing/MonitoringMissing`.
   - Если проверка проходит сразу, карта идёт по «зелёной» ветке:
-    `Discovered → Validating → Ready → PendingAssignment → Assigned`.
-- Пока узел находится в фазах `Validating/GFD/Monitoring`, устройства остаются в состоянии `Discovered`. Мы переводим их в `Faulted` только когда узел перешёл в `ValidatingFailed` или деградировал из `Ready` (например, после падения мониторинга).
+    `Discovered → Validating → Ready → PendingAssignment → DPStack → Assigned`.
 - **GPUPool** берёт карты со `state=Ready` и отвечает за condition
   `UnassignedDevice`: `AwaitingApproval` и `Faulted`. После
   утверждения карта становится `Assigned` (свободна, но принадлежит пулу). Если
   admission временно бронирует ресурс, `state=Reserved` — короткий цикл для
   предотвращения гонок; карта остаётся привязанной к пулу. После запуска Pod'а
   начинается `InUse`, а по завершении workload возвращаемся в `Assigned`.
+  - В фазе `PendingAssignment` контроллер пула разворачивает per-pool MIG/DP и
+    валидатор (plugin-validation). Как только стек готов, карта переходит в
+    `Assigned` и становится allocatable.
+- Пока узел находится в фазах `Validating/GFD/Monitoring`, устройства остаются в состоянии `Discovered`. Мы переводим их в `Faulted` только когда узел перешёл в `ValidatingFailed` или деградировал из `Ready` (например, после падения мониторинга).
+- Если устройство выводится из пула (сняли аннотацию) или стек DP/MIG не готов,
+  оно остаётся в `PendingAssignment`/`Faulted`, DP/MIG/валидатор для пула на этой
+  ноде удаляются.
 - **Admission/kube-scheduler** используют стандартные PriorityClass и preemption:
   мы не внедряем свой приоритет, а опираемся на базовый механизм Kubernetes.
 

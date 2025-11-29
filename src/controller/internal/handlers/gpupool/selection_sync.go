@@ -101,9 +101,6 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 			}
 		}
 		deviceSet := inv.Status.Devices
-		if len(deviceSet) == 0 {
-			deviceSet = inv.Status.Hardware.Devices
-		}
 		candidates := FilterDevices(deviceSet, pool.Spec.DeviceSelector)
 		var takenOnNode int32
 		for _, dev := range candidates {
@@ -123,7 +120,11 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				AutoAttach:  autoAttach,
 			})
 			nodeTotals[inv.Name]++
-			if dev.State == v1alpha1.GPUDeviceStateReady {
+			if dev.State == v1alpha1.GPUDeviceStateReady ||
+				dev.State == v1alpha1.GPUDeviceStatePendingAssignment ||
+				dev.State == v1alpha1.GPUDeviceStateAssigned ||
+				dev.State == v1alpha1.GPUDeviceStateReserved ||
+				dev.State == v1alpha1.GPUDeviceStateInUse {
 				if pool.Spec.Resource.MaxDevicesPerNode != nil && takenOnNode >= *pool.Spec.Resource.MaxDevicesPerNode {
 					continue
 				}

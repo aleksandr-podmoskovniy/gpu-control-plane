@@ -979,7 +979,6 @@ func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.No
 
 	statusBefore := inventory.DeepCopy()
 	inventory.Status.Hardware.Present = len(nodeDevices) > 0
-	inventory.Status.Hardware.Devices = nodeDevices
 	inventory.Status.Devices = nodeDevices
 	inventory.Status.Driver.Version = snapshot.Driver.Version
 	inventory.Status.Driver.CUDAVersion = snapshot.Driver.CUDAVersion

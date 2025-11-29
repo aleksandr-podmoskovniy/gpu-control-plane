@@ -655,13 +655,13 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if !fetchedInventory.Status.Hardware.Present {
 		t.Fatal("inventory should mark hardware present")
 	}
-	if len(fetchedInventory.Status.Hardware.Devices) != 1 {
-		t.Fatalf("expected 1 device in inventory, got %d", len(fetchedInventory.Status.Hardware.Devices))
+	if len(fetchedInventory.Status.Devices) != 1 {
+		t.Fatalf("expected 1 device in inventory, got %d", len(fetchedInventory.Status.Devices))
 	}
-	if fetchedInventory.Status.Hardware.Devices[0].InventoryID != device.Status.InventoryID {
+	if fetchedInventory.Status.Devices[0].InventoryID != device.Status.InventoryID {
 		t.Fatalf("inventory device id mismatch")
 	}
-	inventoryDevice := fetchedInventory.Status.Hardware.Devices[0]
+	inventoryDevice := fetchedInventory.Status.Devices[0]
 	if inventoryDevice.Product != "NVIDIA A100-PCIE-40GB" {
 		t.Fatalf("unexpected inventory product: %s", inventoryDevice.Product)
 	}
@@ -1015,7 +1015,7 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory missing: %v", err)
 	}
-	if len(inventory.Status.Hardware.Devices) != 1 {
+	if len(inventory.Status.Devices) != 1 {
 		t.Fatalf("inventory devices mismatch: %#v", inventory.Status.Hardware)
 	}
 	if cond := getCondition(inventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionTrue {
@@ -2074,8 +2074,8 @@ func TestReconcileHandlesNoDevicesDiscovered(t *testing.T) {
 	if updated.Status.Hardware.Present {
 		t.Fatalf("expected hardware.present=false, got true")
 	}
-	if len(updated.Status.Hardware.Devices) != 0 {
-		t.Fatalf("expected no devices recorded, got %d", len(updated.Status.Hardware.Devices))
+	if len(updated.Status.Devices) != 0 {
+		t.Fatalf("expected no devices recorded, got %d", len(updated.Status.Devices))
 	}
 	cond := apimeta.FindStatusCondition(updated.Status.Conditions, conditionInventoryComplete)
 	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != reasonNoDevicesDiscovered {
@@ -2152,8 +2152,8 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 	if persisted.Status.Hardware.Present {
 		t.Fatalf("expected hardware.present=false after cleanup")
 	}
-	if len(persisted.Status.Hardware.Devices) != 0 {
-		t.Fatalf("expected no devices recorded, got %d", len(persisted.Status.Hardware.Devices))
+	if len(persisted.Status.Devices) != 0 {
+		t.Fatalf("expected no devices recorded, got %d", len(persisted.Status.Devices))
 	}
 	if value := testutil.ToFloat64(inventoryDevicesGauge.WithLabelValues(node.Name)); value != 0 {
 		t.Fatalf("expected devices gauge 0, got %f", value)
@@ -2764,8 +2764,8 @@ func TestReconcileNodeInventorySkipsUnknownDevices(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
-	if len(updated.Status.Hardware.Devices) != 1 || updated.Status.Hardware.Devices[0].InventoryID != device.Status.InventoryID {
-		t.Fatalf("expected inventory to retain device data, got %+v", updated.Status.Hardware.Devices)
+	if len(updated.Status.Devices) != 1 || updated.Status.Devices[0].InventoryID != device.Status.InventoryID {
+		t.Fatalf("expected inventory to retain device data, got %+v", updated.Status.Devices)
 	}
 }
 
@@ -4526,8 +4526,8 @@ func TestReconcileNodeInventoryAppliesSnapshotPrecision(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
-	if len(inventory.Status.Hardware.Devices) != 1 {
-		t.Fatalf("expected 1 device, got %+v", inventory.Status.Hardware.Devices)
+	if len(inventory.Status.Devices) != 1 {
+		t.Fatalf("expected 1 device, got %+v", inventory.Status.Devices)
 	}
 }
 
@@ -4585,11 +4585,11 @@ func TestReconcileNodeInventorySortsDevices(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
-	if len(inventory.Status.Hardware.Devices) != 2 {
-		t.Fatalf("expected 2 devices, got %+v", inventory.Status.Hardware.Devices)
+	if len(inventory.Status.Devices) != 2 {
+		t.Fatalf("expected 2 devices, got %+v", inventory.Status.Devices)
 	}
-	if inventory.Status.Hardware.Devices[0].InventoryID > inventory.Status.Hardware.Devices[1].InventoryID {
-		t.Fatalf("expected devices sorted by inventory id, got %+v", inventory.Status.Hardware.Devices)
+	if inventory.Status.Devices[0].InventoryID > inventory.Status.Devices[1].InventoryID {
+		t.Fatalf("expected devices sorted by inventory id, got %+v", inventory.Status.Devices)
 	}
 }
 

@@ -47,12 +47,9 @@ jobs:
     name: Lint
     steps:
       - uses: actions/checkout@v4
-      - name: Install dmt
-        run: |
-          chmod +x tools/install-dmt.sh
-          INSTALL_DIR=/usr/local/bin DMT_VERSION=0.1.55 ./tools/install-dmt.sh
-          echo "/usr/local/bin" >> "$GITHUB_PATH"
       - uses: deckhouse/modules-actions/lint@v2
+        with:
+          dmt_version: 0.1.55
         env:
           DMT_METRICS_URL: ${{ secrets.DMT_METRICS_URL }}
           DMT_METRICS_TOKEN: ${{ secrets.DMT_METRICS_TOKEN }}

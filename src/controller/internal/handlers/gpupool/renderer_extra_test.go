@@ -35,7 +35,7 @@ import (
 )
 
 func TestRendererNameAndMissingClient(t *testing.T) {
-	h := &RendererHandler{cfg: RenderConfig{Namespace: "ns", DevicePluginImage: "img"}}
+	h := &RendererHandler{cfg: RenderConfig{Namespace: "ns", DevicePluginImage: "img", ValidatorImage: "val"}}
 	if h.Name() != "renderer" {
 		t.Fatalf("unexpected name %s", h.Name())
 	}
@@ -51,7 +51,7 @@ func TestHandlePoolValidations(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 
 	// namespace missing
-	h := &RendererHandler{log: log, client: fake.NewClientBuilder().WithScheme(scheme).Build(), cfg: RenderConfig{DevicePluginImage: "img"}}
+	h := &RendererHandler{log: log, client: fake.NewClientBuilder().WithScheme(scheme).Build(), cfg: RenderConfig{DevicePluginImage: "img", ValidatorImage: "val"}}
 	if _, err := h.HandlePool(context.Background(), &v1alpha1.GPUPool{}); err == nil {
 		t.Fatalf("expected namespace validation error")
 	}
@@ -62,9 +62,15 @@ func TestHandlePoolValidations(t *testing.T) {
 		t.Fatalf("expected device-plugin image validation error")
 	}
 
+	// validator image missing
+	h = &RendererHandler{log: log, client: fake.NewClientBuilder().WithScheme(scheme).Build(), cfg: RenderConfig{Namespace: "ns", DevicePluginImage: "img"}}
+	if _, err := h.HandlePool(context.Background(), &v1alpha1.GPUPool{Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}}}); err == nil {
+		t.Fatalf("expected validator image validation error")
+	}
+
 	// unsupported provider should no-op
-	h = NewRendererHandler(log, fake.NewClientBuilder().WithScheme(scheme).Build(), RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
-	pool := &v1alpha1.GPUPool{Spec: v1alpha1.GPUPoolSpec{Provider: "Other"}}
+	h = NewRendererHandler(log, fake.NewClientBuilder().WithScheme(scheme).Build(), RenderConfig{Namespace: "ns", DevicePluginImage: "img", ValidatorImage: "val"})
+	pool := &v1alpha1.GPUPool{Spec: v1alpha1.GPUPoolSpec{Provider: "Other"}, Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}}}
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("expected no error for other provider: %v", err)
 	}
@@ -73,7 +79,7 @@ func TestHandlePoolValidations(t *testing.T) {
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "nvidia-device-plugin-pool", Namespace: "ns"}}
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "nvidia-device-plugin-pool-config", Namespace: "ns"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ds, cm).Build()
-	h = NewRendererHandler(log, cl, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	h = NewRendererHandler(log, cl, RenderConfig{Namespace: "ns", DevicePluginImage: "img", ValidatorImage: "val"})
 	pool = &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}, Spec: v1alpha1.GPUPoolSpec{Backend: "DRA"}}
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("cleanup path failed: %v", err)
@@ -83,18 +89,92 @@ func TestHandlePoolValidations(t *testing.T) {
 	}
 }
 
+func TestRendererValidatorImageFallback(t *testing.T) {
+	t.Setenv("NVIDIA_VALIDATOR_IMAGE", "")
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns", DevicePluginImage: "dp:tag"})
+	if h.cfg.ValidatorImage != "dp:tag" {
+		t.Fatalf("expected validator image fallback to device-plugin, got %s", h.cfg.ValidatorImage)
+	}
+}
+
+func TestRendererEnvDefaults(t *testing.T) {
+	t.Setenv("POD_NAMESPACE", "ns-env")
+	t.Setenv("DEFAULT_MIG_STRATEGY", "single")
+	t.Setenv("NVIDIA_DEVICE_PLUGIN_IMAGE", "dp:env")
+	t.Setenv("NVIDIA_MIG_MANAGER_IMAGE", "mig:env")
+	t.Setenv("NVIDIA_VALIDATOR_IMAGE", "val:env")
+
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{})
+	if h.cfg.Namespace != "ns-env" {
+		t.Fatalf("expected namespace from env, got %s", h.cfg.Namespace)
+	}
+	if h.cfg.DevicePluginImage != "dp:env" || h.cfg.MIGManagerImage != "mig:env" {
+		t.Fatalf("env images not applied: %+v", h.cfg)
+	}
+	if h.cfg.DefaultMIGStrategy != "single" {
+		t.Fatalf("expected strategy single, got %s", h.cfg.DefaultMIGStrategy)
+	}
+	if h.cfg.ValidatorImage != "val:env" {
+		t.Fatalf("expected validator from env, got %s", h.cfg.ValidatorImage)
+	}
+}
+
+func TestReconcileValidatorMissingImage(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := &RendererHandler{client: cl, cfg: RenderConfig{Namespace: "ns"}}
+	if err := h.reconcileValidator(context.Background(), &v1alpha1.GPUPool{}); err == nil {
+		t.Fatalf("expected error for missing validator image")
+	}
+}
+
+func TestReconcileValidatorSuccess(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := &RendererHandler{client: cl, cfg: RenderConfig{Namespace: "ns", ValidatorImage: "val"}}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	if err := h.reconcileValidator(context.Background(), pool); err != nil {
+		t.Fatalf("reconcileValidator: %v", err)
+	}
+	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "nvidia-operator-validator-pool"}, &appsv1.DaemonSet{}); err != nil {
+		t.Fatalf("validator ds not created: %v", err)
+	}
+}
+
+func TestReconcileValidatorCreateError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	base := fake.NewClientBuilder().WithScheme(scheme).Build()
+	errClient := &failingCreateClient{
+		Client: base,
+		errsByName: map[string]error{
+			"nvidia-operator-validator-pool": apierrors.NewBadRequest("boom"),
+		},
+	}
+	h := NewRendererHandler(testr.New(t), errClient, RenderConfig{Namespace: "ns", ValidatorImage: "img"})
+	if err := h.reconcileValidator(context.Background(), &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}); err == nil {
+		t.Fatalf("expected validator create error")
+	}
+}
+
 func TestHandlePoolMIGSkipWhenNoImage(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = appsv1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
-	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns", DevicePluginImage: "img", ValidatorImage: "val"})
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "MIG", MIGProfile: "1g.10gb"},
 		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
 	}
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("HandlePool MIG without image: %v", err)
@@ -148,6 +228,7 @@ func TestHandlePoolFullMIGRendering(t *testing.T) {
 				},
 			},
 		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
 	}
 
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
@@ -250,7 +331,11 @@ func TestReconcileFailures(t *testing.T) {
 	errClient := &failingCreateClient{Client: cl, err: apierrors.NewConflict(v1alpha1.GroupVersion.WithResource("configmaps").GroupResource(), "cm", nil)}
 	h := NewRendererHandler(testr.New(t), errClient, RenderConfig{Namespace: "ns", DevicePluginImage: "img", MIGManagerImage: "mig"})
 
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}, Spec: v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	}
 	if err := h.reconcileDevicePlugin(context.Background(), pool); err == nil {
 		t.Fatalf("expected error from reconcileDevicePlugin")
 	}
@@ -300,12 +385,17 @@ func TestHandlePoolReconcileErrors(t *testing.T) {
 	// device-plugin error
 	dpErrClient := &failingCreateClient{
 		Client: base,
+		err:    apierrors.NewBadRequest("fail"),
 		errsByName: map[string]error{
 			"nvidia-device-plugin-pool-config": apierrors.NewBadRequest("fail"),
 		},
 	}
 	h := NewRendererHandler(testr.New(t), dpErrClient, RenderConfig{Namespace: "ns", DevicePluginImage: "img"})
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}, Spec: v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	}
 	if _, err := h.HandlePool(context.Background(), pool); err == nil {
 		t.Fatalf("expected device-plugin reconcile error")
 	}
@@ -349,6 +439,55 @@ func TestHandlePoolReconcileErrors(t *testing.T) {
 	pool.Spec.Resource.Unit = "Card"
 	if _, err := h.HandlePool(context.Background(), pool); err == nil {
 		t.Fatalf("expected cleanupMIGResources error")
+	}
+}
+
+func TestCleanupPoolResourcesRemovesValidator(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	objs := []client.Object{
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "nvidia-device-plugin-pool", Namespace: "ns"}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "nvidia-device-plugin-pool-config", Namespace: "ns"}},
+		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "nvidia-operator-validator-pool", Namespace: "ns"}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns"})
+	if err := h.cleanupPoolResources(context.Background(), "pool"); err != nil {
+		t.Fatalf("cleanupPoolResources: %v", err)
+	}
+	for _, name := range []string{"nvidia-device-plugin-pool", "nvidia-operator-validator-pool"} {
+		if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: name}, &appsv1.DaemonSet{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("%s not cleaned: %v", name, err)
+		}
+	}
+	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "nvidia-device-plugin-pool-config"}, &corev1.ConfigMap{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("config not cleaned: %v", err)
+	}
+}
+
+func TestCleanupPoolResourcesNoObjects(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns"})
+	if err := h.cleanupPoolResources(context.Background(), "pool"); err != nil {
+		t.Fatalf("cleanup with no objects should succeed: %v", err)
+	}
+}
+
+func TestCleanupPoolResourcesValidatorError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	errs := map[string]error{
+		"nvidia-operator-validator-pool": apierrors.NewBadRequest("fail"),
+	}
+	cl := &errorDeleteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), errs: errs}
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns"})
+	if err := h.cleanupPoolResources(context.Background(), "pool"); err == nil {
+		t.Fatalf("expected validator delete error")
 	}
 }
 

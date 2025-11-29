@@ -15,6 +15,7 @@
 {{- $validatorPullPolicy := "IfNotPresent" }}
 {{- $enableNvidiaFS := (index $validatorCfg "enableNvidiaFSValidation") | default false }}
 {{- $enableGDRCopy := (index $validatorCfg "enableGDRCopyValidation") | default false }}
+{{- $enablePluginValidation := (index $validatorCfg "enablePluginValidation") | default false }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -147,42 +148,6 @@ spec:
               value: cuda
             - name: WITH_WAIT
               value: "false"
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: OPERATOR_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: OUTPUT_DIR
-              value: /run/nvidia/validations
-            - name: VALIDATOR_IMAGE
-              value: {{ $image | quote }}
-            - name: VALIDATOR_IMAGE_PULL_POLICY
-              value: {{ $validatorPullPolicy | quote }}
-            - name: VALIDATOR_RUNTIME_CLASS
-              value: {{ $runtimeClass | quote }}
-          volumeMounts:
-            - name: run-nvidia-validations
-              mountPath: /run/nvidia/validations
-              mountPropagation: Bidirectional
-        - name: plugin-validation
-          image: {{ $image }}
-          imagePullPolicy: IfNotPresent
-          command: ["/usr/bin/nvidia-validator"]
-          {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
-          env:
-            - name: PATH
-              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            - name: COMPONENT
-              value: plugin
-            - name: WITH_WAIT
-              value: "false"
-            - name: WITH_WORKLOAD
-              value: "false"
-            - name: MIG_STRATEGY
-              value: {{ $migStrategy | quote }}
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

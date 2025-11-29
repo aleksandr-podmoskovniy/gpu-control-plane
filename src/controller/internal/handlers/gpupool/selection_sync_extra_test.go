@@ -127,11 +127,10 @@ func TestSelectionSyncHandlePoolHappyPath(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "dev1"},
-					{InventoryID: "dev2", MIG: v1alpha1.GPUMIGConfig{Types: []v1alpha1.GPUMIGTypeCapacity{{Name: "1g.10gb", Count: 1}}}},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "dev1"},
+				{InventoryID: "dev2", MIG: v1alpha1.GPUMIGConfig{Types: []v1alpha1.GPUMIGTypeCapacity{{Name: "1g.10gb", Count: 1}}}},
 			},
 		},
 	}
@@ -184,9 +183,8 @@ func TestSelectionSyncSkipsUnassignedDevices(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
 		},
 	}
 	// device assigned to another pool
@@ -350,21 +348,19 @@ func TestHandlePoolMultipleNodesAndFilters(t *testing.T) {
 	inv1 := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"env": "prod"}},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "dev1"},
-					{InventoryID: "dev2"},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "dev1"},
+				{InventoryID: "dev2"},
 			},
 		},
 	}
 	inv2 := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"env": "dev"}},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "dev3"},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "dev3"},
 			},
 		},
 	}

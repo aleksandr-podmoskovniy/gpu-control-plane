@@ -114,12 +114,11 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{
-					InventoryID: "node-a-0000",
-					State:       v1alpha1.GPUDeviceStateDiscovered,
-				}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{{
+				InventoryID: "node-a-0000",
+				State:       v1alpha1.GPUDeviceStateDiscovered,
+			}},
 		},
 	}
 	client := clientfake.NewClientBuilder().
@@ -146,10 +145,10 @@ func TestDeviceInventorySyncUpdatesExistingEntry(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
-	if len(updated.Status.Hardware.Devices) != 1 {
-		t.Fatalf("expected single device, got %d", len(updated.Status.Hardware.Devices))
+	if len(updated.Status.Devices) != 1 {
+		t.Fatalf("expected single device, got %d", len(updated.Status.Devices))
 	}
-	got := updated.Status.Hardware.Devices[0]
+	got := updated.Status.Devices[0]
 	if got.State != v1alpha1.GPUDeviceStateAssigned {
 		t.Fatalf("device fields not updated: %+v", got)
 	}
@@ -184,11 +183,11 @@ func TestDeviceInventorySyncAddsNewDevice(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
 		t.Fatalf("failed to fetch inventory: %v", err)
 	}
-	if len(updated.Status.Hardware.Devices) != 1 {
-		t.Fatalf("expected device appended, got %d", len(updated.Status.Hardware.Devices))
+	if len(updated.Status.Devices) != 1 {
+		t.Fatalf("expected device appended, got %d", len(updated.Status.Devices))
 	}
-	if updated.Status.Hardware.Devices[0].Product != "A100" {
-		t.Fatalf("expected hardware product propagated, got %+v", updated.Status.Hardware.Devices[0])
+	if updated.Status.Devices[0].Product != "A100" {
+		t.Fatalf("expected hardware product propagated, got %+v", updated.Status.Devices[0])
 	}
 }
 
@@ -301,8 +300,8 @@ func TestDeviceInventorySyncUpdatesDevicesSliceOnly(t *testing.T) {
 	if updated.Status.Devices[0].State != v1alpha1.GPUDeviceStateReady {
 		t.Fatalf("state not updated: %+v", updated.Status.Devices[0])
 	}
-	if updated.Status.Hardware.Present {
-		t.Fatalf("hardware should remain absent when not mirrored")
+	if !updated.Status.Hardware.Present {
+		t.Fatalf("hardware presence should reflect devices slice")
 	}
 }
 
@@ -311,12 +310,7 @@ func TestDeviceInventorySyncUpdatesHardwareSliceOnly(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{
-					InventoryID: "dev-2",
-					State:       v1alpha1.GPUDeviceStateDiscovered,
-				}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: false},
 		},
 	}
 	client := clientfake.NewClientBuilder().
@@ -340,11 +334,11 @@ func TestDeviceInventorySyncUpdatesHardwareSliceOnly(t *testing.T) {
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node-a"}, updated); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
-	if len(updated.Status.Devices) != 0 {
-		t.Fatalf("devices slice should remain empty: %+v", updated.Status.Devices)
+	if len(updated.Status.Devices) != 1 {
+		t.Fatalf("devices slice should contain one entry: %+v", updated.Status.Devices)
 	}
-	if updated.Status.Hardware.Devices[0].State != v1alpha1.GPUDeviceStateAssigned || !updated.Status.Hardware.Present {
-		t.Fatalf("hardware not updated: %+v", updated.Status.Hardware)
+	if updated.Status.Devices[0].State != v1alpha1.GPUDeviceStateAssigned || !updated.Status.Hardware.Present {
+		t.Fatalf("hardware/devices not updated: %+v", updated.Status.Hardware)
 	}
 }
 
@@ -384,8 +378,8 @@ func TestDeviceInventorySyncSetsDevicesSlice(t *testing.T) {
 	if len(updated.Status.Devices) != 1 {
 		t.Fatalf("expected device recorded in status.devices, got %+v", updated.Status.Devices)
 	}
-	if !updated.Status.Hardware.Present || len(updated.Status.Hardware.Devices) != 1 {
-		t.Fatalf("hardware mirror not populated: %+v", updated.Status.Hardware)
+	if !updated.Status.Hardware.Present {
+		t.Fatalf("hardware presence not populated: %+v", updated.Status.Hardware)
 	}
 	if updated.Status.Devices[0].UUID != "UUID-456" || updated.Status.Devices[0].LastErrorReason != "XID" {
 		t.Fatalf("device fields not propagated: %+v", updated.Status.Devices[0])

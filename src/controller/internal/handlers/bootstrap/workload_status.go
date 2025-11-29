@@ -669,7 +669,7 @@ func hardwarePresent(inventory *v1alpha1.GPUNodeInventory) bool {
 	if inventory.Status.Hardware.Present {
 		return true
 	}
-	return len(inventory.Status.Hardware.Devices) > 0
+	return len(inventory.Status.Devices) > 0
 }
 
 func boolReason(ok bool, success, failure string) string {
@@ -811,7 +811,7 @@ func podPendingMessage(pod *corev1.Pod) string {
 func pendingDeviceIDs(inventory *v1alpha1.GPUNodeInventory) []string {
 	sourceDevices := inventory.Status.Devices
 	if len(sourceDevices) == 0 {
-		sourceDevices = inventory.Status.Hardware.Devices
+		sourceDevices = inventory.Status.Devices
 	}
 	ids := make([]string, 0, len(sourceDevices))
 	for idx, device := range sourceDevices {
@@ -847,7 +847,7 @@ func inventoryDeviceCounters(inventory *v1alpha1.GPUNodeInventory) map[v1alpha1.
 	counters := make(map[v1alpha1.GPUDeviceState]int32)
 	sourceDevices := inventory.Status.Devices
 	if len(sourceDevices) == 0 {
-		sourceDevices = inventory.Status.Hardware.Devices
+		sourceDevices = inventory.Status.Devices
 	}
 	for _, dev := range sourceDevices {
 		counters[normalizeDeviceState(dev.State)]++

@@ -65,16 +65,6 @@ func (h *DeviceInventorySync) HandleDevice(ctx context.Context, device *v1alpha1
 			break
 		}
 	}
-	for i := range inv.Status.Hardware.Devices {
-		if inv.Status.Hardware.Devices[i].InventoryID == device.Status.InventoryID {
-			inv.Status.Hardware.Devices[i].State = device.Status.State
-			inv.Status.Hardware.Devices[i].LastError = device.Status.Health.LastError
-			inv.Status.Hardware.Devices[i].LastErrorReason = device.Status.Health.LastErrorReason
-			inv.Status.Hardware.Devices[i].LastUpdatedTime = device.Status.Health.LastUpdatedTime
-			replaced = true
-			break
-		}
-	}
 	if !replaced {
 		inv.Status.Devices = append(inv.Status.Devices, v1alpha1.GPUNodeDevice{
 			InventoryID:     device.Status.InventoryID,
@@ -91,9 +81,8 @@ func (h *DeviceInventorySync) HandleDevice(ctx context.Context, device *v1alpha1
 			LastErrorReason: device.Status.Health.LastErrorReason,
 			LastUpdatedTime: device.Status.Health.LastUpdatedTime,
 		})
-		inv.Status.Hardware.Devices = append(inv.Status.Hardware.Devices, inv.Status.Devices[len(inv.Status.Devices)-1])
 	}
-	inv.Status.Hardware.Present = len(inv.Status.Hardware.Devices) > 0
+	inv.Status.Hardware.Present = len(inv.Status.Devices) > 0
 
 	if err := h.client.Status().Update(ctx, inv); err != nil {
 		if apierrors.IsConflict(err) {

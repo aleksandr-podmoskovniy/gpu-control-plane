@@ -37,12 +37,11 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady},
-					{InventoryID: "id-2", Product: "V100", State: v1alpha1.GPUDeviceStateReady},
-					{InventoryID: "id-3", Product: "Ignore", State: v1alpha1.GPUDeviceStateFaulted},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady},
+				{InventoryID: "id-2", Product: "V100", State: v1alpha1.GPUDeviceStateReady},
+				{InventoryID: "id-3", Product: "Ignore", State: v1alpha1.GPUDeviceStateFaulted},
 			},
 		},
 	}
@@ -131,9 +130,8 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
 		},
 	}
 	node := &corev1.Node{
@@ -184,9 +182,8 @@ func TestSelectionSyncUsesNodeLabelsWhenInventoryLabelMissing(t *testing.T) {
 			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
 		},
 	}
 	node := &corev1.Node{
@@ -237,9 +234,8 @@ func TestSelectionSyncFallsBackToInventoryLabels(t *testing.T) {
 			Labels: map[string]string{"role": "gpu"},
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
 		},
 	}
 	dev := &v1alpha1.GPUDevice{
@@ -281,9 +277,8 @@ func TestSelectionSyncSkipsUnassignedDevicesInPool(t *testing.T) {
 	inv := &v1alpha1.GPUNodeInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
-			},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
 		},
 	}
 	// device exists but assigned to another pool
@@ -324,17 +319,16 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 			Name: "node-a",
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{
-						InventoryID: "id-1",
-						Product:     "A100",
-						State:       v1alpha1.GPUDeviceStateReady,
-						MIG: v1alpha1.GPUMIGConfig{
-							Capable: true,
-							Types: []v1alpha1.GPUMIGTypeCapacity{
-								{Name: "1g.10gb", Count: 2},
-							},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{
+					InventoryID: "id-1",
+					Product:     "A100",
+					State:       v1alpha1.GPUDeviceStateReady,
+					MIG: v1alpha1.GPUMIGConfig{
+						Capable: true,
+						Types: []v1alpha1.GPUMIGTypeCapacity{
+							{Name: "1g.10gb", Count: 2},
 						},
 					},
 				},
@@ -394,11 +388,10 @@ func TestSelectionSyncHandlerMaxDevicesPerNodeZeroReady(t *testing.T) {
 			Labels: map[string]string{"node": "gpu"},
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
-			Hardware: v1alpha1.GPUNodeHardware{
-				Devices: []v1alpha1.GPUNodeDevice{
-					{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateFaulted},
-					{InventoryID: "id-2", Product: "A100", State: v1alpha1.GPUDeviceStateFaulted},
-				},
+			Hardware: v1alpha1.GPUNodeHardware{Present: true},
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateFaulted},
+				{InventoryID: "id-2", Product: "A100", State: v1alpha1.GPUDeviceStateFaulted},
 			},
 		},
 	}

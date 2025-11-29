@@ -18,19 +18,19 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-logr/logr/testr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"k8s.io/apimachinery/pkg/runtime"
-	"github.com/go-logr/logr/testr"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/gpupool"
 	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 func TestRegisterDefaultsWithClient(t *testing.T) {
@@ -85,6 +85,9 @@ func TestRegisterDefaultsUsesModuleConfigStore(t *testing.T) {
 		},
 		Status: v1alpha1.GPUPoolStatus{
 			Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node-1", TotalDevices: 1}},
+			Capacity: v1alpha1.GPUPoolCapacityStatus{
+				Total: 1,
+			},
 		},
 	}
 	if _, err := renderer.HandlePool(context.Background(), pool); err != nil {

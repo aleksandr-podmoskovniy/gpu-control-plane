@@ -44,6 +44,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 		DevicePluginImage:    "device-plugin:tag",
 		DefaultMIGStrategy:   "single",
 		CustomTolerationKeys: []string{"custom-tol"},
+		ValidatorImage:       "validator:tag",
 	})
 
 	pool := &v1alpha1.GPUPool{
@@ -54,6 +55,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 				SlicesPerUnit: 4,
 			},
 		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
 	}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
@@ -127,6 +129,14 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	if me.Key != poolLabelKey("alpha") || me.Operator != corev1.NodeSelectorOpIn || len(me.Values) != 1 || me.Values[0] != "alpha" {
 		t.Fatalf("unexpected affinity %+v", me)
 	}
+
+	validator := &appsv1.DaemonSet{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "gpu-ns", Name: "nvidia-operator-validator-alpha"}, validator); err != nil {
+		t.Fatalf("get validator daemonset: %v", err)
+	}
+	if validator.Spec.Template.Spec.InitContainers[0].Image != "validator:tag" {
+		t.Fatalf("unexpected validator image: %s", validator.Spec.Template.Spec.InitContainers[0].Image)
+	}
 }
 
 func TestRendererCreatesMIGManagerResources(t *testing.T) {
@@ -140,6 +150,7 @@ func TestRendererCreatesMIGManagerResources(t *testing.T) {
 		Namespace:         "gpu-ns",
 		DevicePluginImage: "device-plugin:tag",
 		MIGManagerImage:   "mig-manager:tag",
+		ValidatorImage:    "validator:tag",
 	})
 
 	pool := &v1alpha1.GPUPool{
@@ -159,6 +170,7 @@ func TestRendererCreatesMIGManagerResources(t *testing.T) {
 				},
 			},
 		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
 	}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
@@ -229,6 +241,7 @@ func TestRendererCleansUpForNonDevicePluginBackend(t *testing.T) {
 	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
 		Namespace:         "gpu-ns",
 		DevicePluginImage: "device-plugin:tag",
+		ValidatorImage:    "validator:tag",
 	})
 
 	pool := &v1alpha1.GPUPool{
