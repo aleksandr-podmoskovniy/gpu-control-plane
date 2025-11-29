@@ -265,8 +265,8 @@ func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
 
-	if len(stub.watchedSources) == 0 {
-		t.Fatalf("expected module config watcher registered, watchedSources=%#v", stub.watchedSources)
+	if len(stub.watchedSources) != 3 {
+		t.Fatalf("expected module config + device + inventory watchers, got %d", len(stub.watchedSources))
 	}
 }
 
@@ -326,6 +326,23 @@ func TestRequeueAllPools(t *testing.T) {
 		if _, ok := expected[key]; !ok {
 			t.Fatalf("unexpected request %v", req)
 		}
+	}
+}
+
+func TestMapDeviceAndInventoryRequeuesPools(t *testing.T) {
+	scheme := newScheme(t)
+	poolA := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns-a"}}
+	poolB := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b", Namespace: "ns-b"}}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(poolA, poolB).Build()
+
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = client
+
+	devReqs := rec.mapDevice(context.Background(), &v1alpha1.GPUDevice{})
+	invReqs := rec.mapInventory(context.Background(), &v1alpha1.GPUNodeInventory{})
+
+	if len(devReqs) != 2 || len(invReqs) != 2 {
+		t.Fatalf("expected requeue for all pools (2), got dev=%d inv=%d", len(devReqs), len(invReqs))
 	}
 }
 

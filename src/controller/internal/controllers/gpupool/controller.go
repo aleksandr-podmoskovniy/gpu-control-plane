@@ -170,8 +170,11 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		For(&v1alpha1.GPUPool{}).
 		WithOptions(options)
 
-	if cache := mgr.GetCache(); r.moduleWatcherFactory != nil && cache != nil {
-		builder = r.moduleWatcherFactory(cache, builder)
+	if cache := mgr.GetCache(); cache != nil {
+		if r.moduleWatcherFactory != nil {
+			builder = r.moduleWatcherFactory(cache, builder)
+		}
+		builder = r.attachPoolDependencyWatcher(cache, builder)
 	}
 
 	return builder.Complete(r)
@@ -185,6 +188,24 @@ func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cach
 }
 
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
+	return r.requeueAllPools(ctx)
+}
+
+func (r *Reconciler) attachPoolDependencyWatcher(c cache.Cache, builder controllerBuilder) controllerBuilder {
+	dev := &v1alpha1.GPUDevice{}
+	builder = builder.WatchesRawSource(source.Kind(c, dev, handler.TypedEnqueueRequestsFromMapFunc(r.mapDevice)))
+
+	inv := &v1alpha1.GPUNodeInventory{}
+	builder = builder.WatchesRawSource(source.Kind(c, inv, handler.TypedEnqueueRequestsFromMapFunc(r.mapInventory)))
+
+	return builder
+}
+
+func (r *Reconciler) mapDevice(ctx context.Context, _ *v1alpha1.GPUDevice) []reconcile.Request {
+	return r.requeueAllPools(ctx)
+}
+
+func (r *Reconciler) mapInventory(ctx context.Context, _ *v1alpha1.GPUNodeInventory) []reconcile.Request {
 	return r.requeueAllPools(ctx)
 }
 
