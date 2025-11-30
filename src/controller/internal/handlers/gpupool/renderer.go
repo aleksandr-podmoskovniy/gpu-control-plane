@@ -841,6 +841,11 @@ func (h *RendererHandler) createOrUpdate(ctx context.Context, obj client.Object,
 }
 
 func addOwner(obj client.Object, pool *v1alpha1.GPUPool) {
+	// Namespaced GPUPool cannot own resources in a different namespace; rely on explicit cleanup for those.
+	if pool.Namespace != "" && obj.GetNamespace() != pool.Namespace {
+		return
+	}
+
 	kind := pool.Kind
 	if kind == "" {
 		if pool.Namespace == "" {

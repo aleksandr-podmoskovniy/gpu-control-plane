@@ -635,8 +635,8 @@ func TestAddOwnerResolvesKind(t *testing.T) {
 	}
 	obj := &corev1.ConfigMap{}
 	addOwner(obj, nsPool)
-	if got := obj.OwnerReferences[0].Kind; got != "GPUPool" {
-		t.Fatalf("expected GPUPool kind, got %s", got)
+	if len(obj.OwnerReferences) != 0 {
+		t.Fatalf("expected no owner refs for cross-namespace resource")
 	}
 
 	// explicit Kind must be preserved even for cluster-scoped pool
