@@ -165,7 +165,7 @@ func (h *RendererHandler) reconcileDevicePlugin(ctx context.Context, pool *v1alp
 		return fmt.Errorf("reconcile device-plugin ConfigMap: %w", err)
 	}
 
-	ds := h.devicePluginDaemonSet(pool)
+	ds := h.devicePluginDaemonSet(ctx, pool)
 	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
 		return fmt.Errorf("reconcile device-plugin DaemonSet: %w", err)
 	}
@@ -178,7 +178,7 @@ func (h *RendererHandler) reconcileValidator(ctx context.Context, pool *v1alpha1
 		return fmt.Errorf("validator image is not configured")
 	}
 
-	ds := h.validatorDaemonSet(pool)
+	ds := h.validatorDaemonSet(ctx, pool)
 	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
 		return fmt.Errorf("reconcile validator DaemonSet: %w", err)
 	}
@@ -202,7 +202,7 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 		return fmt.Errorf("reconcile MIG manager clients: %w", err)
 	}
 
-	ds := h.migManagerDaemonSet(pool)
+	ds := h.migManagerDaemonSet(ctx, pool)
 	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
 		return fmt.Errorf("reconcile MIG manager DaemonSet: %w", err)
 	}
@@ -286,8 +286,16 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 	return replicas
 }
 
-func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
+func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
 	poolKey := poolLabelKey(pool.Name)
+	tolerations := mergeTolerations([]corev1.Toleration{
+		{
+			Key:      poolKey,
+			Operator: corev1.TolerationOpEqual,
+			Value:    pool.Name,
+			Effect:   corev1.TaintEffectNoSchedule,
+		},
+	}, append(h.customTolerations, h.poolNodeTolerations(ctx, pool)...))
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("nvidia-device-plugin-%s", pool.Name),
@@ -314,14 +322,7 @@ func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "nvidia-device-plugin",
-					Tolerations: mergeTolerations([]corev1.Toleration{
-						{
-							Key:      poolKey,
-							Operator: corev1.TolerationOpEqual,
-							Value:    pool.Name,
-							Effect:   corev1.TaintEffectNoSchedule,
-						},
-					}, h.customTolerations),
+					Tolerations:        tolerations,
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -404,8 +405,16 @@ func (h *RendererHandler) devicePluginDaemonSet(pool *v1alpha1.GPUPool) *appsv1.
 	}
 }
 
-func (h *RendererHandler) validatorDaemonSet(pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
+func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
 	poolKey := poolLabelKey(pool.Name)
+	tolerations := mergeTolerations([]corev1.Toleration{
+		{
+			Effect:   corev1.TaintEffectNoSchedule,
+			Key:      poolKey,
+			Operator: corev1.TolerationOpEqual,
+			Value:    poolValueFromKey(poolKey),
+		},
+	}, append(h.customTolerations, h.poolNodeTolerations(ctx, pool)...))
 	return &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("nvidia-operator-validator-%s", pool.Name),
@@ -432,14 +441,7 @@ func (h *RendererHandler) validatorDaemonSet(pool *v1alpha1.GPUPool) *appsv1.Dae
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "nvidia-operator-validator",
-					Tolerations: mergeTolerations([]corev1.Toleration{
-						{
-							Key:      poolKey,
-							Operator: corev1.TolerationOpEqual,
-							Value:    pool.Name,
-							Effect:   corev1.TaintEffectNoSchedule,
-						},
-					}, h.customTolerations),
+					Tolerations:        tolerations,
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -595,7 +597,7 @@ func (h *RendererHandler) migManagerClientsConfigMap(pool *v1alpha1.GPUPool) *co
 	}
 }
 
-func (h *RendererHandler) migManagerDaemonSet(pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
+func (h *RendererHandler) migManagerDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
 	poolKey := poolLabelKey(pool.Name)
 	cmName := fmt.Sprintf("nvidia-mig-manager-%s-config", pool.Name)
 	clientsName := fmt.Sprintf("nvidia-mig-manager-%s-gpu-clients", pool.Name)
@@ -634,7 +636,7 @@ func (h *RendererHandler) migManagerDaemonSet(pool *v1alpha1.GPUPool) *appsv1.Da
 						{Key: "node.kubernetes.io/unschedulable", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
 						{Key: "mig-reconfigure", Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule},
 						{Key: poolKey, Operator: corev1.TolerationOpEqual, Value: pool.Name, Effect: corev1.TaintEffectNoSchedule},
-					}, h.customTolerations),
+					}, append(h.customTolerations, h.poolNodeTolerations(ctx, pool)...)),
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -885,6 +887,34 @@ func hasOwner(obj client.Object, pool *v1alpha1.GPUPool) bool {
 		}
 	}
 	return false
+}
+
+// poolNodeTolerations adds Exists-tolerations for taints present on nodes referenced by the pool status.
+func (h *RendererHandler) poolNodeTolerations(ctx context.Context, pool *v1alpha1.GPUPool) []corev1.Toleration {
+	if h.client == nil {
+		return nil
+	}
+	tolerations := make([]corev1.Toleration, 0)
+	seen := make(map[string]struct{})
+	for _, n := range pool.Status.Nodes {
+		node := &corev1.Node{}
+		if err := h.client.Get(ctx, client.ObjectKey{Name: n.Name}, node); err != nil {
+			continue
+		}
+		for _, t := range node.Spec.Taints {
+			key := t.Key + string(t.Effect)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			tolerations = append(tolerations, corev1.Toleration{
+				Key:      t.Key,
+				Operator: corev1.TolerationOpExists,
+				Effect:   t.Effect,
+			})
+		}
+	}
+	return tolerations
 }
 
 func hostPathType(t corev1.HostPathType) *corev1.HostPathType {
