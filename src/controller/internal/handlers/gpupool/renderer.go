@@ -323,6 +323,10 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "nvidia-device-plugin",
 					Tolerations:        tolerations,
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsUser:    ptr.To[int64](0),
+						RunAsNonRoot: ptr.To(false),
+					},
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -346,19 +350,14 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 							Image:           h.cfg.DevicePluginImage,
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         []string{"/nvidia-device-plugin"},
-							Args: []string{
-								"--config-file=/config/config.yaml",
-								"--pass-device-specs=false",
-								"--fail-on-init-error=false",
-							},
 							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: ptr.To(false),
-								Privileged:               ptr.To(false),
-								RunAsNonRoot:             ptr.To(true),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
+								Privileged:               ptr.To(true),
+								RunAsUser:                ptr.To[int64](0),
+								RunAsNonRoot:             ptr.To(false),
+								AllowPrivilegeEscalation: ptr.To(true),
+								ReadOnlyRootFilesystem:   ptr.To(false),
 							},
+							Args: []string{"--config-file=/config/config.yaml", "--pass-device-specs=false", "--fail-on-init-error=false"},
 							Env: []corev1.EnvVar{
 								{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
 							},
@@ -442,6 +441,10 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 				Spec: corev1.PodSpec{
 					ServiceAccountName: "nvidia-operator-validator",
 					Tolerations:        tolerations,
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsUser:    ptr.To[int64](0),
+						RunAsNonRoot: ptr.To(false),
+					},
 					Affinity: &corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -466,7 +469,11 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Command:         []string{"/usr/bin/nvidia-validator"},
 							SecurityContext: &corev1.SecurityContext{
-								Privileged: ptr.To(true),
+								Privileged:               ptr.To(true),
+								RunAsUser:                ptr.To[int64](0),
+								RunAsNonRoot:             ptr.To(false),
+								AllowPrivilegeEscalation: ptr.To(true),
+								ReadOnlyRootFilesystem:   ptr.To(false),
 							},
 							Env: []corev1.EnvVar{
 								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
