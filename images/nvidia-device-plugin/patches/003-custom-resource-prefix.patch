@@ -1,0 +1,38 @@
+diff --git a/api/config/v1/consts.go b/api/config/v1/consts.go
+index 43b5267..896ea1c 100644
+--- a/api/config/v1/consts.go
++++ b/api/config/v1/consts.go
+@@ -22,7 +22,7 @@ import (
+ 
+ // Constants related to resource names
+ const (
+-	ResourceNamePrefix              = "nvidia.com"
++	ResourceNamePrefix              = "gpu.deckhouse.io"
+ 	DefaultSharedResourceNameSuffix = ".shared"
+ 	MaxResourceNameLength           = 63
+ )
+diff --git a/internal/rm/rm.go b/internal/rm/rm.go
+index 33f44b9..e66971d 100644
+--- a/internal/rm/rm.go
++++ b/internal/rm/rm.go
+@@ -97,13 +97,18 @@ func (r *resourceManager) ValidateRequest(ids AnnotatedIDs) error {
+ 
+ // AddDefaultResourcesToConfig adds default resource matching rules to config.Resources
+ func AddDefaultResourcesToConfig(infolib info.Interface, nvmllib nvml.Interface, devicelib device.Interface, config *spec.Config) error {
+-	_ = config.Resources.AddGPUResource("*", "gpu")
++	if len(config.Resources.GPUs) == 0 {
++		_ = config.Resources.AddGPUResource("*", "gpu")
++	}
+ 	if config.Flags.MigStrategy == nil {
+ 		return nil
+ 	}
+ 	switch *config.Flags.MigStrategy {
+ 	case spec.MigStrategySingle:
+-		return config.Resources.AddMIGResource("*", "gpu")
++		if len(config.Resources.MIGs) == 0 {
++			return config.Resources.AddMIGResource("*", "gpu")
++		}
++		return nil
+ 	case spec.MigStrategyMixed:
+ 		hasNVML, reason := infolib.HasNvml()
+ 		if !hasNVML {
