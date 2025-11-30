@@ -28,7 +28,7 @@ import (
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
-func TestNodeMarkAddsLabelAndNoScheduleTaint(t *testing.T) {
+func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 
@@ -59,8 +59,8 @@ func TestNodeMarkAddsLabelAndNoScheduleTaint(t *testing.T) {
 	if node.Labels[key] != "pool-a" {
 		t.Fatalf("label not set")
 	}
-	if !hasTaint(node.Spec.Taints, key, corev1.TaintEffectNoSchedule) {
-		t.Fatalf("expected NoSchedule taint")
+	if len(node.Spec.Taints) != 0 {
+		t.Fatalf("expected no taints by default, got %+v", node.Spec.Taints)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
 	if _, ok := node.Labels[key]; ok {
 		t.Fatalf("label should be removed")
 	}
-	if !hasTaint(node.Spec.Taints, key, corev1.TaintEffectNoExecute) {
-		t.Fatalf("expected NoExecute taint")
+	if len(node.Spec.Taints) != 0 {
+		t.Fatalf("expected no taints when devices gone, got %+v", node.Spec.Taints)
 	}
 }
 

@@ -50,10 +50,8 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	}
 
 	poolKey := poolLabelKey(pool.Name)
-	taintsEnabled := true
-	if pool.Spec.Scheduling.TaintsEnabled != nil {
-		taintsEnabled = *pool.Spec.Scheduling.TaintsEnabled
-	}
+	// Temporarily disable taints to avoid evicting bootstrap workloads during pooling.
+	taintsEnabled := false
 	nodesWithDevices := make(map[string]int32)
 	for _, n := range pool.Status.Nodes {
 		nodesWithDevices[n.Name] = n.TotalDevices
