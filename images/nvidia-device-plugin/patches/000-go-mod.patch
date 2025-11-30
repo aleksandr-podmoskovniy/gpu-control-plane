@@ -1,8 +1,9 @@
 diff --git a/go.mod b/go.mod
-index 1e7ff69..1b1b43b 100644
+index 8df1ff5..51600ee 100644
 --- a/go.mod
 +++ b/go.mod
-@@
+@@ -65,7 +65,7 @@ require (
+ 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
  	golang.org/x/net v0.38.0 // indirect
  	golang.org/x/oauth2 v0.27.0 // indirect
 -	golang.org/x/sys v0.37.0 // indirect
@@ -11,11 +12,17 @@ index 1e7ff69..1b1b43b 100644
  	golang.org/x/text v0.23.0 // indirect
  	golang.org/x/time v0.8.0 // indirect
 diff --git a/go.sum b/go.sum
-index 31fbb91..d02c9b6 100644
+index fa1e42f..742d1d9 100644
 --- a/go.sum
 +++ b/go.sum
-@@
+@@ -169,8 +169,8 @@ golang.org/x/sys v0.0.0-20191026070338-33540a1f6037/go.mod h1:h1NjWce9XRLGQEsW7w
+ golang.org/x/sys v0.0.0-20191115151921-52ab43148777/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 -golang.org/x/sys v0.37.0 h1:fdNQudmxPjkdUTPnLn5mdQv7Zwvbvpaxqs831goi9kQ=
 -golang.org/x/sys v0.37.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
 +golang.org/x/sys v0.38.0 h1:3yZWxaJjBmCWXqhN1qh02AkOnCQ1poK6oF+a7xWL6Gc=
 +golang.org/x/sys v0.38.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
+ golang.org/x/term v0.30.0 h1:PQ39fJZ+mfadBm0y5WlL4vlM7Sx1Hgf13sMIY2+QS9Y=
+ golang.org/x/term v0.30.0/go.mod h1:NYYFdzHoI5wRh/h5tDMdMqCqPJZEuNqVR5xJLd/n67g=
+ golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=

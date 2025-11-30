@@ -1,26 +1,23 @@
 diff --git a/api/config/v1/config.go b/api/config/v1/config.go
-index 1a8219f..ec7e372 100644
+index 5df5284..3b6d2fd 100644
 --- a/api/config/v1/config.go
 +++ b/api/config/v1/config.go
-@@
--// DisableResourceNamingInConfig temporarily disable the resource renaming feature of the plugin.
--// This may be reenabled in a future release.
--func DisableResourceNamingInConfig(logger logger, config *Config) {
+@@ -83,17 +83,7 @@ func NewConfig(c *cli.Context, flags []cli.Flag) (*Config, error) {
+ // DisableResourceNamingInConfig temporarily disable the resource renaming feature of the plugin.
+ // This may be reenabled in a future release.
+ func DisableResourceNamingInConfig(config *Config) {
 -	// Disable resource renaming through config.Resource
 -	if len(config.Resources.GPUs) > 0 || len(config.Resources.MIGs) > 0 {
--		logger.Warning("Customizing the 'resources' field is not yet supported in the config. Ignoring...")
+-		klog.Warning("Customizing the 'resources' field is not yet supported in the config. Ignoring...")
 -	}
 -	config.Resources.GPUs = nil
 -	config.Resources.MIGs = nil
 -
 -	// Disable renaming / device selection in Sharing.TimeSlicing.Resources
--	config.Sharing.TimeSlicing.disableResoureRenaming(logger, "timeSlicing")
+-	config.Sharing.TimeSlicing.disableResoureRenaming("timeSlicing")
 -	// Disable renaming / device selection in Sharing.MPS.Resources
--	config.Sharing.MPS.disableResoureRenaming(logger, "mps")
--}
-+// DisableResourceNamingInConfig keeps custom resources intact to allow resource renaming via config.
-+// Upstream disables this; we intentionally leave overrides to support custom resource names.
-+func DisableResourceNamingInConfig(logger logger, config *Config) {
-+	_ = logger
-+	_ = config
-+}
+-	config.Sharing.MPS.disableResoureRenaming("mps")
++	// keep resource renaming intact; no-op
+ }
+ 
+ // parseConfig parses a config file as either YAML of JSON and unmarshals it into a Config struct.
