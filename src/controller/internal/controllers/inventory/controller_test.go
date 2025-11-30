@@ -2115,7 +2115,19 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 		},
 	}
 
-	client := newTestClient(scheme, node, device, inventory)
+	feature := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name,
+			Labels: map[string]string{
+				nodeFeatureNodeNameLabel: node.Name,
+			},
+		},
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Labels: map[string]string{},
+		},
+	}
+
+	client := newTestClient(scheme, node, feature, device, inventory)
 
 	inventoryDevicesGauge.WithLabelValues(node.Name).Set(5)
 	inventoryConditionGauge.WithLabelValues(node.Name, conditionManagedDisabled).Set(1)
@@ -2169,7 +2181,19 @@ func TestReconcileReturnsInventoryGetError(t *testing.T) {
 		},
 	}
 
-	baseClient := newTestClient(scheme, node)
+	feature := &nfdv1alpha1.NodeFeature{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name,
+			Labels: map[string]string{
+				nodeFeatureNodeNameLabel: node.Name,
+			},
+		},
+		Spec: nfdv1alpha1.NodeFeatureSpec{
+			Labels: map[string]string{},
+		},
+	}
+
+	baseClient := newTestClient(scheme, node, feature)
 	getErr := errors.New("inventory get failure")
 	client := &delegatingClient{
 		Client: baseClient,

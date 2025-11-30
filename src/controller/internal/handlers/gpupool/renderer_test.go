@@ -87,7 +87,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 		t.Fatalf("unexpected resources: %v", resList)
 	}
 	res, _ := resList[0].(map[string]any)
-	if res["name"] != "gpu.deckhouse.io/alpha" {
+	if res["name"] != "alpha" {
 		t.Fatalf("unexpected resource name: %v", res["name"])
 	}
 	switch v := res["replicas"].(type) {

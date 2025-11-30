@@ -210,7 +210,8 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 }
 
 func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
-	resourceName := fmt.Sprintf("gpu.deckhouse.io/%s", pool.Name)
+	const resourcePrefix = "gpu.deckhouse.io"
+	resourceName := pool.Name
 	replicas := h.timeSlicingReplicas(pool)
 
 	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
@@ -221,6 +222,10 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		name := ts.Name
 		if name == "" {
 			name = resourceName
+		}
+		if strings.Contains(name, "/") {
+			parts := strings.Split(name, "/")
+			name = parts[len(parts)-1]
 		}
 		resources = append(resources, map[string]any{
 			"name":     name,
@@ -237,7 +242,8 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 	cfg := map[string]any{
 		"version": "v1",
 		"flags": map[string]any{
-			"migStrategy": h.cfg.DefaultMIGStrategy,
+			"migStrategy":   h.cfg.DefaultMIGStrategy,
+			"resourcePrefix": resourcePrefix,
 		},
 		"resources": map[string]any{
 			"gpus": []map[string]any{

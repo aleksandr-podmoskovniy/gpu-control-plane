@@ -295,10 +295,10 @@ func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	if len(cfg.Sharing.TimeSlicing.Resources) != 2 {
 		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Sharing.TimeSlicing.Resources))
 	}
-	if cfg.Sharing.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
+	if cfg.Sharing.TimeSlicing.Resources[0].Name != "pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
 		t.Fatalf("default resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[0])
 	}
-	if cfg.Sharing.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
+	if cfg.Sharing.TimeSlicing.Resources[1].Name != "custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
 		t.Fatalf("custom resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[1])
 	}
 }

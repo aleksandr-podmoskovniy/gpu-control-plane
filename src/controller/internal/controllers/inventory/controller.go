@@ -471,6 +471,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	snapshotList := nodeSnapshot.Devices
 	managed := nodeSnapshot.Managed
 
+	// If NodeFeature data has not arrived yet and we have no device snapshots,
+	// avoid deleting existing GPUDevice/GPUNodeInventory. We'll be requeued by the
+	// NodeFeature watch once it appears.
+	if !nodeSnapshot.FeatureDetected && len(snapshotList) == 0 {
+		log.V(1).Info("node feature not detected yet, skip reconcile")
+		return ctrl.Result{}, nil
+	}
+
 	existingDevices := &v1alpha1.GPUDeviceList{}
 	if err := r.client.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: node.Name}); err != nil {
 		return ctrl.Result{}, err
