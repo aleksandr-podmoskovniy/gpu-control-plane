@@ -1,5 +1,5 @@
 diff --git a/api/config/v1/config.go b/api/config/v1/config.go
-index 1a8219f..a8ce674 100644
+index 1a8219f..ec7e372 100644
 --- a/api/config/v1/config.go
 +++ b/api/config/v1/config.go
 @@
@@ -18,8 +18,8 @@ index 1a8219f..a8ce674 100644
 -	// Disable renaming / device selection in Sharing.MPS.Resources
 -	config.Sharing.MPS.disableResoureRenaming(logger, "mps")
 -}
-+// DisableResourceNamingInConfig now keeps custom resources intact to allow resource renaming via config.
-+// WARNING: upstream default disables this; we intentionally keep overrides to support custom resource names.
++// DisableResourceNamingInConfig keeps custom resources intact to allow resource renaming via config.
++// Upstream disables this; we intentionally leave overrides to support custom resource names.
 +func DisableResourceNamingInConfig(logger logger, config *Config) {
 +	_ = logger
 +	_ = config
