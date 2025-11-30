@@ -1,0 +1,21 @@
+diff --git a/api/config/v1/config.go b/api/config/v1/config.go
+index 6b9d3a2..c5673d9 100644
+--- a/api/config/v1/config.go
++++ b/api/config/v1/config.go
+@@
+ // DisableResourceNamingInConfig temporarily disable the resource renaming feature of the plugin.
+ // This may be reenabled in a future release.
+ func DisableResourceNamingInConfig(config *Config) {
+-	// Disable resource renaming through config.Resource
+-	if len(config.Resources.GPUs) > 0 || len(config.Resources.MIGs) > 0 {
+-		klog.Warning("Customizing the 'resources' field is not yet supported in the config. Ignoring...")
+-	}
+-	config.Resources.GPUs = nil
+-	config.Resources.MIGs = nil
+-
+-	// Disable renaming / device selection in Sharing.TimeSlicing.Resources
+-	config.Sharing.TimeSlicing.disableResoureRenaming("timeSlicing")
+-	// Disable renaming / device selection in Sharing.MPS.Resources
+-	config.Sharing.MPS.disableResoureRenaming("mps")
++	// Keep resource overrides from config as-is to allow custom resource names.
+ }
