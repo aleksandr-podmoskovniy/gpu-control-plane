@@ -403,9 +403,6 @@ func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, cache cache.
 
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
 	if r.store != nil && !r.store.Current().Enabled {
-		if err := r.cleanupAllInventories(ctx); err != nil && r.log.GetSink() != nil {
-			r.log.Error(err, "failed to cleanup inventories on module disable")
-		}
 		return nil
 	}
 	r.refreshInventorySettings()
@@ -583,23 +580,6 @@ func (r *Reconciler) getResyncPeriod() time.Duration {
 }
 
 func (r *Reconciler) cleanupAllInventories(ctx context.Context) error {
-	// remove GPUNodeInventory objects
-	invs := &v1alpha1.GPUNodeInventoryList{}
-	if err := r.client.List(ctx, invs); err != nil {
-		return err
-	}
-	for i := range invs.Items {
-		_ = r.client.Delete(ctx, &invs.Items[i])
-	}
-
-	// remove GPUDevice objects
-	devs := &v1alpha1.GPUDeviceList{}
-	if err := r.client.List(ctx, devs); err != nil {
-		return err
-	}
-	for i := range devs.Items {
-		_ = r.client.Delete(ctx, &devs.Items[i])
-	}
 	return nil
 }
 

@@ -3191,11 +3191,12 @@ func TestMapModuleConfigCleansResourcesWhenDisabled(t *testing.T) {
 	if reqs := rec.mapModuleConfig(context.Background(), nil); len(reqs) != 0 {
 		t.Fatalf("expected no requeues when module disabled")
 	}
-	if err := client.Get(context.Background(), types.NamespacedName{Name: "node1"}, &v1alpha1.GPUNodeInventory{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("inventory should be deleted on disable, got %v", err)
+	// cleanup on disable handled by pre-delete hook; controller should not delete CRs here
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "node1"}, &v1alpha1.GPUNodeInventory{}); err != nil {
+		t.Fatalf("inventory should remain, got %v", err)
 	}
-	if err := client.Get(context.Background(), types.NamespacedName{Name: "dev1"}, &v1alpha1.GPUDevice{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("device should be deleted on disable, got %v", err)
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "dev1"}, &v1alpha1.GPUDevice{}); err != nil {
+		t.Fatalf("device should remain, got %v", err)
 	}
 }
 
@@ -3214,8 +3215,9 @@ func TestCleanupAllInventoriesListError(t *testing.T) {
 	rec := &Reconciler{
 		client: &listErrorClient{err: errors.New("list inv")},
 	}
-	if err := rec.cleanupAllInventories(context.Background()); err == nil || !strings.Contains(err.Error(), "list inv") {
-		t.Fatalf("expected list error, got %v", err)
+	// no-op cleanup should not return error even if list fails
+	if err := rec.cleanupAllInventories(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 
@@ -3227,8 +3229,9 @@ func TestCleanupAllInventoriesDevicesListError(t *testing.T) {
 	rec := &Reconciler{
 		client: &listErrorClient{Client: base, err: errors.New("list devs"), failOnSecond: true},
 	}
-	if err := rec.cleanupAllInventories(context.Background()); err == nil || !strings.Contains(err.Error(), "list devs") {
-		t.Fatalf("expected device list error, got %v", err)
+	// no-op cleanup should not return error even if list fails
+	if err := rec.cleanupAllInventories(context.Background()); err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 

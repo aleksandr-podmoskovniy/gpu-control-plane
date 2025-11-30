@@ -323,6 +323,23 @@ func TestDevicePluginConfigMapIgnoresInvalidTimeSlicing(t *testing.T) {
 	}
 }
 
+func TestDevicePluginConfigMapOmitsTimeSlicingWhenSingleReplica(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{
+				Unit:          "Card",
+				SlicesPerUnit: 1,
+			},
+		},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	if strings.Contains(cm.Data["config.yaml"], "timeSlicing") {
+		t.Fatalf("timeSlicing should be omitted when replicas=1, got:\n%s", cm.Data["config.yaml"])
+	}
+}
+
 func TestReconcileFailures(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = appsv1.AddToScheme(scheme)

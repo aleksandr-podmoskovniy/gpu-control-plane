@@ -239,25 +239,47 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		})
 	}
 
+	hasSharing := false
+	for _, r := range resources {
+		switch v := r["replicas"].(type) {
+		case int32:
+			if v > 1 {
+				hasSharing = true
+			}
+		case int:
+			if v > 1 {
+				hasSharing = true
+			}
+		case int64:
+			if v > 1 {
+				hasSharing = true
+			}
+		}
+	}
+
 	cfg := map[string]any{
 		"version": "v1",
 		"flags": map[string]any{
 			"migStrategy":   h.cfg.DefaultMIGStrategy,
 			"resourcePrefix": resourcePrefix,
 		},
-		"resources": map[string]any{
+	}
+
+	cfg["resources"] = map[string]any{
 			"gpus": []map[string]any{
 				{
 					"pattern": "*",
 					"name":    resourceName,
 				},
 			},
-		},
-		"sharing": map[string]any{
+	}
+
+	if hasSharing {
+		cfg["sharing"] = map[string]any{
 			"timeSlicing": map[string]any{
 				"resources": resources,
 			},
-		},
+		}
 	}
 
 	data, _ := yaml.Marshal(cfg)
