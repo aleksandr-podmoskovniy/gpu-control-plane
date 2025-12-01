@@ -1,0 +1,9 @@
+diff --git a/api/config/v1/config.go b/api/config/v1/config.go
+index 5df5284..b5fa34a 100644
+--- a/api/config/v1/config.go
++++ b/api/config/v1/config.go
+@@
+-	cli "github.com/urfave/cli/v2"
+-	"k8s.io/klog/v2"
++	cli "github.com/urfave/cli/v2"
++	_ "k8s.io/klog/v2"

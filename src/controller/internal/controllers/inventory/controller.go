@@ -476,13 +476,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, nil
 	}
 
-	existingDevices := &v1alpha1.GPUDeviceList{}
-	if err := r.client.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: node.Name}); err != nil {
-		return ctrl.Result{}, err
-	}
-	orphanDevices := make(map[string]struct{}, len(existingDevices.Items))
-	for i := range existingDevices.Items {
-		orphanDevices[existingDevices.Items[i].Name] = struct{}{}
+	allowCleanup := nodeSnapshot.FeatureDetected || len(snapshotList) > 0
+	var orphanDevices map[string]struct{}
+	if allowCleanup {
+		existingDevices := &v1alpha1.GPUDeviceList{}
+		if err := r.client.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: node.Name}); err != nil {
+			return ctrl.Result{}, err
+		}
+		orphanDevices = make(map[string]struct{}, len(existingDevices.Items))
+		for i := range existingDevices.Items {
+			orphanDevices[existingDevices.Items[i].Name] = struct{}{}
+		}
 	}
 
 	reconciledDevices := make([]*v1alpha1.GPUDevice, 0, len(snapshotList))
@@ -509,7 +513,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		delete(orphanDevices, device.Name)
+		if orphanDevices != nil {
+			delete(orphanDevices, device.Name)
+		}
 		reconciledDevices = append(reconciledDevices, device)
 		aggregate = contracts.MergeResult(aggregate, res)
 	}

@@ -26,7 +26,9 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "gpuControlPlane.podLabels" . | nindent 8 }}
+        app: {{ include "gpuControlPlane.controllerName" . }}
+        component: controller
+        module: {{ include "gpuControlPlane.moduleName" . }}
       annotations:
         {{- include "gpuControlPlane.podAnnotations" . | nindent 8 }}
     spec:

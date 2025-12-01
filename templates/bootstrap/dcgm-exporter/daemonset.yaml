@@ -44,7 +44,10 @@ spec:
       annotations:
         gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
       {{- end }}
-      {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "dcgm-exporter") | nindent 6 }}
+      labels:
+        app: {{ $name }}
+        component: dcgm-exporter
+        module: {{ include "gpuControlPlane.moduleName" . }}
     spec:
       serviceAccountName: {{ $name }}
       automountServiceAccountToken: true

@@ -38,7 +38,10 @@ spec:
       annotations:
         gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
       {{- end }}
-      {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "gpu-feature-discovery") | nindent 6 }}
+      labels:
+        app: {{ $componentName }}
+        component: gpu-feature-discovery
+        module: {{ include "gpuControlPlane.moduleName" . }}
     spec:
       serviceAccountName: {{ $componentName }}
       shareProcessNamespace: true

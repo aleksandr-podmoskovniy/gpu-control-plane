@@ -94,6 +94,10 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 	}
 }
 
+func poolResourceName(pool *v1alpha1.GPUPool) string {
+	return fmt.Sprintf("%s/%s", poolPrefix(pool), pool.Name)
+}
+
 func renderConfigFromEnv() RenderConfig {
 	ns := strings.TrimSpace(os.Getenv("POD_NAMESPACE"))
 	if ns == "" {
@@ -503,16 +507,17 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								AllowPrivilegeEscalation: ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(false),
 							},
-							Env: []corev1.EnvVar{
-								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
-								{Name: "COMPONENT", Value: "plugin"},
-								{Name: "WITH_WAIT", Value: "false"},
-								{Name: "WITH_WORKLOAD", Value: "false"},
-								{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
-								{
-									Name: "NODE_NAME",
-									ValueFrom: &corev1.EnvVarSource{
-										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+								Env: []corev1.EnvVar{
+									{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+									{Name: "COMPONENT", Value: "plugin"},
+									{Name: "WITH_WAIT", Value: "false"},
+									{Name: "WITH_WORKLOAD", Value: "false"},
+									{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
+									{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
+									{
+										Name: "NODE_NAME",
+										ValueFrom: &corev1.EnvVarSource{
+											FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
 									},
 								},
 								{

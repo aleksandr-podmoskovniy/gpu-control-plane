@@ -111,15 +111,9 @@ func (h *DPValidationHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPU
 			continue
 		}
 		target := dev.Status.State
-		switch dev.Status.State {
-		case v1alpha1.GPUDeviceStatePendingAssignment:
-			if readyNodes[node] {
-				target = v1alpha1.GPUDeviceStateAssigned
-			}
-		case v1alpha1.GPUDeviceStateAssigned:
-			if !readyNodes[node] {
-				target = v1alpha1.GPUDeviceStatePendingAssignment
-			}
+		// Only promote to Assigned when validator ready; do not demote if validator not ready.
+		if dev.Status.State == v1alpha1.GPUDeviceStatePendingAssignment && readyNodes[node] {
+			target = v1alpha1.GPUDeviceStateAssigned
 		}
 		if target == dev.Status.State {
 			continue

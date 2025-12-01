@@ -33,7 +33,10 @@ spec:
       annotations:
         gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
       {{- end }}
-      {{- include "gpuControlPlane.bootstrap.moduleLabels" (list . $component "validator") | nindent 6 }}
+      labels:
+        app: {{ $validatorName }}
+        component: validator
+        module: {{ include "gpuControlPlane.moduleName" . }}
     spec:
       serviceAccountName: {{ $validatorName }}
       {{- include "helm_lib_module_pod_security_context_run_as_user_root" . | nindent 6 }}
