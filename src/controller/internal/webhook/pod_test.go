@@ -34,6 +34,14 @@ import (
 	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
+func localPoolReq(name string) poolRequest {
+	return poolRequest{name: name, keyPrefix: localPoolResourcePrefix, isCluster: false}
+}
+
+func clusterPoolReq(name string) poolRequest {
+	return poolRequest{name: name, keyPrefix: clusterPoolResourcePrefix, isCluster: true}
+}
+
 func TestPodMutatorAddsAnnotation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
@@ -135,7 +143,7 @@ func TestPodMutatorRejectsConflictingNodeSelector(t *testing.T) {
 	pod := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		Spec: corev1.PodSpec{
-			NodeSelector: map[string]string{poolLabelKey("pool-a"): "other"},
+			NodeSelector: map[string]string{poolLabelKey(localPoolReq("pool-a")): "other"},
 			Containers: []corev1.Container{{
 				Name: "c",
 				Resources: corev1.ResourceRequirements{
@@ -174,7 +182,7 @@ func TestPodMutatorRejectsConflictingToleration(t *testing.T) {
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
 		Spec: corev1.PodSpec{
 			Tolerations: []corev1.Toleration{{
-				Key:      poolLabelKey("pool-a"),
+				Key:      poolLabelKey(localPoolReq("pool-a")),
 				Operator: corev1.TolerationOpEqual,
 				Value:    "other",
 				Effect:   corev1.TaintEffectNoSchedule,
@@ -365,7 +373,7 @@ func TestPodMutatorAddsSpreadConstraint(t *testing.T) {
 	if c.TopologyKey != "topology.kubernetes.io/zone" || c.WhenUnsatisfiable != corev1.DoNotSchedule || c.MaxSkew != 1 {
 		t.Fatalf("unexpected spread constraint %+v", c)
 	}
-	if val := c.LabelSelector.MatchLabels[poolLabelKey("pool-a")]; val != "pool-a" {
+	if val := c.LabelSelector.MatchLabels[poolLabelKey(localPoolReq("pool-a"))]; val != "pool-a" {
 		t.Fatalf("expected label selector with pool key, got %v", c.LabelSelector.MatchLabels)
 	}
 }
@@ -396,7 +404,7 @@ func TestPodMutatorRejectsConflictingSpreadConstraint(t *testing.T) {
 				WhenUnsatisfiable: corev1.DoNotSchedule,
 				MaxSkew:           1,
 				LabelSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{poolLabelKey("pool-a"): "other"},
+					MatchLabels: map[string]string{poolLabelKey(localPoolReq("pool-a")): "other"},
 				},
 			}},
 			Containers: []corev1.Container{{
@@ -420,7 +428,7 @@ func TestPodMutatorRejectsConflictingSpreadConstraint(t *testing.T) {
 	}}
 
 	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
-	if _, err := mutator.resolvePool(context.Background(), "pool-a", "d8-gpu-control-plane"); err != nil {
+	if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), "d8-gpu-control-plane"); err != nil {
 		t.Fatalf("expected pool to be retrievable: %v", err)
 	}
 	resp := mutator.Handle(context.Background(), req)
@@ -607,23 +615,23 @@ func TestPodMutatorHandleRequestShapeEdgeCases(t *testing.T) {
 func TestEnsurePoolNodeSelectorAllowsSameValue(t *testing.T) {
 	pod := &corev1.Pod{
 		Spec: corev1.PodSpec{
-			NodeSelector: map[string]string{poolLabelKey("pool-a"): "pool-a"},
+			NodeSelector: map[string]string{poolLabelKey(localPoolReq("pool-a")): "pool-a"},
 		},
 	}
-	if err := ensurePoolNodeSelector(pod, poolLabelKey("pool-a"), "pool-a"); err != nil {
+	if err := ensurePoolNodeSelector(pod, poolLabelKey(localPoolReq("pool-a")), "pool-a"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pod.Spec.NodeSelector[poolLabelKey("pool-a")] != "pool-a" {
+	if pod.Spec.NodeSelector[poolLabelKey(localPoolReq("pool-a"))] != "pool-a" {
 		t.Fatalf("selector value changed unexpectedly")
 	}
 }
 
 func TestEnsurePoolNodeSelectorInitialisesSelector(t *testing.T) {
 	pod := &corev1.Pod{}
-	if err := ensurePoolNodeSelector(pod, poolLabelKey("pool-b"), "pool-b"); err != nil {
+	if err := ensurePoolNodeSelector(pod, poolLabelKey(localPoolReq("pool-b")), "pool-b"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if pod.Spec.NodeSelector[poolLabelKey("pool-b")] != "pool-b" {
+	if pod.Spec.NodeSelector[poolLabelKey(localPoolReq("pool-b"))] != "pool-b" {
 		t.Fatalf("node selector not set")
 	}
 }
@@ -631,10 +639,10 @@ func TestEnsurePoolNodeSelectorInitialisesSelector(t *testing.T) {
 func TestEnsurePoolNodeSelectorConflict(t *testing.T) {
 	pod := &corev1.Pod{
 		Spec: corev1.PodSpec{
-			NodeSelector: map[string]string{poolLabelKey("pool-c"): "other"},
+			NodeSelector: map[string]string{poolLabelKey(localPoolReq("pool-c")): "other"},
 		},
 	}
-	if err := ensurePoolNodeSelector(pod, poolLabelKey("pool-c"), "pool-c"); err == nil {
+	if err := ensurePoolNodeSelector(pod, poolLabelKey(localPoolReq("pool-c")), "pool-c"); err == nil {
 		t.Fatalf("expected conflict error")
 	}
 }
@@ -671,7 +679,7 @@ func TestPodMutatorRejectsConflictsWithResolvedPool(t *testing.T) {
 
 	// conflicting nodeSelector
 	pod := basePod
-	pod.Spec.NodeSelector = map[string]string{poolLabelKey("pool-a"): "other"}
+	pod.Spec.NodeSelector = map[string]string{poolLabelKey(localPoolReq("pool-a")): "other"}
 	if resp := mutator.Handle(context.Background(), makeReq(pod)); resp.Allowed {
 		t.Fatalf("expected denial for conflicting nodeSelector")
 	}
@@ -679,7 +687,7 @@ func TestPodMutatorRejectsConflictsWithResolvedPool(t *testing.T) {
 	// conflicting toleration
 	pod = basePod
 	pod.Spec.Tolerations = []corev1.Toleration{{
-		Key:      poolLabelKey("pool-a"),
+		Key:      poolLabelKey(localPoolReq("pool-a")),
 		Operator: corev1.TolerationOpEqual,
 		Value:    "other",
 		Effect:   corev1.TaintEffectNoSchedule,
@@ -695,7 +703,7 @@ func TestPodMutatorRejectsConflictsWithResolvedPool(t *testing.T) {
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
 					MatchExpressions: []corev1.NodeSelectorRequirement{{
-						Key:      poolLabelKey("pool-a"),
+						Key:      poolLabelKey(localPoolReq("pool-a")),
 						Operator: corev1.NodeSelectorOpIn,
 						Values:   []string{"other"},
 					}},
@@ -722,7 +730,7 @@ func TestResolvePoolVariants(t *testing.T) {
 	mutator := newPodMutator(testr.New(t), cradmission.NewDecoder(scheme), nil, client)
 
 	// namespaced pool found
-	pool, err := mutator.resolvePool(context.Background(), "pool-a", "ns1")
+	pool, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), "ns1")
 	if err != nil {
 		t.Fatalf("expected namespaced pool, got error: %v", err)
 	}
@@ -730,25 +738,28 @@ func TestResolvePoolVariants(t *testing.T) {
 		t.Fatalf("unexpected spec from namespaced pool")
 	}
 
-	// fallback to cluster pool when namespaced pool absent
-	pool, err = mutator.resolvePool(context.Background(), "pool-b", "ns1")
-	if err != nil {
-		t.Fatalf("expected cluster pool, got error: %v", err)
-	}
+		// cluster pool must be requested via cluster prefix
+		if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-b"), "ns1"); err == nil {
+			t.Fatalf("expected not found when requesting cluster pool with namespaced prefix")
+		}
+		pool, err = mutator.resolvePool(context.Background(), clusterPoolReq("pool-b"), "ns1")
+		if err != nil {
+			t.Fatalf("expected cluster pool, got error: %v", err)
+		}
 	if pool.Name != "pool-b" || pool.Spec.Scheduling.TopologyKey != "topology.kubernetes.io/zone" {
 		t.Fatalf("unexpected cluster pool data: %+v", pool)
 	}
 
-	// client missing
-	if _, err := newPodMutator(testr.New(t), cradmission.NewDecoder(scheme), nil, nil).resolvePool(context.Background(), "pool-a", "ns1"); err == nil {
-		t.Fatalf("expected error when client is nil")
+		// client missing
+		if _, err := newPodMutator(testr.New(t), cradmission.NewDecoder(scheme), nil, nil).resolvePool(context.Background(), localPoolReq("pool-a"), "ns1"); err == nil {
+			t.Fatalf("expected error when client is nil")
+		}
+		// namespace missing
+		if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), ""); err == nil {
+			t.Fatalf("expected error for empty namespace")
+		}
+		// not found
+		if _, err := mutator.resolvePool(context.Background(), localPoolReq("absent"), "ns1"); err == nil {
+			t.Fatalf("expected not found error")
+		}
 	}
-	// namespace missing
-	if _, err := mutator.resolvePool(context.Background(), "pool-a", ""); err == nil {
-		t.Fatalf("expected error for empty namespace")
-	}
-	// not found
-	if _, err := mutator.resolvePool(context.Background(), "absent", "ns1"); err == nil {
-		t.Fatalf("expected not found error")
-	}
-}

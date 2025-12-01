@@ -49,7 +49,7 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 		return contracts.Result{}, fmt.Errorf("client is required")
 	}
 
-	poolKey := poolLabelKey(pool.Name)
+	poolKey := poolLabelKey(pool)
 	// Temporarily disable taints to avoid evicting bootstrap workloads during pooling.
 	taintsEnabled := false
 	nodesWithDevices := make(map[string]int32)
@@ -145,11 +145,18 @@ func ensureTaints(current []corev1.Taint, desired []corev1.Taint, poolKey string
 	return out, changed
 }
 
-func poolLabelKey(pool string) string {
-	return fmt.Sprintf("gpu.deckhouse.io/%s", pool)
+func poolLabelKey(pool *v1alpha1.GPUPool) string {
+	return fmt.Sprintf("%s/%s", poolPrefix(pool), pool.Name)
 }
 
 func poolValueFromKey(key string) string {
 	parts := strings.Split(key, "/")
 	return parts[len(parts)-1]
+}
+
+func poolPrefix(pool *v1alpha1.GPUPool) string {
+	if pool != nil && pool.Namespace == "" {
+		return "cluster.gpu.deckhouse.io"
+	}
+	return "gpu.deckhouse.io"
 }

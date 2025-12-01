@@ -210,7 +210,7 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 }
 
 func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
-	const resourcePrefix = "gpu.deckhouse.io"
+	resourcePrefix := poolPrefix(pool)
 	resourceName := pool.Name
 	replicas := h.timeSlicingReplicas(pool)
 
@@ -315,7 +315,7 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 }
 
 func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
-	poolKey := poolLabelKey(pool.Name)
+	poolKey := poolLabelKey(pool)
 	tolerations := mergeTolerations([]corev1.Toleration{
 		{
 			Key:      poolKey,
@@ -433,7 +433,7 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 }
 
 func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
-	poolKey := poolLabelKey(pool.Name)
+	poolKey := poolLabelKey(pool)
 	tolerations := mergeTolerations([]corev1.Toleration{
 		{
 			Effect:   corev1.TaintEffectNoSchedule,
@@ -633,7 +633,7 @@ func (h *RendererHandler) migManagerClientsConfigMap(pool *v1alpha1.GPUPool) *co
 }
 
 func (h *RendererHandler) migManagerDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
-	poolKey := poolLabelKey(pool.Name)
+	poolKey := poolLabelKey(pool)
 	cmName := fmt.Sprintf("nvidia-mig-manager-%s-config", pool.Name)
 	clientsName := fmt.Sprintf("nvidia-mig-manager-%s-gpu-clients", pool.Name)
 	scriptsName := fmt.Sprintf("nvidia-mig-manager-%s-scripts", pool.Name)

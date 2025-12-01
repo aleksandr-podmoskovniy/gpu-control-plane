@@ -31,8 +31,17 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 )
 
-const poolResourcePrefix = "gpu.deckhouse.io/"
-const poolAnnotation = "gpu.deckhouse.io/pool"
+const (
+	localPoolResourcePrefix   = "gpu.deckhouse.io/"
+	clusterPoolResourcePrefix = "cluster.gpu.deckhouse.io/"
+	poolAnnotation            = "gpu.deckhouse.io/pool"
+)
+
+type poolRequest struct {
+	name      string
+	keyPrefix string
+	isCluster bool
+}
 
 var jsonMarshal = json.Marshal
 
@@ -74,7 +83,11 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		return cradmission.Allowed("no gpu pool requested")
 	}
 	if len(pools) > 1 {
-		return cradmission.Denied(fmt.Sprintf("multiple GPU pools requested: %v", pools))
+		names := make([]string, 0, len(pools))
+		for _, p := range pools {
+			names = append(names, p.keyPrefix+p.name)
+		}
+		return cradmission.Denied(fmt.Sprintf("multiple GPU pools requested: %v", names))
 	}
 
 	original := req.Object.Raw
@@ -85,12 +98,12 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		}
 	}
 
-	var poolName string
-	for p := range pools {
-		poolName = p
+	var poolRef poolRequest
+	for _, p := range pools {
+		poolRef = p
 	}
-	poolKey := poolLabelKey(poolName)
-	poolObj, err := m.resolvePool(ctx, poolName, pod.Namespace)
+	poolKey := poolLabelKey(poolRef)
+	poolObj, err := m.resolvePool(ctx, poolRef, pod.Namespace)
 	if err != nil {
 		return cradmission.Denied(err.Error())
 	}
@@ -98,23 +111,23 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 	if pod.Annotations == nil {
 		pod.Annotations = map[string]string{}
 	}
-	pod.Annotations[poolAnnotation] = poolName
+	pod.Annotations[poolAnnotation] = poolRef.keyPrefix + poolRef.name
 
-	if err := ensurePoolNodeSelector(pod, poolKey, poolName); err != nil {
+	if err := ensurePoolNodeSelector(pod, poolKey, poolRef.name); err != nil {
 		return cradmission.Denied(err.Error())
 	}
 	poolTaintsEnabled := m.poolTaintsEnabled(poolObj)
 	if poolTaintsEnabled {
-		if err := ensurePoolToleration(pod, poolKey, poolName); err != nil {
+		if err := ensurePoolToleration(pod, poolKey, poolRef.name); err != nil {
 			return cradmission.Denied(err.Error())
 		}
-		if err := ensurePoolAffinity(pod, poolKey, poolName); err != nil {
+		if err := ensurePoolAffinity(pod, poolKey, poolRef.name); err != nil {
 			return cradmission.Denied(err.Error())
 		}
 	}
 	strategy, topologyKey := m.poolScheduling(poolObj)
 	if strings.EqualFold(strategy, string(v1alpha1.GPUPoolSchedulingSpread)) {
-		if err := ensureSpreadConstraint(pod, poolKey, poolName, topologyKey); err != nil {
+		if err := ensureSpreadConstraint(pod, poolKey, poolRef.name, topologyKey); err != nil {
 			return cradmission.Denied(err.Error())
 		}
 	}
@@ -139,13 +152,37 @@ func ensurePoolNodeSelector(pod *corev1.Pod, poolKey, pool string) error {
 }
 
 func ensurePoolToleration(pod *corev1.Pod, poolKey, pool string) error {
-	for _, tol := range pod.Spec.Tolerations {
-		if tol.Key == poolKey && tol.Value == pool && tol.Effect == corev1.TaintEffectNoSchedule {
+	for i, tol := range pod.Spec.Tolerations {
+		if tol.Key != poolKey {
+			continue
+		}
+		// Exists toleration for this key is always compatible.
+		if tol.Operator == corev1.TolerationOpExists {
 			return nil
 		}
-		if tol.Key == poolKey && tol.Value != pool && tol.Effect == corev1.TaintEffectNoSchedule {
+		// Normalize missing operator/effect/value.
+		if tol.Operator == "" {
+			pod.Spec.Tolerations[i].Operator = corev1.TolerationOpEqual
+			tol.Operator = corev1.TolerationOpEqual
+		}
+		if tol.Effect == "" {
+			pod.Spec.Tolerations[i].Effect = corev1.TaintEffectNoSchedule
+			tol.Effect = corev1.TaintEffectNoSchedule
+		}
+		if tol.Operator == corev1.TolerationOpEqual {
+			if tol.Value == "" {
+				pod.Spec.Tolerations[i].Value = pool
+				return nil
+			}
+			if tol.Value == pool && tol.Effect == corev1.TaintEffectNoSchedule {
+				return nil
+			}
+			if tol.Effect != corev1.TaintEffectNoSchedule {
+				return fmt.Errorf("toleration %q has unsupported effect %q", poolKey, tol.Effect)
+			}
 			return fmt.Errorf("toleration %q already set to %q", poolKey, tol.Value)
 		}
+		return fmt.Errorf("toleration %q has unsupported operator %q", poolKey, tol.Operator)
 	}
 	pod.Spec.Tolerations = append(pod.Spec.Tolerations, corev1.Toleration{
 		Key:      poolKey,
@@ -269,17 +306,22 @@ func ensureSpreadConstraint(pod *corev1.Pod, poolKey, pool, topologyKey string) 
 }
 
 // collectPools returns a set of pools referenced in all containers (requests/limits).
-func collectPools(pod *corev1.Pod) map[string]struct{} {
-	pools := make(map[string]struct{})
+func collectPools(pod *corev1.Pod) map[string]poolRequest {
+	pools := make(map[string]poolRequest)
 	check := func(resources corev1.ResourceList) {
 		for res := range resources {
 			name := res.String()
-			if !strings.HasPrefix(name, poolResourcePrefix) {
-				continue
-			}
-			pool := strings.TrimPrefix(name, poolResourcePrefix)
-			if pool != "" {
-				pools[pool] = struct{}{}
+			switch {
+			case strings.HasPrefix(name, localPoolResourcePrefix):
+				pool := strings.TrimPrefix(name, localPoolResourcePrefix)
+				if pool != "" {
+					pools["local:"+pool] = poolRequest{name: pool, keyPrefix: localPoolResourcePrefix, isCluster: false}
+				}
+			case strings.HasPrefix(name, clusterPoolResourcePrefix):
+				pool := strings.TrimPrefix(name, clusterPoolResourcePrefix)
+				if pool != "" {
+					pools["cluster:"+pool] = poolRequest{name: pool, keyPrefix: clusterPoolResourcePrefix, isCluster: true}
+				}
 			}
 		}
 	}
@@ -295,8 +337,8 @@ func collectPools(pod *corev1.Pod) map[string]struct{} {
 	return pools
 }
 
-func poolLabelKey(pool string) string {
-	return poolResourcePrefix + pool
+func poolLabelKey(pool poolRequest) string {
+	return pool.keyPrefix + pool.name
 }
 
 func (m *podMutator) poolTaintsEnabled(pool *v1alpha1.GPUPool) bool {
@@ -320,24 +362,27 @@ func (m *podMutator) poolScheduling(pool *v1alpha1.GPUPool) (string, string) {
 	return strategy, topologyKey
 }
 
-func (m *podMutator) resolvePool(ctx context.Context, name, ns string) (*v1alpha1.GPUPool, error) {
+func (m *podMutator) resolvePool(ctx context.Context, req poolRequest, ns string) (*v1alpha1.GPUPool, error) {
 	if m.client == nil {
-		return nil, fmt.Errorf("GPUPool %q: webhook client is not configured", name)
+		return nil, fmt.Errorf("GPUPool %q: webhook client is not configured", req.name)
 	}
-	if ns == "" {
-		return nil, fmt.Errorf("GPUPool %q: pod namespace is empty", name)
+	if ns == "" && !req.isCluster {
+		return nil, fmt.Errorf("GPUPool %q: pod namespace is empty", req.name)
 	}
-	pool := &v1alpha1.GPUPool{}
-	if err := m.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, pool); err == nil {
-		return pool, nil
+	if req.isCluster {
+		cluster := &v1alpha1.ClusterGPUPool{}
+		if err := m.client.Get(ctx, client.ObjectKey{Name: req.name}, cluster); err == nil {
+			return &v1alpha1.GPUPool{
+				ObjectMeta: metav1.ObjectMeta{Name: cluster.Name},
+				Spec:       cluster.Spec,
+			}, nil
+		}
+		return nil, fmt.Errorf("ClusterGPUPool %q not found", req.name)
 	}
 
-	cluster := &v1alpha1.ClusterGPUPool{}
-	if err := m.client.Get(ctx, client.ObjectKey{Name: name}, cluster); err == nil {
-		return &v1alpha1.GPUPool{
-			ObjectMeta: metav1.ObjectMeta{Name: cluster.Name},
-			Spec:       cluster.Spec,
-		}, nil
+	pool := &v1alpha1.GPUPool{}
+	if err := m.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: req.name}, pool); err == nil {
+		return pool, nil
 	}
-	return nil, fmt.Errorf("GPUPool/ClusterGPUPool %q not found for namespace %q", name, ns)
+	return nil, fmt.Errorf("GPUPool %q not found in namespace %q", req.name, ns)
 }

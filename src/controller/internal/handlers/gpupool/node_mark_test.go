@@ -55,7 +55,7 @@ func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 	if err := cl.Get(context.Background(), clientKey("node1"), node); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	key := poolLabelKey("pool-a")
+	key := poolLabelKey(pool)
 	if node.Labels[key] != "pool-a" {
 		t.Fatalf("label not set")
 	}
@@ -68,9 +68,10 @@ func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 
+	key := poolLabelKey(&v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}})
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey("pool-a"): "pool-a"}}}).
+		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{key: "pool-a"}}}).
 		Build()
 
 	handler := NewNodeMarkHandler(testr.New(t), cl)
@@ -91,7 +92,7 @@ func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
 	if err := cl.Get(context.Background(), clientKey("node1"), node); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	key := poolLabelKey("pool-a")
+	key = poolLabelKey(pool)
 	if _, ok := node.Labels[key]; ok {
 		t.Fatalf("label should be removed")
 	}
@@ -104,23 +105,17 @@ func TestNodeMarkRemovesTaintWhenDisabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 
-	existingTaint := corev1.Taint{Key: poolLabelKey("pool-a"), Value: "pool-a", Effect: corev1.TaintEffectNoSchedule}
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
+	existingTaint := corev1.Taint{Key: poolLabelKey(pool), Value: "pool-a", Effect: corev1.TaintEffectNoSchedule}
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey("pool-a"): "pool-a"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{existingTaint}}}).
+		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey(pool): "pool-a"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{existingTaint}}}).
 		Build()
 
 	handler := NewNodeMarkHandler(testr.New(t), cl)
 	taintsEnabled := false
-	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool-a"},
-		Spec:       v1alpha1.GPUPoolSpec{Scheduling: v1alpha1.GPUPoolSchedulingSpec{TaintsEnabled: &taintsEnabled}},
-		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{
-				{Name: "node1", TotalDevices: 2},
-			},
-		},
-	}
+	pool.Spec.Scheduling = v1alpha1.GPUPoolSchedulingSpec{TaintsEnabled: &taintsEnabled}
+	pool.Status = v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1", TotalDevices: 2}}}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("HandlePool: %v", err)
@@ -130,7 +125,7 @@ func TestNodeMarkRemovesTaintWhenDisabled(t *testing.T) {
 	if err := cl.Get(context.Background(), clientKey("node1"), node); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	if hasTaint(node.Spec.Taints, poolLabelKey("pool-a"), corev1.TaintEffectNoSchedule) {
+	if hasTaint(node.Spec.Taints, poolLabelKey(pool), corev1.TaintEffectNoSchedule) {
 		t.Fatalf("taint should be removed when taints disabled")
 	}
 }

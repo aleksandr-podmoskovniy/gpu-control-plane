@@ -114,7 +114,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	if ds.Spec.Template.Spec.Containers[0].Image != "device-plugin:tag" {
 		t.Fatalf("unexpected image: %s", ds.Spec.Template.Spec.Containers[0].Image)
 	}
-	expectedTol := corev1.Toleration{Key: poolLabelKey("alpha"), Operator: corev1.TolerationOpEqual, Value: "alpha", Effect: corev1.TaintEffectNoSchedule}
+	expectedTol := corev1.Toleration{Key: poolLabelKey(pool), Operator: corev1.TolerationOpEqual, Value: "alpha", Effect: corev1.TaintEffectNoSchedule}
 	if !hasToleration(ds.Spec.Template.Spec.Tolerations, expectedTol) {
 		t.Fatalf("pool toleration missing")
 	}
@@ -126,7 +126,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 		t.Fatalf("node affinity not set")
 	}
 	me := reqs.NodeSelectorTerms[0].MatchExpressions[0]
-	if me.Key != poolLabelKey("alpha") || me.Operator != corev1.NodeSelectorOpIn || len(me.Values) != 1 || me.Values[0] != "alpha" {
+	if me.Key != poolLabelKey(pool) || me.Operator != corev1.NodeSelectorOpIn || len(me.Values) != 1 || me.Values[0] != "alpha" {
 		t.Fatalf("unexpected affinity %+v", me)
 	}
 
@@ -214,7 +214,7 @@ func TestRendererCreatesMIGManagerResources(t *testing.T) {
 	if ds.Spec.Template.Spec.Containers[0].Image != "mig-manager:tag" {
 		t.Fatalf("unexpected mig-manager image: %s", ds.Spec.Template.Spec.Containers[0].Image)
 	}
-	if !hasToleration(ds.Spec.Template.Spec.Tolerations, corev1.Toleration{Key: poolLabelKey("beta"), Operator: corev1.TolerationOpEqual, Value: "beta", Effect: corev1.TaintEffectNoSchedule}) {
+	if !hasToleration(ds.Spec.Template.Spec.Tolerations, corev1.Toleration{Key: poolLabelKey(pool), Operator: corev1.TolerationOpEqual, Value: "beta", Effect: corev1.TaintEffectNoSchedule}) {
 		t.Fatalf("pool toleration missing on mig-manager")
 	}
 }

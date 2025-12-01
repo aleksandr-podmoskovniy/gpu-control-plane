@@ -155,6 +155,21 @@ func TestEnsurePoolTolerationAndAffinity(t *testing.T) {
 		t.Fatalf("expected no error for matching toleration")
 	}
 
+	// existing empty value should be normalized
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: poolKey, Value: "", Effect: corev1.TaintEffectNoSchedule}}
+	if err := ensurePoolToleration(pod, poolKey, "pool"); err != nil {
+		t.Fatalf("expected normalization, got %v", err)
+	}
+	if pod.Spec.Tolerations[0].Value != "pool" {
+		t.Fatalf("toleration value not normalized: %q", pod.Spec.Tolerations[0].Value)
+	}
+
+	// existing Exists operator is compatible
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: poolKey, Operator: corev1.TolerationOpExists}}
+	if err := ensurePoolToleration(pod, poolKey, "pool"); err != nil {
+		t.Fatalf("expected Exists toleration to be accepted, got %v", err)
+	}
+
 	// conflict affinity when different value present
 	pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0].Values = []string{"other"}
 	if err := ensurePoolAffinity(pod, poolKey, "pool"); err == nil {
