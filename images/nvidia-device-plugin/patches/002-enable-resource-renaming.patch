@@ -1,17 +1,17 @@
 diff --git a/api/config/v1/config.go b/api/config/v1/config.go
-index 5df5284..6224fd9 100644
+index 5df5284..6d94358 100644
 --- a/api/config/v1/config.go
 +++ b/api/config/v1/config.go
-@@ -22,8 +22,8 @@ import (
+@@ -22,7 +22,7 @@ import (
  	"os"
-
+ 
  	cli "github.com/urfave/cli/v2"
 -	"k8s.io/klog/v2"
 +	_ "k8s.io/klog/v2"
-
+ 
  	"sigs.k8s.io/yaml"
  )
-@@ -83,17 +82,7 @@ func NewConfig(c *cli.Context, flags []cli.Flag) (*Config, error) {
+@@ -83,17 +83,7 @@ func NewConfig(c *cli.Context, flags []cli.Flag) (*Config, error) {
  // DisableResourceNamingInConfig temporarily disable the resource renaming feature of the plugin.
  // This may be reenabled in a future release.
  func DisableResourceNamingInConfig(config *Config) {
