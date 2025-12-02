@@ -155,7 +155,8 @@ func poolValueFromKey(key string) string {
 }
 
 func poolPrefix(pool *v1alpha1.GPUPool) string {
-	if pool != nil && pool.Namespace == "" {
+	// Cluster-scoped pools (ClusterGPUPool kind) must use cluster prefix even if a namespace is set by caller.
+	if pool != nil && (pool.Namespace == "" || pool.Kind == "ClusterGPUPool") {
 		return "cluster.gpu.deckhouse.io"
 	}
 	return "gpu.deckhouse.io"

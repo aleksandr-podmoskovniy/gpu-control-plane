@@ -510,7 +510,7 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								Env: []corev1.EnvVar{
 									{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
 									{Name: "COMPONENT", Value: "plugin"},
-									{Name: "WITH_WAIT", Value: "false"},
+									{Name: "WITH_WAIT", Value: "true"},
 									{Name: "WITH_WORKLOAD", Value: "false"},
 									{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
 									{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
