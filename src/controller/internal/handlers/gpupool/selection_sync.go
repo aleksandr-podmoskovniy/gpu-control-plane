@@ -146,6 +146,27 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		}
 	}
 
+	// Unassign devices that still point to this pool but no longer carry the assignment annotation.
+	for i := range devices.Items {
+		dev := &devices.Items[i]
+		if dev.Annotations[assignmentAnnotation] == pool.Name {
+			continue
+		}
+		if dev.Status.PoolRef == nil || dev.Status.PoolRef.Name != pool.Name {
+			continue
+		}
+		orig := dev.DeepCopy()
+		dev.Status.PoolRef = nil
+		// Return device to Ready if it was held by the pool.
+		switch dev.Status.State {
+		case v1alpha1.GPUDeviceStateAssigned, v1alpha1.GPUDeviceStateReserved, v1alpha1.GPUDeviceStatePendingAssignment:
+			dev.Status.State = v1alpha1.GPUDeviceStateReady
+		}
+		if err := h.client.Status().Patch(ctx, dev, client.MergeFrom(orig)); err != nil && !apierrors.IsNotFound(err) {
+			return contracts.Result{}, err
+		}
+	}
+
 	pool.Status.Devices = devStatuses
 	pool.Status.Capacity.Total = totalUnits
 	if totalUnits >= pool.Status.Capacity.Used {

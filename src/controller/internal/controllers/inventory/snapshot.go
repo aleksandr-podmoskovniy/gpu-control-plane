@@ -205,7 +205,10 @@ func extractDeviceSnapshots(labels map[string]string) []deviceSnapshot {
 		devices[index] = info
 	}
 
+	// Deduplicate by vendor/device/class only when we have a richer entry (UUID/PCI).
 	result := make([]deviceSnapshot, 0, len(devices))
+	byUUID := make(map[string]deviceSnapshot)
+	byPCI := make(map[string]deviceSnapshot)
 	for _, device := range devices {
 		if device.Vendor == "" || device.Device == "" || device.Class == "" {
 			continue
@@ -213,11 +216,43 @@ func extractDeviceSnapshots(labels map[string]string) []deviceSnapshot {
 		if device.Vendor != vendorNvidia {
 			continue
 		}
+		if device.UUID != "" {
+			current, ok := byUUID[device.UUID]
+			if !ok || scoreDevice(device) > scoreDevice(current) {
+				byUUID[device.UUID] = device
+			}
+			continue
+		}
+		if device.PCIAddress != "" {
+			current, ok := byPCI[device.PCIAddress]
+			if !ok || scoreDevice(device) > scoreDevice(current) {
+				byPCI[device.PCIAddress] = device
+			}
+			continue
+		}
+		result = append(result, device)
+	}
+
+	for _, device := range byUUID {
+		result = append(result, device)
+	}
+	for _, device := range byPCI {
 		result = append(result, device)
 	}
 
 	sortDeviceSnapshots(result)
 	return result
+}
+
+func scoreDevice(dev deviceSnapshot) int {
+	score := 0
+	if dev.UUID != "" {
+		score += 2
+	}
+	if dev.PCIAddress != "" {
+		score++
+	}
+	return score
 }
 
 func sortDeviceSnapshots(devices []deviceSnapshot) {

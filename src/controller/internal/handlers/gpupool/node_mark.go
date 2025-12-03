@@ -50,6 +50,7 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	}
 
 	poolKey := poolLabelKey(pool)
+	altPoolKey := alternatePoolLabelKey(pool)
 	// Temporarily disable taints to avoid evicting bootstrap workloads during pooling.
 	taintsEnabled := false
 	nodesWithDevices := make(map[string]int32)
@@ -58,14 +59,14 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	}
 
 	for nodeName, total := range nodesWithDevices {
-		if err := h.syncNode(ctx, nodeName, poolKey, total > 0, taintsEnabled); err != nil {
+		if err := h.syncNode(ctx, nodeName, poolKey, altPoolKey, total > 0, taintsEnabled); err != nil {
 			return contracts.Result{}, err
 		}
 	}
 	return contracts.Result{}, nil
 }
 
-func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey string, hasDevices bool, taintsEnabled bool) error {
+func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey, altPoolKey string, hasDevices bool, taintsEnabled bool) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		node := &corev1.Node{}
 		if err := h.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
@@ -86,9 +87,22 @@ func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey string
 				node.Labels[poolKey] = poolValue
 				changed = true
 			}
+			// Remove legacy label with different prefix for the same pool name.
+			if altPoolKey != "" {
+				if _, ok := node.Labels[altPoolKey]; ok {
+					delete(node.Labels, altPoolKey)
+					changed = true
+				}
+			}
 		} else if _, ok := node.Labels[poolKey]; ok {
 			delete(node.Labels, poolKey)
 			changed = true
+			if altPoolKey != "" {
+				if _, ok := node.Labels[altPoolKey]; ok {
+					delete(node.Labels, altPoolKey)
+					changed = true
+				}
+			}
 		}
 
 		// Default taint policy: apply NoSchedule when devices present; when devices gone, apply NoExecute to evict remaining pods of this pool.
@@ -113,11 +127,26 @@ func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey string
 				node.Spec.Taints = newTaints
 				changed = true
 			}
+			// Ensure taints of the alternate prefix are removed as well.
+			if altPoolKey != "" {
+				newAlt, altChanged := ensureTaints(node.Spec.Taints, nil, altPoolKey)
+				if altChanged {
+					node.Spec.Taints = newAlt
+					changed = true
+				}
+			}
 		} else {
 			newTaints, taintsChanged := ensureTaints(node.Spec.Taints, []corev1.Taint{}, poolKey)
 			if taintsChanged {
 				node.Spec.Taints = newTaints
 				changed = true
+			}
+			if altPoolKey != "" {
+				newAlt, altChanged := ensureTaints(node.Spec.Taints, []corev1.Taint{}, altPoolKey)
+				if altChanged {
+					node.Spec.Taints = newAlt
+					changed = true
+				}
 			}
 		}
 
@@ -147,6 +176,18 @@ func ensureTaints(current []corev1.Taint, desired []corev1.Taint, poolKey string
 
 func poolLabelKey(pool *v1alpha1.GPUPool) string {
 	return fmt.Sprintf("%s/%s", poolPrefix(pool), pool.Name)
+}
+
+func alternatePoolLabelKey(pool *v1alpha1.GPUPool) string {
+	if pool == nil {
+		return ""
+	}
+	current := poolPrefix(pool)
+	alt := "gpu.deckhouse.io"
+	if current == alt {
+		alt = "cluster.gpu.deckhouse.io"
+	}
+	return fmt.Sprintf("%s/%s", alt, pool.Name)
 }
 
 func poolValueFromKey(key string) string {

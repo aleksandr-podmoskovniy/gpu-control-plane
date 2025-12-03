@@ -266,7 +266,7 @@ func TestHandlePoolFullMIGRendering(t *testing.T) {
 func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Resource: v1alpha1.GPUPoolResourceSpec{
 				Unit:          "Card",
@@ -295,10 +295,10 @@ func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	if len(cfg.Sharing.TimeSlicing.Resources) != 2 {
 		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Sharing.TimeSlicing.Resources))
 	}
-	if cfg.Sharing.TimeSlicing.Resources[0].Name != "pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
+	if cfg.Sharing.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
 		t.Fatalf("default resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[0])
 	}
-	if cfg.Sharing.TimeSlicing.Resources[1].Name != "custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
+	if cfg.Sharing.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
 		t.Fatalf("custom resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[1])
 	}
 }
@@ -982,6 +982,111 @@ func TestMergeTolerations(t *testing.T) {
 	merged = mergeTolerations(base, nil)
 	if len(merged) != 1 || merged[0].Key != "a" {
 		t.Fatalf("merge with nil extra should return base: %v", merged)
+	}
+}
+
+func TestDevicePluginConfigMapClusterPrefix(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	h := NewRendererHandler(testr.New(t), fake.NewClientBuilder().WithScheme(scheme).Build(), RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{
+		TypeMeta:   metav1.TypeMeta{Kind: "ClusterGPUPool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-a"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	cfg := cm.Data["config.yaml"]
+	if !strings.Contains(cfg, "cluster.gpu.deckhouse.io/cluster-a") {
+		t.Fatalf("expected cluster prefix in device plugin config, got %s", cfg)
+	}
+}
+
+func TestDevicePluginConfigMapSharingBranches(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{
+				Unit:          "Card",
+				SlicesPerUnit: 1,
+				TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
+					{Name: "", SlicesPerUnit: 2},
+				},
+			},
+		},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	if !strings.Contains(cm.Data["config.yaml"], "timeSlicing") {
+		t.Fatalf("expected sharing block present")
+	}
+	// no sharing when replicas ==1 and overrides removed
+	pool.Spec.Resource.TimeSlicingResources = nil
+	pool.Spec.Resource.SlicesPerUnit = 1
+	cm = h.devicePluginConfigMap(pool)
+	if strings.Contains(cm.Data["config.yaml"], "timeSlicing") {
+		t.Fatalf("expected sharing block absent when replicas=1")
+	}
+}
+
+func TestPoolNodeTolerationsDedup(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{Key: "a", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "a", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "b", Effect: corev1.TaintEffectNoExecute},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "p"}, Status: v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1"}}}}
+	tols := h.poolNodeTolerations(context.Background(), pool)
+	if len(tols) != 2 {
+		t.Fatalf("expected 2 unique tolerations, got %v", tols)
+	}
+}
+
+func TestPoolNodeTolerationsNilClient(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	tols := h.poolNodeTolerations(context.Background(), &v1alpha1.GPUPool{})
+	if tols != nil {
+		t.Fatalf("expected nil tolerations when client is nil, got %v", tols)
+	}
+}
+
+func TestPoolNodeTolerationsMissingNode(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	h := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "p"}, Status: v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "absent"}}}}
+	if tols := h.poolNodeTolerations(context.Background(), pool); len(tols) != 0 {
+		t.Fatalf("expected empty tolerations when node missing, got %v", tols)
+	}
+}
+
+func TestDevicePluginConfigMapInt32Replicas(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	rep := int32(3)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{
+				Unit: "Card",
+				TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
+					{Name: "custom", SlicesPerUnit: rep},
+				},
+			},
+		},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	if !strings.Contains(cm.Data["config.yaml"], "custom") || !strings.Contains(cm.Data["config.yaml"], "3") {
+		t.Fatalf("expected custom time slicing replicas captured, got %s", cm.Data["config.yaml"])
 	}
 }
 

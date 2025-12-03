@@ -95,7 +95,12 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 }
 
 func poolResourceName(pool *v1alpha1.GPUPool) string {
-	return fmt.Sprintf("%s/%s", poolPrefix(pool), pool.Name)
+	prefix := "gpu.deckhouse.io"
+	// Cluster-scoped pools must always expose a distinct prefix to avoid collisions with namespaced pools.
+	if pool != nil && (pool.Namespace == "" || pool.Kind == "ClusterGPUPool") {
+		prefix = "cluster.gpu.deckhouse.io"
+	}
+	return fmt.Sprintf("%s/%s", prefix, pool.Name)
 }
 
 func renderConfigFromEnv() RenderConfig {
@@ -215,7 +220,7 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 
 func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
 	resourcePrefix := poolPrefix(pool)
-	resourceName := pool.Name
+	resourceName := poolResourceName(pool)
 	replicas := h.timeSlicingReplicas(pool)
 
 	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
@@ -227,55 +232,40 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		if name == "" {
 			name = resourceName
 		}
-		if strings.Contains(name, "/") {
-			parts := strings.Split(name, "/")
-			name = parts[len(parts)-1]
-		}
 		resources = append(resources, map[string]any{
 			"name":     name,
-			"replicas": ts.SlicesPerUnit,
+			"replicas": int(ts.SlicesPerUnit),
 		})
 	}
 	if len(resources) == 0 {
 		resources = append(resources, map[string]any{
 			"name":     resourceName,
-			"replicas": replicas,
+			"replicas": int(replicas),
 		})
 	}
 
 	hasSharing := false
 	for _, r := range resources {
-		switch v := r["replicas"].(type) {
-		case int32:
-			if v > 1 {
-				hasSharing = true
-			}
-		case int:
-			if v > 1 {
-				hasSharing = true
-			}
-		case int64:
-			if v > 1 {
-				hasSharing = true
-			}
+		if v, ok := r["replicas"].(int); ok && v > 1 {
+			hasSharing = true
 		}
 	}
 
 	cfg := map[string]any{
 		"version": "v1",
 		"flags": map[string]any{
-			"migStrategy":   h.cfg.DefaultMIGStrategy,
+			"migStrategy":    h.cfg.DefaultMIGStrategy,
 			"resourcePrefix": resourcePrefix,
 		},
 	}
 
 	cfg["resources"] = map[string]any{
-			"gpus": []map[string]any{
-				{
-					"pattern": "*",
-					"name":    resourceName,
-				},
+		"gpus": []map[string]any{
+			{
+				"pattern": "*",
+				"name":    resourceName,
 			},
+		},
 	}
 
 	if hasSharing {
@@ -507,17 +497,17 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								AllowPrivilegeEscalation: ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(false),
 							},
-								Env: []corev1.EnvVar{
-									{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
-									{Name: "COMPONENT", Value: "plugin"},
-									{Name: "WITH_WAIT", Value: "true"},
-									{Name: "WITH_WORKLOAD", Value: "false"},
-									{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
-									{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
-									{
-										Name: "NODE_NAME",
-										ValueFrom: &corev1.EnvVarSource{
-											FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+							Env: []corev1.EnvVar{
+								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+								{Name: "COMPONENT", Value: "plugin"},
+								{Name: "WITH_WAIT", Value: "true"},
+								{Name: "WITH_WORKLOAD", Value: "false"},
+								{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
+								{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
+								{
+									Name: "NODE_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
 									},
 								},
 								{

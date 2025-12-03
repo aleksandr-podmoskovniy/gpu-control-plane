@@ -48,7 +48,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	})
 
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "alpha", UID: "12345"},
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "gpu-ns", UID: "12345"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Resource: v1alpha1.GPUPoolResourceSpec{
 				Unit:          "Card",
@@ -87,7 +87,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 		t.Fatalf("unexpected resources: %v", resList)
 	}
 	res, _ := resList[0].(map[string]any)
-	if res["name"] != "alpha" {
+	if res["name"] != "gpu.deckhouse.io/alpha" {
 		t.Fatalf("unexpected resource name: %v", res["name"])
 	}
 	switch v := res["replicas"].(type) {

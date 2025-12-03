@@ -27,7 +27,7 @@ namespace: d8-gpu-control-plane
 descriptions:
   en: GPU control plane that discovers hardware, keeps inventory and prepares nodes for AI workloads in Deckhouse.
   ru: GPU control plane, отвечающий за инвентаризацию оборудования и подготовку узлов для AI-нагрузок в Deckhouse.
-tags: ["gpu", "ai"]
+tags: ["gpu", "ai", "ml"]
 disable:
   confirmation: true
   message: |

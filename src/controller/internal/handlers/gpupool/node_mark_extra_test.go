@@ -45,7 +45,7 @@ func TestSyncNodeNotFoundIsIgnored(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
-	if err := h.syncNode(context.Background(), "missing", "gpu.deckhouse.io/pool", true, true); err != nil {
+	if err := h.syncNode(context.Background(), "missing", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, true); err != nil {
 		t.Fatalf("notfound should be ignored: %v", err)
 	}
 }
@@ -58,7 +58,7 @@ func TestSyncNodeAddsAndRemovesLabelsAndTaints(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
 
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", true, true); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, true); err != nil {
 		t.Fatalf("syncNode add failed: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestSyncNodeAddsAndRemovesLabelsAndTaints(t *testing.T) {
 	}
 
 	// remove devices and disable taints to exercise removal path
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", false, false); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", false, false); err != nil {
 		t.Fatalf("syncNode remove failed: %v", err)
 	}
 	final := &corev1.Node{}
@@ -99,7 +99,7 @@ func TestSyncNodeNoExecuteWhenDevicesGone(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", false, true); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", false, true); err != nil {
 		t.Fatalf("syncNode: %v", err)
 	}
 	out := &corev1.Node{}
@@ -145,7 +145,7 @@ func TestSyncNodeNoChangeShortCircuit(t *testing.T) {
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", true, true); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, true); err != nil {
 		t.Fatalf("syncNode should succeed even when no changes: %v", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestSyncNodeGetError(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), &failingGetClient{Client: base})
-	err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", true, true)
+	err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, true)
 	if err == nil || !apierrors.IsBadRequest(err) {
 		t.Fatalf("expected get error, got %v", err)
 	}
@@ -183,7 +183,7 @@ func TestSyncNodeTaintsDisabledWithDevices(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", true, false); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, false); err != nil {
 		t.Fatalf("syncNode: %v", err)
 	}
 	out := &corev1.Node{}
@@ -199,7 +199,7 @@ func TestSyncNodeNoChangesEarlyReturn(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
-	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", false, false); err != nil {
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", false, false); err != nil {
 		t.Fatalf("syncNode should allow no-op: %v", err)
 	}
 }
@@ -230,7 +230,7 @@ func TestSyncNodeUpdateError(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	h := NewNodeMarkHandler(testr.New(t), &failingUpdateClient{Client: cl})
-	err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", true, true)
+	err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, true)
 	if err == nil || !apierrors.IsConflict(err) {
 		t.Fatalf("expected conflict error, got %v", err)
 	}
@@ -252,6 +252,113 @@ func TestEnsureTaintsCoversBranches(t *testing.T) {
 	}
 	if out[0].Key != "other" || out[1].Effect != corev1.TaintEffectPreferNoSchedule {
 		t.Fatalf("taints not merged as expected: %+v", out)
+	}
+}
+
+func TestNodeMarkRemovesAltPrefixAndTaints(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node1",
+			Labels: map[string]string{
+				"cluster.gpu.deckhouse.io/pool": "pool",
+				"gpu.deckhouse.io/pool":         "pool",
+			},
+		},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{Key: "cluster.gpu.deckhouse.io/pool", Value: "pool", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "gpu.deckhouse.io/pool", Value: "pool", Effect: corev1.TaintEffectNoSchedule},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewNodeMarkHandler(testr.New(t), cl)
+
+	if err := h.syncNode(context.Background(), "node1", "cluster.gpu.deckhouse.io/pool", "gpu.deckhouse.io/pool", true, true); err != nil {
+		t.Fatalf("syncNode: %v", err)
+	}
+
+	updated := &corev1.Node{}
+	_ = cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated)
+	if _, ok := updated.Labels["gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("alt prefix label should be removed")
+	}
+	for _, tnt := range updated.Spec.Taints {
+		if tnt.Key == "gpu.deckhouse.io/pool" {
+			t.Fatalf("alt prefix taint should be removed")
+		}
+	}
+
+	// when devices gone and taintsEnabled true, alt prefix removed and NoExecute applied for primary key
+	if err := h.syncNode(context.Background(), "node1", "cluster.gpu.deckhouse.io/pool", "gpu.deckhouse.io/pool", false, true); err != nil {
+		t.Fatalf("syncNode remove path: %v", err)
+	}
+	_ = cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated)
+	if _, ok := updated.Labels["cluster.gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("labels should be cleared when no devices")
+	}
+	if len(updated.Spec.Taints) != 1 || updated.Spec.Taints[0].Key != "cluster.gpu.deckhouse.io/pool" || updated.Spec.Taints[0].Effect != corev1.TaintEffectNoExecute {
+		t.Fatalf("expected primary NoExecute taint only, got %v", updated.Spec.Taints)
+	}
+}
+
+func TestSyncNodeClearsLabelWhenTaintsDisabled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{"gpu.deckhouse.io/pool": "pool"},
+		},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{{Key: "gpu.deckhouse.io/pool", Value: "pool", Effect: corev1.TaintEffectNoSchedule}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewNodeMarkHandler(testr.New(t), cl)
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", false, false); err != nil {
+		t.Fatalf("syncNode remove path: %v", err)
+	}
+	updated := &corev1.Node{}
+	_ = cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated)
+	if len(updated.Spec.Taints) != 0 {
+		t.Fatalf("expected taints cleared, got %v", updated.Spec.Taints)
+	}
+	if _, ok := updated.Labels["gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("label should be removed")
+	}
+}
+
+func TestSyncNodeWithoutAltPrefix(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewNodeMarkHandler(testr.New(t), cl)
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "", true, true); err != nil {
+		t.Fatalf("syncNode: %v", err)
+	}
+	updated := &corev1.Node{}
+	_ = cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated)
+	if updated.Labels["gpu.deckhouse.io/pool"] != "pool" {
+		t.Fatalf("expected label set without alt prefix handling")
+	}
+}
+
+func TestAlternatePoolLabelKeyVariants(t *testing.T) {
+	clusterPool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "p"}, TypeMeta: metav1.TypeMeta{Kind: "ClusterGPUPool"}}
+	if alternatePoolLabelKey(clusterPool) != "gpu.deckhouse.io/p" {
+		t.Fatalf("unexpected alt for cluster pool: %s", alternatePoolLabelKey(clusterPool))
+	}
+	nsPool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns"}}
+	if alternatePoolLabelKey(nsPool) != "cluster.gpu.deckhouse.io/p" {
+		t.Fatalf("unexpected alt for namespaced pool: %s", alternatePoolLabelKey(nsPool))
+	}
+	if alternatePoolLabelKey(nil) != "" {
+		t.Fatalf("expected empty alt for nil pool")
 	}
 }
 
