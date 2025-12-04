@@ -220,6 +220,322 @@ func TestSelectionSyncSkipsUnassignedDevices(t *testing.T) {
 	}
 }
 
+func TestSelectionSyncUnassignsWhenAnnotationRemoved(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStateAssigned,
+			PoolRef:     &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+
+	// simulate manual removal of assignment annotation
+	devPatch := dev.DeepCopy()
+	delete(devPatch.Annotations, assignmentAnnotation)
+	if err := cl.Patch(context.Background(), devPatch, client.MergeFrom(dev)); err != nil {
+		t.Fatalf("prepare patch: %v", err)
+	}
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+
+	updated := &v1alpha1.GPUDevice{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
+		t.Fatalf("get device: %v", err)
+	}
+	if updated.Status.PoolRef != nil {
+		t.Fatalf("expected PoolRef cleared, got %+v", updated.Status.PoolRef)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateReady {
+		t.Fatalf("expected Ready after unassign, got %s", updated.Status.State)
+	}
+}
+
+func TestSelectionSyncRespectsNodeSelectorFromNodeLabels(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{"role": "gpu"},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, node, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+
+	selector := metav1.LabelSelector{MatchLabels: map[string]string{"role": "gpu"}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			NodeSelector: &selector,
+			Resource:     v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+		},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected device counted via node label selector, got %d", pool.Status.Capacity.Total)
+	}
+}
+
+func TestSelectionSyncHonorsMaxDevicesPerNode(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{
+				{InventoryID: "dev1"},
+				{InventoryID: "dev2"},
+			},
+		},
+	}
+	dev1 := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady},
+	}
+	dev2 := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev2",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev2", State: v1alpha1.GPUDeviceStateReady},
+	}
+	max := int32(1)
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev1, dev2).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card", MaxDevicesPerNode: &max},
+		},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected capacity capped to 1 per node, got %d", pool.Status.Capacity.Total)
+	}
+}
+
+func TestSelectionSyncUsesDeviceNameWhenInventoryIDMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-noid"}}},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev-noid",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "", State: v1alpha1.GPUDeviceStateReady},
+	}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 {
+		t.Fatalf("expected capacity 1, got %d", pool.Status.Capacity.Total)
+	}
+}
+
+func TestSelectionSyncSkipsIgnoredDevices(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+			Labels:      map[string]string{"gpu.deckhouse.io/ignore": "true"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady},
+	}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 0 || len(pool.Status.Devices) != 0 {
+		t.Fatalf("ignored device should be skipped, got %+v", pool.Status)
+	}
+}
+
+func TestSelectionSyncDoesNotUpdateAlreadyAssigned(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStateAssigned,
+			PoolRef:     &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	updated := &v1alpha1.GPUDevice{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
+		t.Fatalf("get device: %v", err)
+	}
+	if updated.Status.PoolRef == nil || updated.Status.PoolRef.Name != "pool" {
+		t.Fatalf("poolRef changed unexpectedly")
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
+		t.Fatalf("state changed unexpectedly: %s", updated.Status.State)
+	}
+}
+
+func TestSelectionSyncHandlesEmptyInventory(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 0 || len(pool.Status.Nodes) != 0 {
+		t.Fatalf("expected zero capacity for empty inventory, got %+v", pool.Status)
+	}
+}
+
+func TestSelectionSyncUnassignPatchError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}}},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "dev1",
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			PoolRef:     &v1alpha1.GPUPoolReference{Name: "pool"},
+			State:       v1alpha1.GPUDeviceStateAssigned,
+		},
+	}
+
+	base := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), failingStatusPatchClient{Client: base})
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err == nil {
+		t.Fatalf("expected error from status patch")
+	}
+}
+
 func TestCleanupPoolResourcesError(t *testing.T) {
 	// client that returns conflict on delete to hit error branch
 	cl := &failingDeleteClient{deleteErr: apierrors.NewConflict(v1alpha1.GroupVersion.WithResource("daemonsets").GroupResource(), "ds", nil)}
@@ -723,4 +1039,20 @@ type failingStatusWriter struct {
 
 func (f failingStatusWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
 	return apierrors.NewBadRequest("boom")
+}
+
+type failingStatusPatchWriter struct {
+	client.StatusWriter
+}
+
+func (f failingStatusPatchWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	return apierrors.NewBadRequest("boom")
+}
+
+type failingStatusPatchClient struct {
+	client.Client
+}
+
+func (f failingStatusPatchClient) Status() client.StatusWriter {
+	return failingStatusPatchWriter{StatusWriter: f.Client.Status()}
 }

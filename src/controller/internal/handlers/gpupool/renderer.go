@@ -220,8 +220,13 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 
 func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
 	resourcePrefix := poolPrefix(pool)
-	resourceName := poolResourceName(pool)
+	resourceName := pool.Name
 	replicas := h.timeSlicingReplicas(pool)
+
+	if strings.Contains(resourceName, "/") {
+		parts := strings.Split(resourceName, "/")
+		resourceName = parts[len(parts)-1]
+	}
 
 	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
 	for _, ts := range pool.Spec.Resource.TimeSlicingResources {
@@ -230,7 +235,11 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		}
 		name := ts.Name
 		if name == "" {
-			name = resourceName
+			name = pool.Name
+		}
+		if strings.Contains(name, "/") {
+			parts := strings.Split(name, "/")
+			name = parts[len(parts)-1]
 		}
 		resources = append(resources, map[string]any{
 			"name":     name,
@@ -239,7 +248,7 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 	}
 	if len(resources) == 0 {
 		resources = append(resources, map[string]any{
-			"name":     resourceName,
+			"name":     pool.Name,
 			"replicas": int(replicas),
 		})
 	}

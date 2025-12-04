@@ -69,7 +69,7 @@ func inventoryWithInfraReady(node string) *v1alpha1.GPUNodeInventory {
 					return &now
 				}(),
 			},
-			Bootstrap:  v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseReady},
+			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{Phase: v1alpha1.GPUNodeBootstrapPhaseReady},
 		},
 	}
 }
@@ -460,38 +460,42 @@ func TestDesiredDeviceState(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		device        *v1alpha1.GPUDevice
-		phase         v1alpha1.GPUNodeBootstrapPhase
-		infraReady    bool
-		infraDegraded bool
-		want          v1alpha1.GPUDeviceState
-		mutate        bool
+		name               string
+		device             *v1alpha1.GPUDevice
+		phase              v1alpha1.GPUNodeBootstrapPhase
+		infraReady         bool
+		degradedHard       bool
+		degradedMonitoring bool
+		want               v1alpha1.GPUDeviceState
+		mutate             bool
 	}{
-		{"assigned-remains", newDevice(v1alpha1.GPUDeviceStateAssigned), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateAssigned, false},
-		{"reserved-remains", newDevice(v1alpha1.GPUDeviceStateReserved), v1alpha1.GPUNodeBootstrapPhaseValidating, false, false, v1alpha1.GPUDeviceStateReserved, false},
-		{"ready-stable", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateReady, false},
-		{"ready-faulted-when-degraded", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, v1alpha1.GPUDeviceStateFaulted, true},
-		{"pending-faulted-when-degraded", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, v1alpha1.GPUDeviceStateFaulted, true},
-		{"pending-stable-when-clean", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStatePendingAssignment, false},
-		{"discovered-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"discovered-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseValidating, false, false, v1alpha1.GPUDeviceStateDiscovered, false},
-		{"faulted-health-blocks", withHealthFault(), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateFaulted, false},
-		{"faulted-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"faulted-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, v1alpha1.GPUDeviceStateFaulted, false},
-		{"faulted-stays-when-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, v1alpha1.GPUDeviceStateFaulted, false},
-		{"validating-to-ready", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateReady, true},
-		{"validating-faulted-when-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, v1alpha1.GPUDeviceStateFaulted, true},
-		{"validating-waits-when-not-ready", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, v1alpha1.GPUDeviceStateValidating, false},
-		{"failure-phase-forces-fault", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, true, false, v1alpha1.GPUDeviceStateFaulted, true},
-		{"failure-phase-keeps-discovered", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, true, false, v1alpha1.GPUDeviceStateDiscovered, false},
-		{"empty-state-promotes", newDevice(""), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"empty-state-degraded", newDevice(""), v1alpha1.GPUNodeBootstrapPhaseReady, false, true, v1alpha1.GPUDeviceStateDiscovered, true},
+		{"assigned-remains", newDevice(v1alpha1.GPUDeviceStateAssigned), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateAssigned, false},
+		{"reserved-remains", newDevice(v1alpha1.GPUDeviceStateReserved), v1alpha1.GPUNodeBootstrapPhaseValidating, false, false, false, v1alpha1.GPUDeviceStateReserved, false},
+		{"ready-stable", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateReady, false},
+		{"ready-ignores-monitoring-only", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, true, v1alpha1.GPUDeviceStateReady, false},
+		{"ready-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
+		{"pending-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
+		{"pending-stable-when-clean", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStatePendingAssignment, false},
+		{"discovered-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"discovered-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseValidating, false, false, false, v1alpha1.GPUDeviceStateDiscovered, false},
+		{"faulted-health-blocks", withHealthFault(), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateFaulted, false},
+		{"faulted-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"faulted-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, false, v1alpha1.GPUDeviceStateFaulted, false},
+		{"faulted-stays-when-monitoring-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, true, v1alpha1.GPUDeviceStateFaulted, false},
+		{"faulted-stays-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, false, v1alpha1.GPUDeviceStateFaulted, false},
+		{"validating-to-ready", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateReady, true},
+		{"validating-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
+		{"validating-stays-when-monitoring-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, true, v1alpha1.GPUDeviceStateValidating, false},
+		{"validating-waits-when-not-ready", newDevice(v1alpha1.GPUDeviceStateValidating), v1alpha1.GPUNodeBootstrapPhaseReady, false, false, false, v1alpha1.GPUDeviceStateValidating, false},
+		{"failure-phase-forces-fault", newDevice(v1alpha1.GPUDeviceStateReady), v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, true, false, false, v1alpha1.GPUDeviceStateFaulted, true},
+		{"failure-phase-keeps-discovered", newDevice(v1alpha1.GPUDeviceStateDiscovered), v1alpha1.GPUNodeBootstrapPhaseValidatingFailed, true, false, false, v1alpha1.GPUDeviceStateDiscovered, false},
+		{"empty-state-promotes", newDevice(""), v1alpha1.GPUNodeBootstrapPhaseReady, true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"empty-state-degraded-hard", newDevice(""), v1alpha1.GPUNodeBootstrapPhaseReady, false, true, false, v1alpha1.GPUDeviceStateDiscovered, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, mutate := desiredDeviceState(tt.device, tt.phase, tt.infraReady, tt.infraDegraded)
+			got, mutate := desiredDeviceState(tt.device, tt.phase, tt.infraReady, tt.degradedHard, tt.degradedMonitoring)
 			if got != tt.want || mutate != tt.mutate {
 				t.Fatalf("expected (%s,%t), got (%s,%t)", tt.want, tt.mutate, got, mutate)
 			}

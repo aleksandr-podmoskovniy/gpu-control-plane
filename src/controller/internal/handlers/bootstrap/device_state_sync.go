@@ -76,7 +76,8 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	infraReady := driverReady && toolkitReady && componentReady && monitoringHealthy
 
 	canFaultByInfra := phase == v1alpha1.GPUNodeBootstrapPhaseMonitoring || phase == v1alpha1.GPUNodeBootstrapPhaseReady
-	infraDegraded := canFaultByInfra && (!driverReady || !toolkitReady || (monitoringMissing && monitoringInitialized))
+	degradedHard := canFaultByInfra && (!driverReady || !toolkitReady)
+	degradedMonitoring := canFaultByInfra && monitoringMissing && monitoringInitialized
 
 	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
@@ -90,7 +91,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	var errs []error
 	for i := range deviceList.Items {
 		device := &deviceList.Items[i]
-		target, mutate := desiredDeviceState(device, phase, infraReady, infraDegraded)
+		target, mutate := desiredDeviceState(device, phase, infraReady, degradedHard, degradedMonitoring)
 		if !mutate || device.Status.State == target {
 			continue
 		}
@@ -116,10 +117,11 @@ func isConditionTrue(inventory *v1alpha1.GPUNodeInventory, condType string) bool
 	return false
 }
 
-func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootstrapPhase, infraReady, infraDegraded bool) (v1alpha1.GPUDeviceState, bool) {
+func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootstrapPhase, infraReady, degradedHard, degradedMonitoring bool) (v1alpha1.GPUDeviceState, bool) {
 	state := normalizeDeviceState(device.Status.State)
 	current := device.Status.State
 	healthFault := deviceHasHealthFault(device)
+	degraded := degradedHard || degradedMonitoring
 
 	switch state {
 	case v1alpha1.GPUDeviceStateAssigned,
@@ -128,17 +130,17 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		// Pool controllers own these transitions.
 		return state, state != current
 	case v1alpha1.GPUDeviceStatePendingAssignment:
-		if infraDegraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateReady:
-		if infraDegraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateFaulted:
-		if infraDegraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
 			return state, state != current
 		}
 		if infraReady {
@@ -146,7 +148,7 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateValidating:
-		if infraDegraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		if infraReady {
@@ -154,7 +156,7 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		}
 		return state, state != current
 	default:
-		if infraDegraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed {
+		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
 			return v1alpha1.GPUDeviceStateDiscovered, state != current
 		}
 		if infraReady {

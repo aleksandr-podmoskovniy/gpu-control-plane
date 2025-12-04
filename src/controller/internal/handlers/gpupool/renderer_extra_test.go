@@ -295,10 +295,10 @@ func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	if len(cfg.Sharing.TimeSlicing.Resources) != 2 {
 		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Sharing.TimeSlicing.Resources))
 	}
-	if cfg.Sharing.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
+	if cfg.Sharing.TimeSlicing.Resources[0].Name != "pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
 		t.Fatalf("default resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[0])
 	}
-	if cfg.Sharing.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
+	if cfg.Sharing.TimeSlicing.Resources[1].Name != "custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
 		t.Fatalf("custom resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[1])
 	}
 }
@@ -337,6 +337,46 @@ func TestDevicePluginConfigMapOmitsTimeSlicingWhenSingleReplica(t *testing.T) {
 	cm := h.devicePluginConfigMap(pool)
 	if strings.Contains(cm.Data["config.yaml"], "timeSlicing") {
 		t.Fatalf("timeSlicing should be omitted when replicas=1, got:\n%s", cm.Data["config.yaml"])
+	}
+}
+
+func TestDevicePluginConfigMapTrimsPrefixedNames(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu.deckhouse.io/pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{
+				Unit:          "Card",
+				SlicesPerUnit: 1,
+				TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
+					{Name: "gpu.deckhouse.io/custom", SlicesPerUnit: 2},
+				},
+			},
+		},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	var cfg struct {
+		Resources struct {
+			GPUs []struct {
+				Name string `json:"name"`
+			} `json:"gpus"`
+		} `json:"resources"`
+		Sharing struct {
+			TimeSlicing struct {
+				Resources []struct {
+					Name string `json:"name"`
+				} `json:"resources"`
+			} `json:"timeSlicing"`
+		} `json:"sharing"`
+	}
+	if err := yaml.Unmarshal([]byte(cm.Data["config.yaml"]), &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(cfg.Resources.GPUs) != 1 || cfg.Resources.GPUs[0].Name != "pool" {
+		t.Fatalf("expected trimmed resource name, got %+v", cfg.Resources.GPUs)
+	}
+	if len(cfg.Sharing.TimeSlicing.Resources) != 1 || cfg.Sharing.TimeSlicing.Resources[0].Name != "custom" {
+		t.Fatalf("expected trimmed time-slicing name, got %+v", cfg.Sharing.TimeSlicing.Resources)
 	}
 }
 
@@ -997,8 +1037,11 @@ func TestDevicePluginConfigMapClusterPrefix(t *testing.T) {
 	}
 	cm := h.devicePluginConfigMap(pool)
 	cfg := cm.Data["config.yaml"]
-	if !strings.Contains(cfg, "cluster.gpu.deckhouse.io/cluster-a") {
+	if !strings.Contains(cfg, "resourcePrefix: cluster.gpu.deckhouse.io") {
 		t.Fatalf("expected cluster prefix in device plugin config, got %s", cfg)
+	}
+	if strings.Contains(cfg, "cluster.gpu.deckhouse.io/cluster-a") || !strings.Contains(cfg, "name: cluster-a") {
+		t.Fatalf("expected unprefixed resource name with cluster prefix flag, got %s", cfg)
 	}
 }
 

@@ -348,6 +348,65 @@ func TestSyncNodeWithoutAltPrefix(t *testing.T) {
 	}
 }
 
+func TestSyncNodeEvictsAndRemovesLabelsWhenDevicesGone(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{"gpu.deckhouse.io/pool": "pool", "cluster.gpu.deckhouse.io/pool": "pool"},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewNodeMarkHandler(testr.New(t), cl)
+
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", false, true); err != nil {
+		t.Fatalf("syncNode failed: %v", err)
+	}
+	updated := &corev1.Node{}
+	_ = cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated)
+	if _, ok := updated.Labels["gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("expected primary label removed")
+	}
+	if _, ok := updated.Labels["cluster.gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("expected alt label removed")
+	}
+	if len(updated.Spec.Taints) != 1 || updated.Spec.Taints[0].Key != "gpu.deckhouse.io/pool" || updated.Spec.Taints[0].Effect != corev1.TaintEffectNoExecute {
+		t.Fatalf("expected NoExecute taint when devices gone, got %v", updated.Spec.Taints)
+	}
+}
+
+func TestSyncNodeRemovesAltPrefixWhenTaintsDisabled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "node1",
+			Labels: map[string]string{"cluster.gpu.deckhouse.io/pool": "pool"},
+		},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{{Key: "cluster.gpu.deckhouse.io/pool", Value: "pool", Effect: corev1.TaintEffectNoSchedule}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	h := NewNodeMarkHandler(testr.New(t), cl)
+	if err := h.syncNode(context.Background(), "node1", "gpu.deckhouse.io/pool", "cluster.gpu.deckhouse.io/pool", true, false); err != nil {
+		t.Fatalf("syncNode failed: %v", err)
+	}
+	updated := &corev1.Node{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "node1"}, updated); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := updated.Labels["cluster.gpu.deckhouse.io/pool"]; ok {
+		t.Fatalf("expected alt label removed")
+	}
+	for _, tnt := range updated.Spec.Taints {
+		if tnt.Key == "cluster.gpu.deckhouse.io/pool" {
+			t.Fatalf("expected alt taint removed, got %v", updated.Spec.Taints)
+		}
+	}
+}
+
 func TestAlternatePoolLabelKeyVariants(t *testing.T) {
 	clusterPool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "p"}, TypeMeta: metav1.TypeMeta{Kind: "ClusterGPUPool"}}
 	if alternatePoolLabelKey(clusterPool) != "gpu.deckhouse.io/p" {
