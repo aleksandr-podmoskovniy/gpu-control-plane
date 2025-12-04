@@ -29,8 +29,19 @@ webhooks:
   - name: pod.gpu-control-plane.deckhouse.io
     admissionReviewVersions: ["v1"]
     sideEffects: None
-    failurePolicy: Fail
+    failurePolicy: Ignore
     reinvocationPolicy: IfNeeded
+    namespaceSelector:
+      matchExpressions:
+        - key: gpu.deckhouse.io/enabled
+          operator: In
+          values: ["true"]
+    objectSelector:
+      matchExpressions:
+        # не трогаем собственные поды и системные сервисы
+        - key: module
+          operator: NotIn
+          values: ["gpu-control-plane", "deckhouse"]
     rules:
       - apiGroups:   [""]
         apiVersions: ["v1"]

@@ -47,6 +47,8 @@ func Register(_ context.Context, mgr webhookManager, deps Dependencies) error {
 
 	podMutator := newPodMutator(deps.Logger, decoder, deps.ModuleConfigStore, deps.Client)
 	server.Register("/mutate-v1-pod-gpupool", &ctrlwebhook.Admission{Handler: podMutator})
+	podValidator := newPodValidator(deps.Logger, decoder, deps.ModuleConfigStore, deps.Client)
+	server.Register("/validate-v1-pod-gpupool", &ctrlwebhook.Admission{Handler: podValidator})
 
 	return nil
 }

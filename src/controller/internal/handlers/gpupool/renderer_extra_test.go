@@ -1045,6 +1045,24 @@ func TestDevicePluginConfigMapClusterPrefix(t *testing.T) {
 	}
 }
 
+func TestDevicePluginConfigMapNameWithPrefix(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	// Simulate a pool that accidentally contains prefix in the name.
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster.gpu.deckhouse.io/cluster-b"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	}
+	cm := h.devicePluginConfigMap(pool)
+	cfg := cm.Data["config.yaml"]
+	if !strings.Contains(cfg, "resourcePrefix: cluster.gpu.deckhouse.io") {
+		t.Fatalf("expected inferred cluster prefix in device plugin config, got %s", cfg)
+	}
+	if strings.Contains(cfg, "cluster.gpu.deckhouse.io/cluster-b") || !strings.Contains(cfg, "name: cluster-b") {
+		t.Fatalf("expected trimmed resource name without embedded prefix, got %s", cfg)
+	}
+}
+
 func TestDevicePluginConfigMapSharingBranches(t *testing.T) {
 	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
 	pool := &v1alpha1.GPUPool{
@@ -1069,6 +1087,36 @@ func TestDevicePluginConfigMapSharingBranches(t *testing.T) {
 	cm = h.devicePluginConfigMap(pool)
 	if strings.Contains(cm.Data["config.yaml"], "timeSlicing") {
 		t.Fatalf("expected sharing block absent when replicas=1")
+	}
+}
+
+func TestDevicePluginConfigMapReplicasFallbacks(t *testing.T) {
+	h := NewRendererHandler(testr.New(t), nil, RenderConfig{Namespace: "ns"})
+	// Case: slicesPerUnit on pool drives replicas when overrides are skipped.
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{
+				Unit:          "Card",
+				SlicesPerUnit: 2,
+				TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
+					{Name: "ignored", SlicesPerUnit: 0},
+				},
+			},
+		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	}
+	cfg := h.devicePluginConfigMap(pool).Data["config.yaml"]
+	if !strings.Contains(cfg, "replicas: 2") || !strings.Contains(cfg, "name: pool") {
+		t.Fatalf("expected replicas from pool slicesPerUnit fallback, got %s", cfg)
+	}
+
+	// Case: no overrides, but pool slicesPerUnit >1 => sharing block present.
+	pool.Spec.Resource.TimeSlicingResources = nil
+	pool.Spec.Resource.SlicesPerUnit = 3
+	cfg = h.devicePluginConfigMap(pool).Data["config.yaml"]
+	if !strings.Contains(cfg, "timeSlicing") || !strings.Contains(cfg, "replicas: 3") {
+		t.Fatalf("expected sharing block with replicas=3, got %s", cfg)
 	}
 }
 

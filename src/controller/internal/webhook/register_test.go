@@ -86,8 +86,8 @@ func TestRegisterHooks(t *testing.T) {
 		t.Fatalf("register returned error: %v", err)
 	}
 
-	if len(server.registered) != 4 {
-		t.Fatalf("expected 4 hooks registered, got %d", len(server.registered))
+	if len(server.registered) != 5 {
+		t.Fatalf("expected 5 hooks registered, got %d", len(server.registered))
 	}
 	if _, ok := server.registered["/validate-gpu-deckhouse-io-v1alpha1-gpupool"]; !ok {
 		t.Fatalf("validator not registered")
@@ -100,6 +100,9 @@ func TestRegisterHooks(t *testing.T) {
 	}
 	if _, ok := server.registered["/mutate-v1-pod-gpupool"]; !ok {
 		t.Fatalf("pod mutator not registered")
+	}
+	if _, ok := server.registered["/validate-v1-pod-gpupool"]; !ok {
+		t.Fatalf("pod validator not registered")
 	}
 
 	validator := server.registered["/validate-gpu-deckhouse-io-v1alpha1-gpupool"].(*ctrlwebhook.Admission)

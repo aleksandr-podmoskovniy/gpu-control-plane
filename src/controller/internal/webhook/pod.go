@@ -82,6 +82,17 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 	if len(pools) == 0 {
 		return cradmission.Allowed("no gpu pool requested")
 	}
+
+	if m.client != nil {
+		ns := &corev1.Namespace{}
+		if err := m.client.Get(ctx, client.ObjectKey{Name: pod.Namespace}, ns); err != nil {
+			return cradmission.Denied(fmt.Sprintf("namespace %q not found: %v", pod.Namespace, err))
+		}
+		if strings.ToLower(ns.Labels["gpu.deckhouse.io/enabled"]) != "true" {
+			return cradmission.Denied(fmt.Sprintf("namespace %q is not enabled for GPU (label gpu.deckhouse.io/enabled=true is required)", pod.Namespace))
+		}
+	}
+
 	if len(pools) > 1 {
 		names := make([]string, 0, len(pools))
 		for _, p := range pools {

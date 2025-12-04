@@ -223,9 +223,17 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 	resourceName := pool.Name
 	replicas := h.timeSlicingReplicas(pool)
 
+	// Normalize resource name/prefix if the pool name already contains a prefix.
 	if strings.Contains(resourceName, "/") {
 		parts := strings.Split(resourceName, "/")
-		resourceName = parts[len(parts)-1]
+		if len(parts) > 1 {
+			inferredPrefix := strings.Join(parts[:len(parts)-1], "/")
+			// If the name already carries the cluster prefix, align resourcePrefix with it.
+			if inferredPrefix == "cluster.gpu.deckhouse.io" {
+				resourcePrefix = inferredPrefix
+			}
+			resourceName = parts[len(parts)-1]
+		}
 	}
 
 	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
@@ -239,6 +247,10 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		}
 		if strings.Contains(name, "/") {
 			parts := strings.Split(name, "/")
+			if len(parts) > 1 && parts[0] == "cluster.gpu.deckhouse.io" {
+				// Keep the cluster prefix consistent even if user provided a prefixed name override.
+				resourcePrefix = "cluster.gpu.deckhouse.io"
+			}
 			name = parts[len(parts)-1]
 		}
 		resources = append(resources, map[string]any{
