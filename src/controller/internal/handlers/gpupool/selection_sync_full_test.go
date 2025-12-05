@@ -53,7 +53,7 @@ func TestHandlePoolStatesAndAutoAttach(t *testing.T) {
 			Name:        "dev-ready",
 			Annotations: map[string]string{assignmentAnnotation: "pool"},
 		},
-		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev-ready", State: v1alpha1.GPUDeviceStateReady},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev-ready", State: v1alpha1.GPUDeviceStateAssigned, PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}},
 	}
 	devAssigned := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
@@ -67,7 +67,7 @@ func TestHandlePoolStatesAndAutoAttach(t *testing.T) {
 			Name:        "dev-auto",
 			Annotations: map[string]string{assignmentAnnotation: "pool"},
 		},
-		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev-auto", State: v1alpha1.GPUDeviceStateReady, AutoAttach: true},
+		Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev-auto", State: v1alpha1.GPUDeviceStateAssigned, AutoAttach: true, PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}},
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, devReady, devAssigned, devAuto).Build()
@@ -101,8 +101,8 @@ func TestHandlePoolMaxDevicesPerNode(t *testing.T) {
 			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}, {InventoryID: "dev2"}},
 		},
 	}
-	dev1 := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev1", Annotations: map[string]string{assignmentAnnotation: "pool"}}, Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateReady}}
-	dev2 := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev2", Annotations: map[string]string{assignmentAnnotation: "pool"}}, Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev2", State: v1alpha1.GPUDeviceStateReady}}
+	dev1 := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev1", Annotations: map[string]string{assignmentAnnotation: "pool"}}, Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev1", State: v1alpha1.GPUDeviceStateAssigned, PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}
+	dev2 := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev2", Annotations: map[string]string{assignmentAnnotation: "pool"}}, Status: v1alpha1.GPUDeviceStatus{InventoryID: "dev2", State: v1alpha1.GPUDeviceStateAssigned, PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inv, dev1, dev2).Build()
 	handler := NewSelectionSyncHandler(testr.New(t), cl)
 	max := int32(1)

@@ -107,7 +107,7 @@ func TestDPValidationBackToPendingWhenNotReady(t *testing.T) {
 			NodeName:    "node1",
 		},
 	}
-	// No validator pods -> should stay Assigned.
+	// No validator pods -> should fall back to PendingAssignment.
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
@@ -125,8 +125,8 @@ func TestDPValidationBackToPendingWhenNotReady(t *testing.T) {
 	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
 		t.Fatalf("fetch device: %v", err)
 	}
-	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
-		t.Fatalf("expected state Assigned, got %s", updated.Status.State)
+	if updated.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
+		t.Fatalf("expected state PendingAssignment, got %s", updated.Status.State)
 	}
 }
 
@@ -377,8 +377,8 @@ func TestDPValidationNotFoundPods(t *testing.T) {
 	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
 		t.Fatalf("fetch device: %v", err)
 	}
-	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
-		t.Fatalf("expected state to remain Assigned, got %s", updated.Status.State)
+	if updated.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
+		t.Fatalf("expected state to fall back to PendingAssignment, got %s", updated.Status.State)
 	}
 }
 

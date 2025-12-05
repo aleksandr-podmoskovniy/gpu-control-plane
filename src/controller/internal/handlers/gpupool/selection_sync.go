@@ -89,6 +89,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 
 	var (
 		totalUnits  int32
+		usedUnits   int32
 		baseUnits   int32
 		devStatuses []v1alpha1.GPUPoolDeviceStatus
 		nodeTotals  = map[string]int32{}
@@ -128,9 +129,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				toUpdate = append(toUpdate, devCR)
 			}
 			nodeTotals[inv.Name]++
-			if dev.State == v1alpha1.GPUDeviceStateReady ||
-				dev.State == v1alpha1.GPUDeviceStatePendingAssignment ||
-				dev.State == v1alpha1.GPUDeviceStateAssigned ||
+			// В емкость пула учитываем только устройства, уже закреплённые за пулом и прошедшие DP/валидатор
+			// (Assigned/Reserved/InUse). Ready/PendingAssignment не добавляют слоты.
+			if dev.State == v1alpha1.GPUDeviceStateAssigned ||
 				dev.State == v1alpha1.GPUDeviceStateReserved ||
 				dev.State == v1alpha1.GPUDeviceStateInUse {
 				if pool.Spec.Resource.MaxDevicesPerNode != nil && takenOnNode >= *pool.Spec.Resource.MaxDevicesPerNode {
@@ -141,6 +142,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 					totalUnits += units
 					baseUnits += base
 					takenOnNode++
+					if dev.State == v1alpha1.GPUDeviceStateReserved || dev.State == v1alpha1.GPUDeviceStateInUse {
+						usedUnits += units
+					}
 				}
 			}
 		}
@@ -169,9 +173,12 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 
 	pool.Status.Devices = devStatuses
 	pool.Status.Capacity.Total = totalUnits
-	if totalUnits >= pool.Status.Capacity.Used {
-		pool.Status.Capacity.Available = totalUnits - pool.Status.Capacity.Used
+	pool.Status.Capacity.Used = usedUnits
+	available := totalUnits - usedUnits
+	if available < 0 {
+		available = 0
 	}
+	pool.Status.Capacity.Available = available
 	pool.Status.Capacity.Unit = pool.Spec.Resource.Unit
 	pool.Status.Capacity.BaseUnits = baseUnits
 	pool.Status.Capacity.SlicesPerUnit = pool.Spec.Resource.SlicesPerUnit
@@ -188,8 +195,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 	for i := range toUpdate {
 		dev := toUpdate[i].DeepCopy()
 		dev.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: pool.Name}
-		if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStatePendingAssignment {
-			dev.Status.State = v1alpha1.GPUDeviceStateAssigned
+		// Не переводим в Assigned без валидатора: оставляем PendingAssignment, dp-validation поднимет до Assigned, когда валидатор Ready.
+		if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStateAssigned {
+			dev.Status.State = v1alpha1.GPUDeviceStatePendingAssignment
 		}
 		if err := h.client.Status().Update(ctx, dev); err != nil && !apierrors.IsNotFound(err) {
 			return contracts.Result{}, err

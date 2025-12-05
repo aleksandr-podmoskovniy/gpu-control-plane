@@ -237,6 +237,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		Status:     clusterPool.Status,
 	}
 
+	// Ensure Kind is propagated for downstream helpers (prefix/resource naming).
+	if pool.Kind == "" {
+		pool.Kind = "ClusterGPUPool"
+	}
+
 	rec := reconciler.NewBase(r.handlers)
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.PoolHandler) (contracts.Result, error) {
 		return handler.HandlePool(ctx, pool)

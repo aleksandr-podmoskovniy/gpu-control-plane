@@ -523,6 +523,7 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								{Name: "COMPONENT", Value: "plugin"},
 								{Name: "WITH_WAIT", Value: "true"},
 								{Name: "WITH_WORKLOAD", Value: "false"},
+								// Validator must look for the exact resource name exposed by the device plugin (prefix + pool name).
 								{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
 								{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
 								{

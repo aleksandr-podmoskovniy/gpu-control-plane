@@ -39,8 +39,8 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
 			Devices: []v1alpha1.GPUNodeDevice{
-				{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady},
-				{InventoryID: "id-2", Product: "V100", State: v1alpha1.GPUDeviceStateReady},
+				{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateAssigned},
+				{InventoryID: "id-2", Product: "V100", State: v1alpha1.GPUDeviceStateAssigned},
 				{InventoryID: "id-3", Product: "Ignore", State: v1alpha1.GPUDeviceStateFaulted},
 			},
 		},
@@ -59,7 +59,7 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 	dev2 := &v1alpha1.GPUDevice{
@@ -69,7 +69,7 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-2",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 	dev3 := &v1alpha1.GPUDevice{
@@ -131,7 +131,7 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
-			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateAssigned}},
 		},
 	}
 	node := &corev1.Node{
@@ -148,7 +148,7 @@ func TestSelectionSyncHandlerRespectsNodeSelector(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 
@@ -183,7 +183,7 @@ func TestSelectionSyncUsesNodeLabelsWhenInventoryLabelMissing(t *testing.T) {
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
-			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateReady}},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", Product: "A100", State: v1alpha1.GPUDeviceStateAssigned}},
 		},
 	}
 	node := &corev1.Node{
@@ -199,7 +199,7 @@ func TestSelectionSyncUsesNodeLabelsWhenInventoryLabelMissing(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 
@@ -235,7 +235,7 @@ func TestSelectionSyncFallsBackToInventoryLabels(t *testing.T) {
 		},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
-			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateAssigned}},
 		},
 	}
 	dev := &v1alpha1.GPUDevice{
@@ -245,7 +245,7 @@ func TestSelectionSyncFallsBackToInventoryLabels(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 
@@ -278,7 +278,7 @@ func TestSelectionSyncSkipsUnassignedDevicesInPool(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeInventoryStatus{
 			Hardware: v1alpha1.GPUNodeHardware{Present: true},
-			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateReady}},
+			Devices:  []v1alpha1.GPUNodeDevice{{InventoryID: "id-1", State: v1alpha1.GPUDeviceStateAssigned}},
 		},
 	}
 	// device exists but assigned to another pool
@@ -289,7 +289,7 @@ func TestSelectionSyncSkipsUnassignedDevicesInPool(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
 		},
 	}
 
@@ -324,7 +324,7 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 				{
 					InventoryID: "id-1",
 					Product:     "A100",
-					State:       v1alpha1.GPUDeviceStateReady,
+					State:       v1alpha1.GPUDeviceStateAssigned,
 					MIG: v1alpha1.GPUMIGConfig{
 						Capable: true,
 						Types: []v1alpha1.GPUMIGTypeCapacity{
@@ -349,7 +349,8 @@ func TestSelectionSyncHandlerMIGCapacity(t *testing.T) {
 		},
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "id-1",
-			State:       v1alpha1.GPUDeviceStateReady,
+			State:       v1alpha1.GPUDeviceStateAssigned,
+			PoolRef:     &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
 
