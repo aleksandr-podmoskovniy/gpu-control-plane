@@ -134,6 +134,45 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "gpu-ns", Name: "nvidia-operator-validator-alpha"}, validator); err != nil {
 		t.Fatalf("get validator daemonset: %v", err)
 	}
+	if len(validator.Spec.Template.Spec.InitContainers) == 0 {
+		t.Fatalf("plugin validation init container missing")
+	}
+}
+
+func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
+		Namespace:         "gpu-ns",
+		DevicePluginImage: "device-plugin:tag",
+		ValidatorImage:    "validator:tag",
+	})
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "gpu-ns", UID: "1234"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+		},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Nodes:    []v1alpha1.GPUPoolNodeStatus{{Name: "node1"}},
+		},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool: %v", err)
+	}
+	validator := &appsv1.DaemonSet{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "gpu-ns", Name: "nvidia-operator-validator-alpha"}, validator); err != nil {
+		t.Fatalf("get validator daemonset: %v", err)
+	}
+	if len(validator.Spec.Template.Spec.InitContainers) != 1 {
+		t.Fatalf("expected plugin validation init container when enabled, got %d", len(validator.Spec.Template.Spec.InitContainers))
+	}
 	if validator.Spec.Template.Spec.InitContainers[0].Image != "validator:tag" {
 		t.Fatalf("unexpected validator image: %s", validator.Spec.Template.Spec.InitContainers[0].Image)
 	}

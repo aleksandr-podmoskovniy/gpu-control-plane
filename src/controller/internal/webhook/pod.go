@@ -135,6 +135,9 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		if err := ensurePoolAffinity(pod, poolKey, poolRef.name); err != nil {
 			return cradmission.Denied(err.Error())
 		}
+		if err := m.ensureNodeTolerations(ctx, pod, poolObj); err != nil {
+			return cradmission.Denied(err.Error())
+		}
 	}
 	strategy, topologyKey := m.poolScheduling(poolObj)
 	if strings.EqualFold(strategy, string(v1alpha1.GPUPoolSchedulingSpread)) {
@@ -280,6 +283,56 @@ func hasToleration(tols []corev1.Toleration, key string) bool {
 
 func (m *podMutator) GVK() schema.GroupVersionKind {
 	return corev1.SchemeGroupVersion.WithKind("Pod")
+}
+
+// ensureNodeTolerations adds Exists tolerations for taints present on nodes listed in the pool status.
+// This allows workloads to schedule onto tainted GPU nodes without manual toleration wiring.
+func (m *podMutator) ensureNodeTolerations(ctx context.Context, pod *corev1.Pod, pool *v1alpha1.GPUPool) error {
+	if m.client == nil || pool == nil {
+		return nil
+	}
+
+	for _, n := range pool.Status.Nodes {
+		node := &corev1.Node{}
+		if err := m.client.Get(ctx, client.ObjectKey{Name: n.Name}, node); err != nil {
+			m.log.Error(err, "failed to fetch node for tolerations", "node", n.Name, "pool", pool.Name)
+			return fmt.Errorf("fetch node %q for tolerations: %w", n.Name, err)
+		}
+		for _, taint := range node.Spec.Taints {
+			if toleratesTaint(pod.Spec.Tolerations, taint) {
+				continue
+			}
+			pod.Spec.Tolerations = append(pod.Spec.Tolerations, corev1.Toleration{
+				Key:      taint.Key,
+				Operator: corev1.TolerationOpExists,
+				Effect:   taint.Effect,
+			})
+		}
+	}
+	return nil
+}
+
+func toleratesTaint(tolerations []corev1.Toleration, taint corev1.Taint) bool {
+	for _, t := range tolerations {
+		if t.Key != taint.Key {
+			continue
+		}
+		// empty effect tolerates all; otherwise must match
+		if t.Effect != "" && taint.Effect != "" && t.Effect != taint.Effect {
+			continue
+		}
+		// Exists toleration tolerates any value
+		if t.Operator == corev1.TolerationOpExists || t.Operator == "" {
+			return true
+		}
+		if t.Operator == corev1.TolerationOpEqual {
+			// empty value tolerates any taint value
+			if t.Value == "" || t.Value == taint.Value {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ensureSpreadConstraint(pod *corev1.Pod, poolKey, pool, topologyKey string) error {

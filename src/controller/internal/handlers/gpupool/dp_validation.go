@@ -63,9 +63,6 @@ func (h *DPValidationHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPU
 	if h.client == nil {
 		return contracts.Result{}, nil
 	}
-	if pool.Status.Capacity.Total == 0 {
-		return contracts.Result{}, nil
-	}
 
 	// collect validator-ready nodes for this pool
 	pods := &corev1.PodList{}

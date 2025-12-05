@@ -15,12 +15,15 @@
 package webhook
 
 import (
+	"context"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
@@ -130,15 +133,26 @@ func TestPoolSchedulingAndTaintsEnabled(t *testing.T) {
 }
 
 func TestEnsurePoolTolerationAndAffinity(t *testing.T) {
-	pod := &corev1.Pod{}
 	poolKey := "gpu.deckhouse.io/pool"
 
 	// adds toleration and affinity when missing
+	pod := &corev1.Pod{}
 	if err := ensurePoolToleration(pod, poolKey, "pool"); err != nil {
 		t.Fatalf("toleration add failed: %v", err)
 	}
 	if err := ensurePoolAffinity(pod, poolKey, "pool"); err != nil {
 		t.Fatalf("affinity add failed: %v", err)
+	}
+
+	// normalizes empty operator/effect/value
+	normalizePod := &corev1.Pod{Spec: corev1.PodSpec{
+		Tolerations: []corev1.Toleration{{Key: poolKey}},
+	}}
+	if err := ensurePoolToleration(normalizePod, poolKey, "pool"); err != nil {
+		t.Fatalf("expected normalization to succeed, got %v", err)
+	}
+	if normalizePod.Spec.Tolerations[0].Operator != corev1.TolerationOpEqual || normalizePod.Spec.Tolerations[0].Effect != corev1.TaintEffectNoSchedule || normalizePod.Spec.Tolerations[0].Value != "pool" {
+		t.Fatalf("normalization failed: %+v", normalizePod.Spec.Tolerations[0])
 	}
 
 	// conflict toleration on a fresh pod
@@ -168,6 +182,28 @@ func TestEnsurePoolTolerationAndAffinity(t *testing.T) {
 	pod.Spec.Tolerations = []corev1.Toleration{{Key: poolKey, Operator: corev1.TolerationOpExists}}
 	if err := ensurePoolToleration(pod, poolKey, "pool"); err != nil {
 		t.Fatalf("expected Exists toleration to be accepted, got %v", err)
+	}
+
+	// toleration with other key should be ignored and new one added
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: "other", Operator: corev1.TolerationOpExists}}
+	if err := ensurePoolToleration(pod, poolKey, "pool"); err != nil {
+		t.Fatalf("expected new toleration to be added when other keys present, got %v", err)
+	}
+	if len(pod.Spec.Tolerations) < 2 {
+		t.Fatalf("expected appended toleration when other keys present")
+	}
+
+	// unsupported effect should be rejected
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: poolKey, Value: "pool", Effect: corev1.TaintEffectPreferNoSchedule}}
+	if err := ensurePoolToleration(pod, poolKey, "pool"); err == nil {
+		t.Fatalf("expected unsupported effect error")
+	}
+
+	// unsupported operator should be rejected
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: poolKey, Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+	pod.Spec.Tolerations[0].Operator = "DoesNotExist"
+	if err := ensurePoolToleration(pod, poolKey, "pool"); err == nil {
+		t.Fatalf("expected unsupported operator error")
 	}
 
 	// conflict affinity when different value present
@@ -222,6 +258,65 @@ func TestEnsureSpreadConstraintOtherTopology(t *testing.T) {
 	}
 }
 
+func TestEnsureNodeTolerations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-node-1"},
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{Key: "dedicated.apiac.ru", Value: "w-gpu", Effect: corev1.TaintEffectNoSchedule},
+				{Key: "node-role.kubernetes.io/control-plane", Effect: corev1.TaintEffectNoSchedule},
+			},
+		},
+	}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a"},
+		Status: v1alpha1.GPUPoolStatus{
+			Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "gpu-node-1"}},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	m := &podMutator{client: cl}
+	pod := &corev1.Pod{}
+
+	if err := m.ensureNodeTolerations(context.Background(), pod, pool); err != nil {
+		t.Fatalf("ensureNodeTolerations returned error: %v", err)
+	}
+	if len(pod.Spec.Tolerations) != 2 {
+		t.Fatalf("expected two tolerations from node taints, got %d", len(pod.Spec.Tolerations))
+	}
+	if !toleratesTaint(pod.Spec.Tolerations, node.Spec.Taints[0]) || !toleratesTaint(pod.Spec.Tolerations, node.Spec.Taints[1]) {
+		t.Fatalf("tolerations do not match node taints: %+v", pod.Spec.Tolerations)
+	}
+
+	// existing matching toleration should prevent duplicates and still allow other taints to be added
+	pod.Spec.Tolerations = []corev1.Toleration{{Key: "dedicated.apiac.ru", Operator: corev1.TolerationOpExists}}
+	if err := m.ensureNodeTolerations(context.Background(), pod, pool); err != nil {
+		t.Fatalf("ensureNodeTolerations returned error: %v", err)
+	}
+	if count := len(pod.Spec.Tolerations); count != 2 {
+		t.Fatalf("expected deduped tolerations, got %d", count)
+	}
+
+	// pool or client missing should no-op
+	m = &podMutator{}
+	pod = &corev1.Pod{}
+	if err := m.ensureNodeTolerations(context.Background(), pod, nil); err != nil {
+		t.Fatalf("expected nil error without pool/client, got %v", err)
+	}
+
+	// missing node in API should be tolerated (log only)
+	m = &podMutator{client: cl}
+	pod = &corev1.Pod{}
+	missingPool := &v1alpha1.GPUPool{Status: v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "absent"}}}}
+	if err := m.ensureNodeTolerations(context.Background(), pod, missingPool); err == nil {
+		t.Fatalf("expected error on missing node")
+	}
+}
+
 func TestCollectPoolsRequests(t *testing.T) {
 	qty := resource.MustParse("1")
 	pod := &corev1.Pod{Spec: corev1.PodSpec{
@@ -236,5 +331,66 @@ func TestCollectPoolsRequests(t *testing.T) {
 	}}
 	if pools := collectPools(pod); len(pools) != 1 {
 		t.Fatalf("expected one pool from requests, got %d", len(pools))
+	}
+
+	// cluster-scoped pool resource
+	pod = &corev1.Pod{Spec: corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{corev1.ResourceName("cluster.gpu.deckhouse.io/z"): qty},
+			},
+		}},
+	}}
+	pools := collectPools(pod)
+	if len(pools) != 1 {
+		t.Fatalf("expected one cluster pool, got %d", len(pools))
+	}
+	if p := pools["cluster:z"]; !p.isCluster {
+		t.Fatalf("expected cluster pool flag set")
+	}
+}
+
+func TestToleratesTaintVariants(t *testing.T) {
+	taint := corev1.Taint{Key: "k", Value: "v", Effect: corev1.TaintEffectNoSchedule}
+
+	// Exists toleration with empty effect tolerates any value/effect
+	tols := []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpExists}}
+	if !toleratesTaint(tols, taint) {
+		t.Fatalf("expected exists toleration to match")
+	}
+
+	// Effect mismatch should not tolerate
+	tols = []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpEqual, Value: "v", Effect: corev1.TaintEffectPreferNoSchedule}}
+	if toleratesTaint(tols, taint) {
+		t.Fatalf("expected effect mismatch to fail")
+	}
+
+	// Equal operator with different value should not tolerate
+	tols = []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpEqual, Value: "other", Effect: corev1.TaintEffectNoSchedule}}
+	if toleratesTaint(tols, taint) {
+		t.Fatalf("expected value mismatch to fail")
+	}
+
+	// Empty operator should tolerate (treated as Exists)
+	tols = []corev1.Toleration{{Key: "k"}}
+	if !toleratesTaint(tols, taint) {
+		t.Fatalf("expected empty operator to tolerate")
+	}
+
+	// Empty value with Equal should tolerate any taint value
+	tols = []corev1.Toleration{{Key: "k", Operator: corev1.TolerationOpEqual, Value: "", Effect: corev1.TaintEffectNoSchedule}}
+	if !toleratesTaint(tols, taint) {
+		t.Fatalf("expected empty value to tolerate")
+	}
+}
+
+func TestMutatorResolvePoolNamespaceEmpty(t *testing.T) {
+	m := &podMutator{client: fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()}
+	if _, err := m.resolvePool(context.Background(), poolRequest{name: "pool"}, ""); err == nil {
+		t.Fatalf("expected error when namespace empty for namespaced pool")
+	}
+
+	if _, err := m.resolvePool(context.Background(), poolRequest{name: "cluster", isCluster: true}, ""); err == nil {
+		t.Fatalf("expected error when cluster pool missing")
 	}
 }

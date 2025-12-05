@@ -505,49 +505,7 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 							},
 						},
 					},
-					InitContainers: []corev1.Container{
-						{
-							Name:            "plugin-validation",
-							Image:           h.cfg.ValidatorImage,
-							ImagePullPolicy: corev1.PullIfNotPresent,
-							Command:         []string{"/usr/bin/nvidia-validator"},
-							SecurityContext: &corev1.SecurityContext{
-								Privileged:               ptr.To(true),
-								RunAsUser:                ptr.To[int64](0),
-								RunAsNonRoot:             ptr.To(false),
-								AllowPrivilegeEscalation: ptr.To(true),
-								ReadOnlyRootFilesystem:   ptr.To(false),
-							},
-							Env: []corev1.EnvVar{
-								{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
-								{Name: "COMPONENT", Value: "plugin"},
-								{Name: "WITH_WAIT", Value: "true"},
-								{Name: "WITH_WORKLOAD", Value: "false"},
-								// Validator must look for the exact resource name exposed by the device plugin (prefix + pool name).
-								{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
-								{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
-								{
-									Name: "NODE_NAME",
-									ValueFrom: &corev1.EnvVarSource{
-										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
-									},
-								},
-								{
-									Name: "OPERATOR_NAMESPACE",
-									ValueFrom: &corev1.EnvVarSource{
-										FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
-									},
-								},
-								{Name: "OUTPUT_DIR", Value: "/run/nvidia/validations"},
-								{Name: "VALIDATOR_IMAGE", Value: h.cfg.ValidatorImage},
-								{Name: "VALIDATOR_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
-								{Name: "VALIDATOR_RUNTIME_CLASS", Value: "nvidia"},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{Name: "run-nvidia-validations", MountPath: "/run/nvidia/validations", MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0]},
-							},
-						},
-					},
+					InitContainers: h.validatorInitContainers(pool),
 					Containers: []corev1.Container{
 						{
 							Name:            "watchdog",
@@ -572,6 +530,15 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								HostPath: &corev1.HostPathVolumeSource{
 									Path: "/run/nvidia/validations",
 									Type: hostPathType(corev1.HostPathDirectoryOrCreate),
+								},
+							},
+						},
+						{
+							Name: "kubelet-device-plugins",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/var/lib/kubelet/device-plugins",
+									Type: hostPathType(corev1.HostPathDirectory),
 								},
 							},
 						},
@@ -971,6 +938,54 @@ func (h *RendererHandler) poolNodeTolerations(ctx context.Context, pool *v1alpha
 
 func hostPathType(t corev1.HostPathType) *corev1.HostPathType {
 	return &t
+}
+
+// validatorInitContainers always injects plugin-validation; resource name is passed explicitly so validator can see custom resources.
+func (h *RendererHandler) validatorInitContainers(pool *v1alpha1.GPUPool) []corev1.Container {
+	return []corev1.Container{
+		{
+			Name:            "plugin-validation",
+			Image:           h.cfg.ValidatorImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command:         []string{"/usr/bin/nvidia-validator"},
+			SecurityContext: &corev1.SecurityContext{
+				Privileged:               ptr.To(true),
+				RunAsUser:                ptr.To[int64](0),
+				RunAsNonRoot:             ptr.To(false),
+				AllowPrivilegeEscalation: ptr.To(true),
+				ReadOnlyRootFilesystem:   ptr.To(false),
+			},
+			Env: []corev1.EnvVar{
+				{Name: "PATH", Value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+				{Name: "COMPONENT", Value: "plugin"},
+				{Name: "WITH_WAIT", Value: "true"},
+				{Name: "WITH_WORKLOAD", Value: "false"},
+				// Validator must look for the exact resource name exposed by the device plugin (prefix + pool name).
+				{Name: "NVIDIA_RESOURCE_NAME", Value: poolResourceName(pool)},
+				{Name: "MIG_STRATEGY", Value: h.cfg.DefaultMIGStrategy},
+				{
+					Name: "NODE_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
+					},
+				},
+				{
+					Name: "OPERATOR_NAMESPACE",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+					},
+				},
+				{Name: "OUTPUT_DIR", Value: "/run/nvidia/validations"},
+				{Name: "VALIDATOR_IMAGE", Value: h.cfg.ValidatorImage},
+				{Name: "VALIDATOR_IMAGE_PULL_POLICY", Value: "IfNotPresent"},
+				{Name: "VALIDATOR_RUNTIME_CLASS", Value: "nvidia"},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "run-nvidia-validations", MountPath: "/run/nvidia/validations", MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0]},
+				{Name: "kubelet-device-plugins", MountPath: "/var/lib/kubelet/device-plugins", ReadOnly: true},
+			},
+		},
+	}
 }
 
 func (h *RendererHandler) configMapEqual(current, desired *corev1.ConfigMap) bool {
