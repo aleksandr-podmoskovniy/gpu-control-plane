@@ -542,6 +542,15 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 								},
 							},
 						},
+						{
+							Name: "kubelet-pod-resources",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/var/lib/kubelet/pod-resources",
+									Type: hostPathType(corev1.HostPathDirectory),
+								},
+							},
+						},
 					},
 				},
 			},
@@ -983,6 +992,7 @@ func (h *RendererHandler) validatorInitContainers(pool *v1alpha1.GPUPool) []core
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "run-nvidia-validations", MountPath: "/run/nvidia/validations", MountPropagation: &[]corev1.MountPropagationMode{corev1.MountPropagationBidirectional}[0]},
 				{Name: "kubelet-device-plugins", MountPath: "/var/lib/kubelet/device-plugins", ReadOnly: true},
+				{Name: "kubelet-pod-resources", MountPath: "/var/lib/kubelet/pod-resources", ReadOnly: true},
 			},
 		},
 	}

@@ -137,6 +137,9 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	if len(validator.Spec.Template.Spec.InitContainers) == 0 {
 		t.Fatalf("plugin validation init container missing")
 	}
+	if !mountExists(validator.Spec.Template.Spec.InitContainers[0].VolumeMounts, "/var/lib/kubelet/device-plugins") {
+		t.Fatalf("expected kubelet device-plugins mount on validator")
+	}
 }
 
 func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
@@ -175,6 +178,9 @@ func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
 	}
 	if validator.Spec.Template.Spec.InitContainers[0].Image != "validator:tag" {
 		t.Fatalf("unexpected validator image: %s", validator.Spec.Template.Spec.InitContainers[0].Image)
+	}
+	if !mountExists(validator.Spec.Template.Spec.InitContainers[0].VolumeMounts, "/var/lib/kubelet/device-plugins") {
+		t.Fatalf("expected kubelet device-plugins mount when enabled")
 	}
 }
 
@@ -315,6 +321,15 @@ func TestRendererCleansUpForNonDevicePluginBackend(t *testing.T) {
 func hasToleration(list []corev1.Toleration, expected corev1.Toleration) bool {
 	for _, t := range list {
 		if t.Key == expected.Key && t.Operator == expected.Operator && t.Value == expected.Value && t.Effect == expected.Effect {
+			return true
+		}
+	}
+	return false
+}
+
+func mountExists(mounts []corev1.VolumeMount, path string) bool {
+	for _, m := range mounts {
+		if m.MountPath == path {
 			return true
 		}
 	}
