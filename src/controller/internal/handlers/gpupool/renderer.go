@@ -96,11 +96,11 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 }
 
 func poolResourceName(pool *v1alpha1.GPUPool) string {
-	name, _ := resolveResourceName(pool, pool.Name)
-	return name
+	name, prefix := resolveResourceName(pool, pool.Name)
+	return fmt.Sprintf("%s/%s", prefix, name)
 }
 
-// resolveResourceName returns a fully qualified resource name along with the prefix chosen for the pool.
+// resolveResourceName returns unqualified resource name and prefix chosen for the pool.
 func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string) {
 	prefix := poolPrefix(pool)
 	name := strings.TrimSpace(rawName)
@@ -112,15 +112,14 @@ func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string
 		parts := strings.Split(name, "/")
 		if len(parts) > 1 {
 			providedPrefix := strings.Join(parts[:len(parts)-1], "/")
-			// Cluster pools must always stick to the cluster prefix even if a different one was provided.
-			if providedPrefix == "cluster.gpu.deckhouse.io" {
+			if providedPrefix != "" && providedPrefix != prefix && providedPrefix == "cluster.gpu.deckhouse.io" {
 				prefix = providedPrefix
 			}
 			name = parts[len(parts)-1]
 		}
 	}
 
-	return fmt.Sprintf("%s/%s", prefix, name), prefix
+	return name, prefix
 }
 
 func renderConfigFromEnv() RenderConfig {

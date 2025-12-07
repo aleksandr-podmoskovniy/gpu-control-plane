@@ -295,10 +295,10 @@ func TestDevicePluginConfigMapTimeSlicingOverrides(t *testing.T) {
 	if len(cfg.Sharing.TimeSlicing.Resources) != 2 {
 		t.Fatalf("expected two time-slicing resources, got %d", len(cfg.Sharing.TimeSlicing.Resources))
 	}
-	if cfg.Sharing.TimeSlicing.Resources[0].Name != "gpu.deckhouse.io/pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
+	if cfg.Sharing.TimeSlicing.Resources[0].Name != "pool" || cfg.Sharing.TimeSlicing.Resources[0].Replicas != 5 {
 		t.Fatalf("default resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[0])
 	}
-	if cfg.Sharing.TimeSlicing.Resources[1].Name != "gpu.deckhouse.io/custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
+	if cfg.Sharing.TimeSlicing.Resources[1].Name != "custom" || cfg.Sharing.TimeSlicing.Resources[1].Replicas != 2 {
 		t.Fatalf("custom resource override not applied: %+v", cfg.Sharing.TimeSlicing.Resources[1])
 	}
 }
@@ -372,10 +372,10 @@ func TestDevicePluginConfigMapTrimsPrefixedNames(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(cm.Data["config.yaml"]), &cfg); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(cfg.Resources.GPUs) != 1 || cfg.Resources.GPUs[0].Name != "cluster.gpu.deckhouse.io/pool" {
+	if len(cfg.Resources.GPUs) != 1 || cfg.Resources.GPUs[0].Name != "pool" {
 		t.Fatalf("expected trimmed resource name, got %+v", cfg.Resources.GPUs)
 	}
-	if len(cfg.Sharing.TimeSlicing.Resources) != 1 || cfg.Sharing.TimeSlicing.Resources[0].Name != "cluster.gpu.deckhouse.io/custom" {
+	if len(cfg.Sharing.TimeSlicing.Resources) != 1 || cfg.Sharing.TimeSlicing.Resources[0].Name != "custom" {
 		t.Fatalf("expected trimmed time-slicing name, got %+v", cfg.Sharing.TimeSlicing.Resources)
 	}
 }
@@ -1040,8 +1040,8 @@ func TestDevicePluginConfigMapClusterPrefix(t *testing.T) {
 	if !strings.Contains(cfg, "resourcePrefix: cluster.gpu.deckhouse.io") {
 		t.Fatalf("expected cluster prefix in device plugin config, got %s", cfg)
 	}
-	if !strings.Contains(cfg, "name: cluster.gpu.deckhouse.io/cluster-a") {
-		t.Fatalf("expected fully qualified cluster resource name, got %s", cfg)
+	if !strings.Contains(cfg, "name: cluster-a") {
+		t.Fatalf("expected unqualified resource name with cluster prefix, got %s", cfg)
 	}
 }
 
@@ -1058,8 +1058,8 @@ func TestDevicePluginConfigMapNameWithPrefix(t *testing.T) {
 	if !strings.Contains(cfg, "resourcePrefix: cluster.gpu.deckhouse.io") {
 		t.Fatalf("expected inferred cluster prefix in device plugin config, got %s", cfg)
 	}
-	if !strings.Contains(cfg, "name: cluster.gpu.deckhouse.io/cluster-b") {
-		t.Fatalf("expected fully qualified resource name preserved, got %s", cfg)
+	if !strings.Contains(cfg, "name: cluster-b") {
+		t.Fatalf("expected trimmed resource name without embedded prefix, got %s", cfg)
 	}
 }
 
@@ -1133,7 +1133,7 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 	if !strings.HasPrefix(cfg.Resources.GPUs[0].Pattern, "^") || !strings.HasSuffix(cfg.Resources.GPUs[0].Pattern, "$") {
 		t.Fatalf("expected anchored pattern, got %s", cfg.Resources.GPUs[0].Pattern)
 	}
-	if cfg.Resources.GPUs[0].Name != "gpu.deckhouse.io/pool" {
+	if cfg.Resources.GPUs[0].Name != "pool" {
 		t.Fatalf("unexpected resource name %s", cfg.Resources.GPUs[0].Name)
 	}
 }
@@ -1182,7 +1182,7 @@ func TestDevicePluginConfigMapReplicasFallbacks(t *testing.T) {
 		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
 	}
 	cfg := h.devicePluginConfigMap(context.Background(), pool).Data["config.yaml"]
-	if !strings.Contains(cfg, "replicas: 2") || !strings.Contains(cfg, "name: cluster.gpu.deckhouse.io/pool") {
+	if !strings.Contains(cfg, "replicas: 2") || !strings.Contains(cfg, "name: pool") {
 		t.Fatalf("expected replicas from pool slicesPerUnit fallback, got %s", cfg)
 	}
 
