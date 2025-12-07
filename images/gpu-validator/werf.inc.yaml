@@ -23,6 +23,7 @@ shell:
     - export GOARCH=amd64
     - export CGO_ENABLED=0
     - git clone --depth 1 --branch {{ $validatorVersion }} ${SOURCE_REPO}/NVIDIA/gpu-operator.git /src/gpu-operator
+    - git -C /src/gpu-operator apply /images/gpu-validator/patches/001-support-custom-resource-name.patch
     - mkdir -p /out
     - cd /src/gpu-operator/validator
     - |

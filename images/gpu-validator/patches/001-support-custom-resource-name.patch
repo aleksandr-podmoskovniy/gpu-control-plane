@@ -1,0 +1,75 @@
+diff --git a/validator/main.go b/validator/main.go
+index a7d3e76..2713b95 100644
+--- a/validator/main.go
++++ b/validator/main.go
+@@ -217,6 +217,8 @@ const (
+ 	appComponentLabelKey = "app.kubernetes.io/component"
+ 	// wslNvidiaSMIPath indicates the path to the nvidia-smi binary on WSL
+ 	wslNvidiaSMIPath = "/usr/lib/wsl/lib/nvidia-smi"
++	// customGPUResourceEnvName overrides generic GPU resource type when provided
++	customGPUResourceEnvName = "NVIDIA_RESOURCE_NAME"
+ )
+ 
+ func main() {
+@@ -1226,6 +1228,8 @@ func loadPodSpec(podSpecPath string) (*corev1.Pod, error) {
+ }
+ 
+ func (p *Plugin) countGPUResources() (int64, error) {
++	customResourceName := customGPUResourceName()
++
+ 	// get node info to check discovered GPU resources
+ 	node, err := getNode(p.ctx, p.kubeClient)
+ 	if err != nil {
+@@ -1235,7 +1239,14 @@ func (p *Plugin) countGPUResources() (int64, error) {
+ 	count := int64(0)
+ 
+ 	for resourceName, quantity := range node.Status.Capacity {
+-		if !strings.HasPrefix(string(resourceName), migGPUResourcePrefix) && !strings.HasPrefix(string(resourceName), genericGPUResourceType) {
++		name := string(resourceName)
++
++		switch {
++		case customResourceName != "" && name == customResourceName:
++			// ok
++		case customResourceName == "" && (strings.HasPrefix(name, migGPUResourcePrefix) || strings.HasPrefix(name, genericGPUResourceType)):
++			// ok
++		default:
+ 			continue
+ 		}
+ 
+@@ -1277,8 +1288,21 @@ func (p *Plugin) availableMIGResourceName(resources corev1.ResourceList) corev1.
+ }
+ 
+ func (p *Plugin) availableGenericResourceName(resources corev1.ResourceList) corev1.ResourceName {
++	customResourceName := customGPUResourceName()
++
+ 	for resourceName, quantity := range resources {
+-		if strings.HasPrefix(string(resourceName), genericGPUResourceType) && quantity.Value() >= 1 {
++		name := string(resourceName)
++
++		switch {
++		case customResourceName != "" && name == customResourceName:
++			// ok
++		case customResourceName == "" && strings.HasPrefix(name, genericGPUResourceType):
++			// ok
++		default:
++			continue
++		}
++
++		if quantity.Value() >= 1 {
+ 			log.Debugf("Found GPU resource name %s quantity %d", resourceName, quantity.Value())
+ 			return resourceName
+ 		}
+@@ -1286,6 +1310,13 @@ func (p *Plugin) availableGenericResourceName(resources corev1.ResourceList) cor
+ 	return ""
+ }
+ 
++func customGPUResourceName() string {
++	if v := strings.TrimSpace(os.Getenv(customGPUResourceEnvName)); v != "" {
++		return v
++	}
++	return ""
++}
++
+ func (p *Plugin) getGPUResourceName() (corev1.ResourceName, error) {
+ 	// get node info to check allocatable GPU resources
+ 	node, err := getNode(p.ctx, p.kubeClient)

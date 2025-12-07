@@ -19,6 +19,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -95,12 +96,31 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 }
 
 func poolResourceName(pool *v1alpha1.GPUPool) string {
-	prefix := "gpu.deckhouse.io"
-	// Cluster-scoped pools must always expose a distinct prefix to avoid collisions with namespaced pools.
-	if pool != nil && (pool.Namespace == "" || pool.Kind == "ClusterGPUPool") {
-		prefix = "cluster.gpu.deckhouse.io"
+	name, _ := resolveResourceName(pool, pool.Name)
+	return name
+}
+
+// resolveResourceName returns a fully qualified resource name along with the prefix chosen for the pool.
+func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string) {
+	prefix := poolPrefix(pool)
+	name := strings.TrimSpace(rawName)
+	if name == "" && pool != nil {
+		name = pool.Name
 	}
-	return fmt.Sprintf("%s/%s", prefix, pool.Name)
+
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		if len(parts) > 1 {
+			providedPrefix := strings.Join(parts[:len(parts)-1], "/")
+			// Cluster pools must always stick to the cluster prefix even if a different one was provided.
+			if providedPrefix == "cluster.gpu.deckhouse.io" {
+				prefix = providedPrefix
+			}
+			name = parts[len(parts)-1]
+		}
+	}
+
+	return fmt.Sprintf("%s/%s", prefix, name), prefix
 }
 
 func renderConfigFromEnv() RenderConfig {
@@ -169,7 +189,7 @@ func (h *RendererHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 }
 
 func (h *RendererHandler) reconcileDevicePlugin(ctx context.Context, pool *v1alpha1.GPUPool) error {
-	cm := h.devicePluginConfigMap(pool)
+	cm := h.devicePluginConfigMap(ctx, pool)
 	if err := h.createOrUpdate(ctx, cm, pool); err != nil {
 		return fmt.Errorf("reconcile device-plugin ConfigMap: %w", err)
 	}
@@ -218,41 +238,17 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 	return nil
 }
 
-func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
-	resourcePrefix := poolPrefix(pool)
-	resourceName := pool.Name
+func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alpha1.GPUPool) *corev1.ConfigMap {
+	resourceName, resourcePrefix := resolveResourceName(pool, pool.Name)
 	replicas := h.timeSlicingReplicas(pool)
-
-	// Normalize resource name/prefix if the pool name already contains a prefix.
-	if strings.Contains(resourceName, "/") {
-		parts := strings.Split(resourceName, "/")
-		if len(parts) > 1 {
-			inferredPrefix := strings.Join(parts[:len(parts)-1], "/")
-			// If the name already carries the cluster prefix, align resourcePrefix with it.
-			if inferredPrefix == "cluster.gpu.deckhouse.io" {
-				resourcePrefix = inferredPrefix
-			}
-			resourceName = parts[len(parts)-1]
-		}
-	}
+	patterns := h.assignedDevicePatterns(ctx, pool)
 
 	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
 	for _, ts := range pool.Spec.Resource.TimeSlicingResources {
 		if ts.SlicesPerUnit < 1 {
 			continue
 		}
-		name := ts.Name
-		if name == "" {
-			name = pool.Name
-		}
-		if strings.Contains(name, "/") {
-			parts := strings.Split(name, "/")
-			if len(parts) > 1 && parts[0] == "cluster.gpu.deckhouse.io" {
-				// Keep the cluster prefix consistent even if user provided a prefixed name override.
-				resourcePrefix = "cluster.gpu.deckhouse.io"
-			}
-			name = parts[len(parts)-1]
-		}
+		name, _ := resolveResourceName(pool, ts.Name)
 		resources = append(resources, map[string]any{
 			"name":     name,
 			"replicas": int(ts.SlicesPerUnit),
@@ -260,7 +256,7 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 	}
 	if len(resources) == 0 {
 		resources = append(resources, map[string]any{
-			"name":     pool.Name,
+			"name":     resourceName,
 			"replicas": int(replicas),
 		})
 	}
@@ -280,13 +276,23 @@ func (h *RendererHandler) devicePluginConfigMap(pool *v1alpha1.GPUPool) *corev1.
 		},
 	}
 
-	cfg["resources"] = map[string]any{
-		"gpus": []map[string]any{
-			{
-				"pattern": "*",
+	gpus := make([]map[string]any, 0, len(patterns))
+	if len(patterns) == 0 {
+		gpus = append(gpus, map[string]any{
+			"pattern": "*",
+			"name":    resourceName,
+		})
+	} else {
+		for _, p := range patterns {
+			gpus = append(gpus, map[string]any{
+				"pattern": p,
 				"name":    resourceName,
-			},
-		},
+			})
+		}
+	}
+
+	cfg["resources"] = map[string]any{
+		"gpus": gpus,
 	}
 
 	if hasSharing {
@@ -327,6 +333,51 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 		}
 	}
 	return replicas
+}
+
+func (h *RendererHandler) assignedDevicePatterns(ctx context.Context, pool *v1alpha1.GPUPool) []string {
+	if h.client == nil || pool == nil {
+		return nil
+	}
+
+	list := &v1alpha1.GPUDeviceList{}
+	if err := h.client.List(ctx, list); err != nil {
+		h.log.Error(err, "failed to list GPUDevices for device-plugin config", "pool", pool.Name)
+		return nil
+	}
+
+	patterns := make([]string, 0, len(list.Items))
+	seen := make(map[string]struct{})
+	for _, dev := range list.Items {
+		if dev.Annotations[assignmentAnnotation] != pool.Name {
+			continue
+		}
+		if strings.EqualFold(dev.Labels["gpu.deckhouse.io/ignore"], "true") {
+			continue
+		}
+
+		id := dev.Status.Hardware.UUID
+		if id == "" {
+			id = dev.Status.Hardware.PCI.Address
+		}
+		if id == "" {
+			id = dev.Status.InventoryID
+		}
+		if id == "" {
+			id = dev.Name
+		}
+		if id == "" {
+			continue
+		}
+		// Use exact match to avoid capturing non-pooled devices.
+		pat := "^" + regexp.QuoteMeta(id) + "$"
+		if _, ok := seen[pat]; ok {
+			continue
+		}
+		seen[pat] = struct{}{}
+		patterns = append(patterns, pat)
+	}
+	return patterns
 }
 
 func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
