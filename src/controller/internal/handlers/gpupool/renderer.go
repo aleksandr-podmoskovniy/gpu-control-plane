@@ -19,7 +19,6 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -112,8 +111,9 @@ func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string
 		parts := strings.Split(name, "/")
 		if len(parts) > 1 {
 			providedPrefix := strings.Join(parts[:len(parts)-1], "/")
-			if providedPrefix != "" && providedPrefix != prefix && providedPrefix == "cluster.gpu.deckhouse.io" {
-				prefix = providedPrefix
+			// If user supplied cluster prefix explicitly, honor it; otherwise always rely on poolPrefix.
+			if providedPrefix == "cluster.gpu.deckhouse.io" {
+				prefix = "cluster.gpu.deckhouse.io"
 			}
 			name = parts[len(parts)-1]
 		}
@@ -273,6 +273,11 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 			"migStrategy":    h.cfg.DefaultMIGStrategy,
 			"resourcePrefix": resourcePrefix,
 		},
+		"plugin": map[string]any{
+			"passDeviceSpecs":    true,
+			"deviceListStrategy": "envvar",
+			"deviceIDStrategy":   "uuid",
+		},
 	}
 
 	gpus := make([]map[string]any, 0, len(patterns))
@@ -335,48 +340,10 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 }
 
 func (h *RendererHandler) assignedDevicePatterns(ctx context.Context, pool *v1alpha1.GPUPool) []string {
-	if h.client == nil || pool == nil {
-		return nil
-	}
-
-	list := &v1alpha1.GPUDeviceList{}
-	if err := h.client.List(ctx, list); err != nil {
-		h.log.Error(err, "failed to list GPUDevices for device-plugin config", "pool", pool.Name)
-		return nil
-	}
-
-	patterns := make([]string, 0, len(list.Items))
-	seen := make(map[string]struct{})
-	for _, dev := range list.Items {
-		if dev.Annotations[assignmentAnnotation] != pool.Name {
-			continue
-		}
-		if strings.EqualFold(dev.Labels["gpu.deckhouse.io/ignore"], "true") {
-			continue
-		}
-
-		id := dev.Status.Hardware.UUID
-		if id == "" {
-			id = dev.Status.Hardware.PCI.Address
-		}
-		if id == "" {
-			id = dev.Status.InventoryID
-		}
-		if id == "" {
-			id = dev.Name
-		}
-		if id == "" {
-			continue
-		}
-		// Use exact match to avoid capturing non-pooled devices.
-		pat := "^" + regexp.QuoteMeta(id) + "$"
-		if _, ok := seen[pat]; ok {
-			continue
-		}
-		seen[pat] = struct{}{}
-		patterns = append(patterns, pat)
-	}
-	return patterns
+	// Current NVIDIA device-plugin matches resources by GPU product name, so we cannot
+	// safely filter by UUID/PCI. Return nil to fall back to wildcard "*" which avoids
+	// invalid patterns when pool contains devices with identical names.
+	return nil
 }
 
 func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
@@ -450,7 +417,8 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 								AllowPrivilegeEscalation: ptr.To(true),
 								ReadOnlyRootFilesystem:   ptr.To(false),
 							},
-							Args: []string{"--config-file=/config/config.yaml", "--pass-device-specs=false", "--fail-on-init-error=false"},
+							// pass-device-specs aligns with plugin config; device list/id strategies are set via ConfigMap.
+							Args: []string{"--config-file=/config/config.yaml", "--pass-device-specs=true", "--fail-on-init-error=false"},
 							Env: []corev1.EnvVar{
 								{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
 							},

@@ -1127,11 +1127,8 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 	if len(cfg.Resources.GPUs) != 1 {
 		t.Fatalf("expected only assigned non-ignored device to be present, got %+v", cfg.Resources.GPUs)
 	}
-	if cfg.Resources.GPUs[0].Pattern != "^GPU-uuid-1$" {
-		t.Fatalf("expected exact pattern for assigned device, got %s", cfg.Resources.GPUs[0].Pattern)
-	}
-	if !strings.HasPrefix(cfg.Resources.GPUs[0].Pattern, "^") || !strings.HasSuffix(cfg.Resources.GPUs[0].Pattern, "$") {
-		t.Fatalf("expected anchored pattern, got %s", cfg.Resources.GPUs[0].Pattern)
+	if cfg.Resources.GPUs[0].Pattern != "*" {
+		t.Fatalf("expected wildcard pattern, got %s", cfg.Resources.GPUs[0].Pattern)
 	}
 	if cfg.Resources.GPUs[0].Name != "pool" {
 		t.Fatalf("unexpected resource name %s", cfg.Resources.GPUs[0].Name)
