@@ -3,6 +3,9 @@
 image: {{ .ModuleNamePrefix }}gpu-validator-artifact
 final: false
 fromImage: builder/golang-bookworm-1.24
+git:
+  - add: /images/gpu-validator/patches
+    to: /images/gpu-validator/patches
 secrets:
   - id: GOPROXY
     value: "{{ .GOPROXY }}"
