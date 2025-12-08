@@ -115,7 +115,7 @@ func TestSelectionSyncHandlerPicksDevicesAndCapacity(t *testing.T) {
 	if pool.Status.Capacity.BaseUnits != 1 || pool.Status.Capacity.SlicesPerUnit != 2 {
 		t.Fatalf("unexpected base units/slices: %+v", pool.Status.Capacity)
 	}
-	if len(pool.Status.Nodes) != 1 || pool.Status.Nodes[0].TotalDevices != 3 {
+	if len(pool.Status.Nodes) != 1 || pool.Status.Nodes[0].TotalDevices != 1 {
 		t.Fatalf("unexpected node totals: %+v", pool.Status.Nodes)
 	}
 }

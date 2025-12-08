@@ -128,7 +128,6 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 			if needsAssignmentUpdate(devCR, pool.Name) {
 				toUpdate = append(toUpdate, devCR)
 			}
-			nodeTotals[inv.Name]++
 			// В емкость пула учитываем только устройства, уже закреплённые за пулом и прошедшие DP/валидатор
 			// (Assigned/Reserved/InUse). Ready/PendingAssignment не добавляют слоты.
 			if dev.State == v1alpha1.GPUDeviceStateAssigned ||
@@ -145,6 +144,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 					if dev.State == v1alpha1.GPUDeviceStateReserved || dev.State == v1alpha1.GPUDeviceStateInUse {
 						usedUnits += units
 					}
+					nodeTotals[inv.Name]++
 				}
 			}
 		}

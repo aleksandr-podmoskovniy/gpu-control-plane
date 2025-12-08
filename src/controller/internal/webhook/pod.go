@@ -141,8 +141,22 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 	}
 	strategy, topologyKey := m.poolScheduling(poolObj)
 	if strings.EqualFold(strategy, string(v1alpha1.GPUPoolSchedulingSpread)) {
-		if err := ensureSpreadConstraint(pod, poolKey, poolRef.name, topologyKey); err != nil {
-			return cradmission.Denied(err.Error())
+		if m.client != nil {
+			ok, err := m.topologyLabelPresent(ctx, poolKey, poolRef.name, topologyKey)
+			if err != nil {
+				return cradmission.Denied(err.Error())
+			}
+			if ok {
+				if err := ensureSpreadConstraint(pod, poolKey, poolRef.name, topologyKey); err != nil {
+					return cradmission.Denied(err.Error())
+				}
+			} else {
+				m.log.Info("skip topology spread: no nodes with required label", "pool", poolRef.name, "topologyKey", topologyKey)
+			}
+		} else {
+			if err := ensureSpreadConstraint(pod, poolKey, poolRef.name, topologyKey); err != nil {
+				return cradmission.Denied(err.Error())
+			}
 		}
 	}
 	ensureCustomTolerations(pod, m.store)
@@ -292,24 +306,90 @@ func (m *podMutator) ensureNodeTolerations(ctx context.Context, pod *corev1.Pod,
 		return nil
 	}
 
+	taints, err := m.collectPoolNodeTaints(ctx, pool)
+	if err != nil {
+		return err
+	}
+	for _, taint := range taints {
+		if toleratesTaint(pod.Spec.Tolerations, taint) {
+			continue
+		}
+		op := corev1.TolerationOpEqual
+		value := taint.Value
+		if taint.Value == "" {
+			op = corev1.TolerationOpExists
+		}
+		pod.Spec.Tolerations = append(pod.Spec.Tolerations, corev1.Toleration{
+			Key:      taint.Key,
+			Operator: op,
+			Value:    value,
+			Effect:   taint.Effect,
+		})
+	}
+	return nil
+}
+
+// collectPoolNodeTaints returns taints from nodes participating in the pool.
+// Primary source is pool.Status.Nodes; fallback — nodes labeled with the pool key.
+func (m *podMutator) collectPoolNodeTaints(ctx context.Context, pool *v1alpha1.GPUPool) ([]corev1.Taint, error) {
+	seen := make(map[string]corev1.Taint)
+
+	add := func(node *corev1.Node) {
+		for _, t := range node.Spec.Taints {
+			key := fmt.Sprintf("%s|%s|%s", t.Key, t.Value, t.Effect)
+			seen[key] = t
+		}
+	}
+
 	for _, n := range pool.Status.Nodes {
 		node := &corev1.Node{}
 		if err := m.client.Get(ctx, client.ObjectKey{Name: n.Name}, node); err != nil {
 			m.log.Error(err, "failed to fetch node for tolerations", "node", n.Name, "pool", pool.Name)
-			return fmt.Errorf("fetch node %q for tolerations: %w", n.Name, err)
+			return nil, fmt.Errorf("fetch node %q for tolerations: %w", n.Name, err)
 		}
-		for _, taint := range node.Spec.Taints {
-			if toleratesTaint(pod.Spec.Tolerations, taint) {
-				continue
-			}
-			pod.Spec.Tolerations = append(pod.Spec.Tolerations, corev1.Toleration{
-				Key:      taint.Key,
-				Operator: corev1.TolerationOpExists,
-				Effect:   taint.Effect,
-			})
+		add(node)
+	}
+
+	// Fallback: include nodes already labeled for this pool, in case Status.Nodes пустой.
+	prefix := "gpu.deckhouse.io"
+	if pool.Namespace == "" || pool.Kind == "ClusterGPUPool" {
+		prefix = "cluster.gpu.deckhouse.io"
+	}
+	poolKey := fmt.Sprintf("%s/%s", prefix, pool.Name)
+	nodes := &corev1.NodeList{}
+	if err := m.client.List(ctx, nodes, client.MatchingLabels{poolKey: pool.Name}); err != nil {
+		return nil, fmt.Errorf("list pool nodes for tolerations: %w", err)
+	}
+	for i := range nodes.Items {
+		add(&nodes.Items[i])
+	}
+
+	out := make([]corev1.Taint, 0, len(seen))
+	for _, t := range seen {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// topologyLabelPresent checks whether any pool node has the required topology label key.
+func (m *podMutator) topologyLabelPresent(ctx context.Context, poolKey, poolName, topologyKey string) (bool, error) {
+	if topologyKey == "" {
+		return false, nil
+	}
+	nodes := &corev1.NodeList{}
+	if err := m.client.List(ctx, nodes, client.MatchingLabels{poolKey: poolName}); err != nil {
+		return false, fmt.Errorf("list pool nodes for topology spread: %w", err)
+	}
+	if len(nodes.Items) == 0 {
+		// Unknown yet — do not block adding the constraint.
+		return true, nil
+	}
+	for i := range nodes.Items {
+		if _, ok := nodes.Items[i].Labels[topologyKey]; ok {
+			return true, nil
 		}
 	}
-	return nil
+	return false, nil
 }
 
 func toleratesTaint(tolerations []corev1.Toleration, taint corev1.Taint) bool {
@@ -401,9 +481,7 @@ func collectPools(pod *corev1.Pod) map[string]poolRequest {
 	return pools
 }
 
-func poolLabelKey(pool poolRequest) string {
-	return pool.keyPrefix + pool.name
-}
+func poolLabelKey(pool poolRequest) string { return pool.keyPrefix + pool.name }
 
 func (m *podMutator) poolTaintsEnabled(pool *v1alpha1.GPUPool) bool {
 	if pool == nil || pool.Spec.Scheduling.TaintsEnabled == nil {
