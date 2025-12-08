@@ -9,9 +9,9 @@ index 420a772..4256d8e 100644
  		if migEnabled && *b.migStrategy != spec.MigStrategyNone {
  			return nil
  		}
-+		uuid, err := gpu.GetUUID()
-+		if err != nil {
-+			return fmt.Errorf("error getting UUID for GPU: %v", err)
++		uuid, ret := gpu.GetUUID()
++		if ret != nvml.SUCCESS {
++			return fmt.Errorf("error getting UUID for GPU: %v", ret)
 +		}
  		for _, resource := range b.resources.GPUs {
 -			if resource.Pattern.Matches(name) {
