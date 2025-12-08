@@ -1,4 +1,4 @@
-## Patchess
+## Patches
 
 ### 000-go-mod.patch
 
@@ -11,3 +11,7 @@ Keep `config.Resources` and sharing overrides intact (make DisableResourceNaming
 ### 003-custom-resource-prefix.patch
 
 Switch the default resource prefix to `gpu.deckhouse.io` and stop adding the default `gpu` resource when custom resources are provided (guard defaults for MIG too).
+
+### 004-gpu-uuid-pattern-match.patch
+
+Allow GPU resource patterns to match either product name or GPU UUID. This enables a strict allowlist per device by setting `resources.gpus[].pattern` to a specific UUID.

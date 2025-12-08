@@ -1074,6 +1074,10 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 			Annotations: map[string]string{assignmentAnnotation: "pool"},
 		},
 		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateAssigned,
+			PoolRef: &v1alpha1.GPUPoolReference{
+				Name: "pool",
+			},
 			Hardware: v1alpha1.GPUDeviceHardware{
 				UUID: "GPU-uuid-1",
 				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
@@ -1087,6 +1091,10 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 			Labels:      map[string]string{"gpu.deckhouse.io/ignore": "true"},
 		},
 		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateAssigned,
+			PoolRef: &v1alpha1.GPUPoolReference{
+				Name: "pool",
+			},
 			Hardware: v1alpha1.GPUDeviceHardware{
 				PCI: v1alpha1.PCIAddress{Address: "0000:02:00.0"},
 			},
@@ -1098,6 +1106,10 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 			Annotations: map[string]string{assignmentAnnotation: "other"},
 		},
 		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateAssigned,
+			PoolRef: &v1alpha1.GPUPoolReference{
+				Name: "other",
+			},
 			Hardware: v1alpha1.GPUDeviceHardware{
 				PCI: v1alpha1.PCIAddress{Address: "0000:03:00.0"},
 			},
@@ -1127,8 +1139,8 @@ func TestDevicePluginConfigUsesAssignedDevicesOnly(t *testing.T) {
 	if len(cfg.Resources.GPUs) != 1 {
 		t.Fatalf("expected only assigned non-ignored device to be present, got %+v", cfg.Resources.GPUs)
 	}
-	if cfg.Resources.GPUs[0].Pattern != "*" {
-		t.Fatalf("expected wildcard pattern, got %s", cfg.Resources.GPUs[0].Pattern)
+	if cfg.Resources.GPUs[0].Pattern != "GPU-uuid-1" {
+		t.Fatalf("expected uuid pattern, got %s", cfg.Resources.GPUs[0].Pattern)
 	}
 	if cfg.Resources.GPUs[0].Name != "pool" {
 		t.Fatalf("unexpected resource name %s", cfg.Resources.GPUs[0].Name)

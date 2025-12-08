@@ -1,0 +1,23 @@
+diff --git a/internal/rm/device_map.go b/internal/rm/device_map.go
+index 420a772..4256d8e 100644
+--- a/internal/rm/device_map.go
++++ b/internal/rm/device_map.go
+@@ -118,13 +118,17 @@ func (b *deviceMapBuilder) buildGPUDeviceMap() (DeviceMap, error) {
+ 		if err != nil {
+ 			return fmt.Errorf("error checking if MIG is enabled on GPU: %v", err)
+ 		}
+ 		if migEnabled && *b.migStrategy != spec.MigStrategyNone {
+ 			return nil
+ 		}
++		uuid, err := gpu.GetUUID()
++		if err != nil {
++			return fmt.Errorf("error getting UUID for GPU: %v", err)
++		}
+ 		for _, resource := range b.resources.GPUs {
+-			if resource.Pattern.Matches(name) {
++			if resource.Pattern.Matches(name) || resource.Pattern.Matches(uuid) {
+ 				index, info := b.newGPUDevice(i, gpu)
+ 				return devices.setEntry(resource.Name, index, info)
+ 			}
+ 		}
+ 		return fmt.Errorf("GPU name '%v' does not match any resource patterns", name)

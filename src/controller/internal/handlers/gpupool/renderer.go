@@ -19,6 +19,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -340,10 +341,48 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 }
 
 func (h *RendererHandler) assignedDevicePatterns(ctx context.Context, pool *v1alpha1.GPUPool) []string {
-	// Current NVIDIA device-plugin matches resources by GPU product name, so we cannot
-	// safely filter by UUID/PCI. Return nil to fall back to wildcard "*" which avoids
-	// invalid patterns when pool contains devices with identical names.
-	return nil
+	if h.client == nil || pool == nil {
+		return nil
+	}
+
+	allowedStates := map[v1alpha1.GPUDeviceState]struct{}{
+		v1alpha1.GPUDeviceStatePendingAssignment: {},
+		v1alpha1.GPUDeviceStateAssigned:          {},
+		v1alpha1.GPUDeviceStateReserved:          {},
+	}
+
+	var devices v1alpha1.GPUDeviceList
+	if err := h.client.List(ctx, &devices); err != nil {
+		h.log.Error(err, "list GPUDevices for pool patterns", "pool", pool.Name)
+		return nil
+	}
+
+	patterns := make(map[string]struct{})
+	for _, dev := range devices.Items {
+		if dev.Labels != nil {
+			if val, ok := dev.Labels["gpu.deckhouse.io/ignore"]; ok && strings.EqualFold(val, "true") {
+				continue
+			}
+		}
+		if dev.Status.PoolRef == nil || dev.Status.PoolRef.Name != pool.Name {
+			continue
+		}
+		if _, ok := allowedStates[dev.Status.State]; !ok {
+			continue
+		}
+		uuid := strings.TrimSpace(dev.Status.Hardware.UUID)
+		if uuid == "" {
+			continue
+		}
+		patterns[uuid] = struct{}{}
+	}
+
+	out := make([]string, 0, len(patterns))
+	for p := range patterns {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
