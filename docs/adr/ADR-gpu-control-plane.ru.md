@@ -258,15 +258,15 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: demo-local
-  namespace: gpu-team-local
+  namespace: default
 spec:
-  serviceAccountName: gpu-user
+  restartPolicy: Never
   containers:
-    - name: c
+    - name: cuda-container
       image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1
       resources:
         limits:
-          gpu.deckhouse.io/local-x: "1"
+          gpu.deckhouse.io/local-x: "1" # requesting 1 GPU
 ```
 
 - Масштабирует приложение: меняет лимиты, следит за появлением событий `Insufficient gpu.deckhouse.io/<pool>` или успешным выделением нескольких карт.

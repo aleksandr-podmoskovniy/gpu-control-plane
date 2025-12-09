@@ -23,6 +23,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -53,6 +54,13 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 	devices := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, devices); err != nil {
 		return contracts.Result{}, err
+	}
+
+	capacityState := func(s v1alpha1.GPUDeviceState) bool {
+		return s == v1alpha1.GPUDeviceStatePendingAssignment ||
+			s == v1alpha1.GPUDeviceStateAssigned ||
+			s == v1alpha1.GPUDeviceStateReserved ||
+			s == v1alpha1.GPUDeviceStateInUse
 	}
 
 	assigned := make(map[string]v1alpha1.GPUDevice)
@@ -93,6 +101,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		baseUnits   int32
 		devStatuses []v1alpha1.GPUPoolDeviceStatus
 		nodeTotals  = map[string]int32{}
+		nodeUsed    = map[string]int32{}
 		toUpdate    []v1alpha1.GPUDevice
 	)
 
@@ -128,11 +137,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 			if needsAssignmentUpdate(devCR, pool.Name) {
 				toUpdate = append(toUpdate, devCR)
 			}
-			// В емкость пула учитываем только устройства, уже закреплённые за пулом и прошедшие DP/валидатор
-			// (Assigned/Reserved/InUse). Ready/PendingAssignment не добавляют слоты.
-			if dev.State == v1alpha1.GPUDeviceStateAssigned ||
-				dev.State == v1alpha1.GPUDeviceStateReserved ||
-				dev.State == v1alpha1.GPUDeviceStateInUse {
+			// В емкость пула учитываем только устройства, подтверждённые валидатором/DP:
+			// Assigned/Reserved/InUse. PendingAssignment не добавляет слоты (по ADR).
+			if capacityState(dev.State) {
 				if pool.Spec.Resource.MaxDevicesPerNode != nil && takenOnNode >= *pool.Spec.Resource.MaxDevicesPerNode {
 					continue
 				}
@@ -143,6 +150,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 					takenOnNode++
 					if dev.State == v1alpha1.GPUDeviceStateReserved || dev.State == v1alpha1.GPUDeviceStateInUse {
 						usedUnits += units
+						nodeUsed[inv.Name]++
 					}
 					nodeTotals[inv.Name]++
 				}
@@ -159,14 +167,7 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		if dev.Status.PoolRef == nil || dev.Status.PoolRef.Name != pool.Name {
 			continue
 		}
-		orig := dev.DeepCopy()
-		dev.Status.PoolRef = nil
-		// Return device to Ready if it was held by the pool.
-		switch dev.Status.State {
-		case v1alpha1.GPUDeviceStateAssigned, v1alpha1.GPUDeviceStateReserved, v1alpha1.GPUDeviceStatePendingAssignment:
-			dev.Status.State = v1alpha1.GPUDeviceStateReady
-		}
-		if err := h.client.Status().Patch(ctx, dev, client.MergeFrom(orig)); err != nil && !apierrors.IsNotFound(err) {
+		if err := h.clearDevicePool(ctx, dev.Name, pool.Name); err != nil {
 			return contracts.Result{}, err
 		}
 	}
@@ -188,18 +189,13 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		pool.Status.Nodes = append(pool.Status.Nodes, v1alpha1.GPUPoolNodeStatus{
 			Name:            node,
 			TotalDevices:    total,
-			AssignedDevices: 0,
+			AssignedDevices: nodeUsed[node],
 		})
 	}
 
 	for i := range toUpdate {
-		dev := toUpdate[i].DeepCopy()
-		dev.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: pool.Name}
-		// Не переводим в Assigned без валидатора: оставляем PendingAssignment, dp-validation поднимет до Assigned, когда валидатор Ready.
-		if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStateAssigned {
-			dev.Status.State = v1alpha1.GPUDeviceStatePendingAssignment
-		}
-		if err := h.client.Status().Update(ctx, dev); err != nil && !apierrors.IsNotFound(err) {
+		dev := toUpdate[i]
+		if err := h.assignDeviceWithRetry(ctx, dev.Name, pool.Name); err != nil {
 			return contracts.Result{}, err
 		}
 	}
@@ -241,4 +237,61 @@ func needsAssignmentUpdate(dev v1alpha1.GPUDevice, poolName string) bool {
 		return true
 	}
 	return false
+}
+
+func (h *SelectionSyncHandler) assignDeviceWithRetry(ctx context.Context, name, pool string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &v1alpha1.GPUDevice{}
+		if err := h.client.Get(ctx, client.ObjectKey{Name: name}, current); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		orig := current.DeepCopy()
+		current.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: pool}
+		// Не переводим в Assigned без валидатора: Ready/Assigned переводим в PendingAssignment.
+		if current.Status.State == v1alpha1.GPUDeviceStateReady || current.Status.State == v1alpha1.GPUDeviceStateAssigned {
+			current.Status.State = v1alpha1.GPUDeviceStatePendingAssignment
+		}
+		if err := h.client.Status().Patch(ctx, current, client.MergeFrom(orig)); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+func (h *SelectionSyncHandler) clearDevicePool(ctx context.Context, name, pool string) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current := &v1alpha1.GPUDevice{}
+		if err := h.client.Get(ctx, client.ObjectKey{Name: name}, current); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if current.Annotations[assignmentAnnotation] == pool {
+			return nil
+		}
+		if current.Status.PoolRef == nil || current.Status.PoolRef.Name != pool {
+			return nil
+		}
+		orig := current.DeepCopy()
+		current.Status.PoolRef = nil
+		if current.Status.State == v1alpha1.GPUDeviceStateAssigned ||
+			current.Status.State == v1alpha1.GPUDeviceStateReserved ||
+			current.Status.State == v1alpha1.GPUDeviceStatePendingAssignment {
+			current.Status.State = v1alpha1.GPUDeviceStateReady
+		}
+		if err := h.client.Status().Patch(ctx, current, client.MergeFrom(orig)); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
 }
