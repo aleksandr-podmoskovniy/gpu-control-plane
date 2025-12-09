@@ -240,6 +240,7 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 
 func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alpha1.GPUPool) *corev1.ConfigMap {
 	resourceName, resourcePrefix := resolveResourceName(pool, pool.Name)
+	fullResourceName := fmt.Sprintf("%s/%s", resourcePrefix, resourceName)
 	replicas := h.timeSlicingReplicas(pool)
 	patterns := h.assignedDevicePatterns(ctx, pool)
 
@@ -248,15 +249,15 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 		if ts.SlicesPerUnit < 1 {
 			continue
 		}
-		name, _ := resolveResourceName(pool, ts.Name)
+		name, prefix := resolveResourceName(pool, ts.Name)
 		resources = append(resources, map[string]any{
-			"name":     name,
+			"name":     fmt.Sprintf("%s/%s", prefix, name),
 			"replicas": int(ts.SlicesPerUnit),
 		})
 	}
 	if len(resources) == 0 {
 		resources = append(resources, map[string]any{
-			"name":     resourceName,
+			"name":     fullResourceName,
 			"replicas": int(replicas),
 		})
 	}
@@ -285,13 +286,13 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 	if len(patterns) == 0 {
 		gpus = append(gpus, map[string]any{
 			"pattern": "*",
-			"name":    resourceName,
+			"name":    fullResourceName,
 		})
 	} else {
 		for _, p := range patterns {
 			gpus = append(gpus, map[string]any{
 				"pattern": p,
-				"name":    resourceName,
+				"name":    fullResourceName,
 			})
 		}
 	}
