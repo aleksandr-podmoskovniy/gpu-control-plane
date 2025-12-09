@@ -111,11 +111,6 @@ func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string
 	if strings.Contains(name, "/") {
 		parts := strings.Split(name, "/")
 		if len(parts) > 1 {
-			providedPrefix := strings.Join(parts[:len(parts)-1], "/")
-			// If user supplied cluster prefix explicitly, honor it; otherwise always rely on poolPrefix.
-			if providedPrefix == "cluster.gpu.deckhouse.io" {
-				prefix = "cluster.gpu.deckhouse.io"
-			}
 			name = parts[len(parts)-1]
 		}
 	}
@@ -240,7 +235,6 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 
 func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alpha1.GPUPool) *corev1.ConfigMap {
 	resourceName, resourcePrefix := resolveResourceName(pool, pool.Name)
-	fullResourceName := fmt.Sprintf("%s/%s", resourcePrefix, resourceName)
 	replicas := h.timeSlicingReplicas(pool)
 	patterns := h.assignedDevicePatterns(ctx, pool)
 
@@ -249,15 +243,15 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 		if ts.SlicesPerUnit < 1 {
 			continue
 		}
-		name, prefix := resolveResourceName(pool, ts.Name)
+		name, _ := resolveResourceName(pool, ts.Name)
 		resources = append(resources, map[string]any{
-			"name":     fmt.Sprintf("%s/%s", prefix, name),
+			"name":     name,
 			"replicas": int(ts.SlicesPerUnit),
 		})
 	}
 	if len(resources) == 0 {
 		resources = append(resources, map[string]any{
-			"name":     fullResourceName,
+			"name":     resourceName,
 			"replicas": int(replicas),
 		})
 	}
@@ -286,13 +280,13 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 	if len(patterns) == 0 {
 		gpus = append(gpus, map[string]any{
 			"pattern": "*",
-			"name":    fullResourceName,
+			"name":    resourceName,
 		})
 	} else {
 		for _, p := range patterns {
 			gpus = append(gpus, map[string]any{
 				"pattern": p,
-				"name":    fullResourceName,
+				"name":    resourceName,
 			})
 		}
 	}
