@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -198,6 +199,9 @@ func (r *Reconciler) attachPoolDependencyWatcher(c cache.Cache, builder controll
 	inv := &v1alpha1.GPUNodeInventory{}
 	builder = builder.WatchesRawSource(source.Kind(c, inv, handler.TypedEnqueueRequestsFromMapFunc(r.mapInventory)))
 
+	pod := &corev1.Pod{}
+	builder = builder.WatchesRawSource(source.Kind(c, pod, handler.TypedEnqueueRequestsFromMapFunc(r.mapPod)))
+
 	return builder
 }
 
@@ -206,6 +210,10 @@ func (r *Reconciler) mapDevice(ctx context.Context, _ *v1alpha1.GPUDevice) []rec
 }
 
 func (r *Reconciler) mapInventory(ctx context.Context, _ *v1alpha1.GPUNodeInventory) []reconcile.Request {
+	return r.requeueAllPools(ctx)
+}
+
+func (r *Reconciler) mapPod(ctx context.Context, _ *corev1.Pod) []reconcile.Request {
 	return r.requeueAllPools(ctx)
 }
 

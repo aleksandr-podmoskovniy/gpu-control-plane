@@ -22,6 +22,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1025,6 +1026,239 @@ func TestSelectionSyncCountsInUseDevice(t *testing.T) {
 	}
 	if pool.Status.Capacity.Total != 1 {
 		t.Fatalf("expected InUse device to be counted, got %d", pool.Status.Capacity.Total)
+	}
+}
+
+func TestSelectionSyncSubtractsScheduledPodsClusterResource(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "cluster-a"},
+			Labels:      map[string]string{"kubernetes.io/hostname": "node1"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStateAssigned,
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "workload",
+			Namespace: "ns",
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "node1",
+			Containers: []corev1.Container{
+				{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceName("cluster.gpu.deckhouse.io/cluster-a"): resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev, pod).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		TypeMeta:   metav1.TypeMeta{Kind: "ClusterGPUPool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-a"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 || pool.Status.Capacity.Used != 1 || pool.Status.Capacity.Available != 0 {
+		t.Fatalf("expected total=1 used=1 available=0, got %+v", pool.Status.Capacity)
+	}
+}
+
+func TestSelectionSyncSubtractsScheduledPodsNamespacedResource(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	inv := &v1alpha1.GPUNodeInventory{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+		Status: v1alpha1.GPUNodeInventoryStatus{
+			Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev1"}},
+		},
+	}
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "local-x"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStateAssigned,
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "workload",
+			Namespace: "ns",
+		},
+		Spec: corev1.PodSpec{
+			NodeName: "node1",
+			Containers: []corev1.Container{
+				{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceName("gpu.deckhouse.io/local-x"): resource.MustParse("1"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(inv, dev, pod).
+		Build()
+	handler := NewSelectionSyncHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "local-x", Namespace: "ns"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool failed: %v", err)
+	}
+	if pool.Status.Capacity.Total != 1 || pool.Status.Capacity.Used != 1 || pool.Status.Capacity.Available != 0 {
+		t.Fatalf("expected total=1 used=1 available=0, got %+v", pool.Status.Capacity)
+	}
+}
+
+func TestAssignAndClearDeviceWithRetry(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev1"},
+		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateReady,
+		},
+	}
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(dev).
+		Build()
+
+	h := NewSelectionSyncHandler(testr.New(t), cl)
+	if err := h.assignDeviceWithRetry(context.Background(), "dev1", "pool"); err != nil {
+		t.Fatalf("assignDeviceWithRetry: %v", err)
+	}
+	got := &v1alpha1.GPUDevice{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	if got.Status.PoolRef == nil || got.Status.PoolRef.Name != "pool" || got.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
+		t.Fatalf("unexpected device state after assign: %+v", got.Status)
+	}
+
+	// clear when annotation differs
+	got.Status.State = v1alpha1.GPUDeviceStateAssigned
+	got.Annotations = map[string]string{}
+	if err := cl.Status().Update(context.Background(), got); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if err := h.clearDevicePool(context.Background(), "dev1", "pool"); err != nil {
+		t.Fatalf("clearDevicePool: %v", err)
+	}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	if got.Status.PoolRef != nil || got.Status.State != v1alpha1.GPUDeviceStateReady {
+		t.Fatalf("expected pool ref cleared and state Ready, got %+v", got.Status)
+	}
+
+	// no-op when annotation still points to pool
+	got.Annotations = map[string]string{assignmentAnnotation: "pool"}
+	got.Status.PoolRef = &v1alpha1.GPUPoolReference{Name: "pool"}
+	if err := cl.Status().Update(context.Background(), got); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if err := h.clearDevicePool(context.Background(), "dev1", "pool"); err != nil {
+		t.Fatalf("clearDevicePool should no-op: %v", err)
+	}
+
+	// assign when state Reserved should keep state
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	got.Status.State = v1alpha1.GPUDeviceStateReserved
+	got.Status.PoolRef = nil
+	got.Annotations = nil
+	if err := cl.Status().Update(context.Background(), got); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if err := h.assignDeviceWithRetry(context.Background(), "dev1", "pool2"); err != nil {
+		t.Fatalf("assignDeviceWithRetry reserved: %v", err)
+	}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	if got.Status.State != v1alpha1.GPUDeviceStateReserved || got.Status.PoolRef == nil || got.Status.PoolRef.Name != "pool2" {
+		t.Fatalf("expected reserved state preserved, got %+v", got.Status)
+	}
+
+	// missing device returns nil
+	if err := h.assignDeviceWithRetry(context.Background(), "absent", "pool3"); err != nil {
+		t.Fatalf("expected no error on missing device, got %v", err)
+	}
+	if err := h.clearDevicePool(context.Background(), "absent", "pool3"); err != nil {
+		t.Fatalf("expected no error on missing device clear, got %v", err)
+	}
+
+	// Assigned state should move to PendingAssignment on assign
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	got.Status.State = v1alpha1.GPUDeviceStateAssigned
+	got.Status.PoolRef = nil
+	if err := cl.Status().Update(context.Background(), got); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if err := h.assignDeviceWithRetry(context.Background(), "dev1", "pool4"); err != nil {
+		t.Fatalf("assignDeviceWithRetry assigned: %v", err)
+	}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, got); err != nil {
+		t.Fatalf("get dev1: %v", err)
+	}
+	if got.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
+		t.Fatalf("expected Assigned -> PendingAssignment, got %s", got.Status.State)
+	}
+
+	// clear when poolRef nil should be noop
+	got.Status.State = v1alpha1.GPUDeviceStateAssigned
+	got.Status.PoolRef = nil
+	got.Annotations = nil
+	if err := cl.Status().Update(context.Background(), got); err != nil {
+		t.Fatalf("status update: %v", err)
+	}
+	if err := h.clearDevicePool(context.Background(), "dev1", "pool4"); err != nil {
+		t.Fatalf("clearDevicePool nil poolref: %v", err)
 	}
 }
 

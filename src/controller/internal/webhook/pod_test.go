@@ -1091,7 +1091,10 @@ func TestPodValidator(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 
 	ns := enabledNS("gpu-ns")
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-ns"}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-ns"},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
 	validator := newPodValidator(testr.New(t), nil, nil, cl)

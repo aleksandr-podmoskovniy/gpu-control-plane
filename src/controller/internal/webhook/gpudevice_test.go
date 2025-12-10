@@ -138,6 +138,16 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	if resp.Allowed {
 		t.Fatalf("expected denial for ignored device")
 	}
+
+	// Ignored via annotation is denied.
+	delete(device.Labels, "gpu.deckhouse.io/ignore")
+	device.Annotations = map[string]string{"gpu.deckhouse.io/ignore": "true"}
+	raw, _ = json.Marshal(device)
+	req.Object = runtime.RawExtension{Raw: raw}
+	resp = validator.Handle(context.Background(), req)
+	if resp.Allowed {
+		t.Fatalf("expected denial for ignored device via annotation")
+	}
 }
 
 func TestMigProfilesHelper(t *testing.T) {

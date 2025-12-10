@@ -49,6 +49,7 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	if deps.Client != nil {
 		deps.Pool.Register(gpupool.NewConfigCheckHandler(deps.Client))
 		deps.Pool.Register(gpupool.NewSelectionSyncHandler(log.WithName("gpupool.selection-sync"), deps.Client))
+		deps.Pool.Register(gpupool.NewPodUsageHandler(log.WithName("gpupool.pod-usage"), deps.Client))
 		deps.Pool.Register(gpupool.NewNodeMarkHandler(log.WithName("gpupool.node-mark"), deps.Client))
 		deps.Pool.Register(gpupool.NewDPValidationHandler(log.WithName("gpupool.dp-validation"), deps.Client))
 	}

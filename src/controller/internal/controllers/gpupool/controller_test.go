@@ -265,8 +265,8 @@ func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
 
-	if len(stub.watchedSources) != 3 {
-		t.Fatalf("expected module config + device + inventory watchers, got %d", len(stub.watchedSources))
+	if len(stub.watchedSources) != 4 {
+		t.Fatalf("expected module config + device + inventory + pod watchers, got %d", len(stub.watchedSources))
 	}
 }
 

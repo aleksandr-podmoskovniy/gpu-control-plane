@@ -89,8 +89,23 @@ func (v *podValidator) Handle(ctx context.Context, req cradmission.Request) crad
 		poolRef = p
 	}
 
+	requested := requestedResources(pod, poolRef)
+	if requested <= 0 {
+		return cradmission.Allowed("no gpu pool requested")
+	}
+
 	if _, err := v.resolvePool(ctx, poolRef, pod.Namespace); err != nil {
 		return cradmission.Denied(err.Error())
+	}
+
+	if v.client != nil {
+		available, err := v.poolAvailable(ctx, poolRef, pod.Namespace)
+		if err != nil {
+			return cradmission.Denied(err.Error())
+		}
+		if requested > available {
+			return cradmission.Denied(fmt.Sprintf("requested %d units of %s but only %d available", requested, poolRef.keyPrefix+poolRef.name, available))
+		}
 	}
 
 	return cradmission.Allowed("gpu pod validated")
@@ -123,4 +138,45 @@ func (v *podValidator) resolvePool(ctx context.Context, req poolRequest, ns stri
 		return pool, nil
 	}
 	return nil, fmt.Errorf("GPUPool %q not found in namespace %q", req.name, ns)
+}
+
+func (v *podValidator) poolAvailable(ctx context.Context, req poolRequest, ns string) (int64, error) {
+	if v.client == nil {
+		return 0, fmt.Errorf("webhook client is not configured")
+	}
+	if req.isCluster {
+		obj := &v1alpha1.ClusterGPUPool{}
+		if err := v.client.Get(ctx, client.ObjectKey{Name: req.name}, obj); err != nil {
+			return 0, err
+		}
+		return int64(obj.Status.Capacity.Available), nil
+	}
+	obj := &v1alpha1.GPUPool{}
+	if err := v.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: req.name}, obj); err != nil {
+		return 0, err
+	}
+	return int64(obj.Status.Capacity.Available), nil
+}
+
+func requestedResources(pod *corev1.Pod, pool poolRequest) int64 {
+	name := corev1.ResourceName(pool.keyPrefix + pool.name)
+	var total int64
+	acc := func(res corev1.ResourceList) {
+		if q, ok := res[name]; ok {
+			total += q.Value()
+		}
+	}
+	for _, c := range pod.Spec.Containers {
+		acc(c.Resources.Limits)
+		if _, ok := c.Resources.Limits[name]; !ok {
+			acc(c.Resources.Requests)
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		acc(c.Resources.Limits)
+		if _, ok := c.Resources.Limits[name]; !ok {
+			acc(c.Resources.Requests)
+		}
+	}
+	return total
 }

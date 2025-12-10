@@ -103,6 +103,7 @@ func TestPodValidatorClusterPoolResolve(t *testing.T) {
 	clusterPool := &v1alpha1.ClusterGPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared"},
 		Spec:       v1alpha1.GPUPoolSpec{},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
 	}
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
@@ -126,6 +127,48 @@ func TestPodValidatorClusterPoolResolve(t *testing.T) {
 	resp := v.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed for cluster pool pod, got %v", resp.Result)
+	}
+}
+
+func TestPodValidatorDeniesWhenCapacityExceeded(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+	decoder := cradmission.NewDecoder(scheme)
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "gpu-team",
+		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
+	}}
+	clusterPool := &v1alpha1.ClusterGPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared"},
+		Spec:       v1alpha1.GPUPoolSpec{},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1},
+		},
+	}
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceName("cluster.gpu.deckhouse.io/shared"): resource.MustParse("2")},
+				},
+			}},
+		},
+	}
+	raw, _ := json.Marshal(pod)
+	req := cradmission.Request{
+		AdmissionRequest: admv1.AdmissionRequest{
+			Object: runtime.RawExtension{Raw: raw, Object: &pod},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, clusterPool).Build()
+	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	resp := v.Handle(context.Background(), req)
+	if resp.Allowed {
+		t.Fatalf("expected denial when requested exceeds available")
 	}
 }
 
@@ -215,7 +258,10 @@ func TestPodValidatorHandleSwitchBranches(t *testing.T) {
 		Name:   "gpu-team",
 		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
 	}}
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
 		Spec: corev1.PodSpec{
@@ -272,7 +318,10 @@ func TestPodValidatorNamespaceNotFoundAndNamespacedPool(t *testing.T) {
 		Name:   "gpu-team",
 		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
 	}}
-	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
+		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+	}
 	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
 	v = newPodValidator(testr.New(t), decoder, nil, cl)
 	if resp := v.Handle(context.Background(), req); !resp.Allowed {

@@ -56,9 +56,33 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		return contracts.Result{}, err
 	}
 
+	// build node -> requested units map from scheduled pods
+	nodeUsage := map[string]int32{}
+	resourcePrefix := "gpu.deckhouse.io/"
+	if pool.Namespace == "" || pool.Kind == "ClusterGPUPool" {
+		resourcePrefix = "cluster.gpu.deckhouse.io/"
+	}
+	resourceName := resourcePrefix + pool.Name
+	pods := &corev1.PodList{}
+	if err := h.client.List(ctx, pods); err == nil {
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			if pod.Spec.NodeName == "" {
+				continue
+			}
+			if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+				continue
+			}
+			for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+				if qty, ok := c.Resources.Limits[corev1.ResourceName(resourceName)]; ok {
+					nodeUsage[pod.Spec.NodeName] += int32(qty.Value())
+				}
+			}
+		}
+	}
+
 	capacityState := func(s v1alpha1.GPUDeviceState) bool {
-		return s == v1alpha1.GPUDeviceStatePendingAssignment ||
-			s == v1alpha1.GPUDeviceStateAssigned ||
+		return s == v1alpha1.GPUDeviceStateAssigned ||
 			s == v1alpha1.GPUDeviceStateReserved ||
 			s == v1alpha1.GPUDeviceStateInUse
 	}
@@ -118,12 +142,14 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		deviceSet := inv.Status.Devices
 		candidates := FilterDevices(deviceSet, pool.Spec.DeviceSelector)
 		var takenOnNode int32
+		remainingUsage := nodeUsage[inv.Name]
 		for _, dev := range candidates {
 			devCR, ok := assigned[dev.InventoryID]
 			if !ok {
 				continue
 			}
-			if strings.EqualFold(devCR.Labels["gpu.deckhouse.io/ignore"], "true") {
+			if strings.EqualFold(devCR.Labels["gpu.deckhouse.io/ignore"], "true") ||
+				strings.EqualFold(devCR.Annotations["gpu.deckhouse.io/ignore"], "true") {
 				continue
 			}
 			dev.State = devCR.Status.State
@@ -148,14 +174,21 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 					totalUnits += units
 					baseUnits += base
 					takenOnNode++
-					if dev.State == v1alpha1.GPUDeviceStateReserved || dev.State == v1alpha1.GPUDeviceStateInUse {
-						usedUnits += units
-						nodeUsed[inv.Name]++
+					// Approximate usage by subtracting requests already scheduled on the node.
+					if remainingUsage > 0 {
+						use := units
+						if remainingUsage < units {
+							use = remainingUsage
+						}
+						usedUnits += use
+						nodeUsed[inv.Name] += use
+						remainingUsage -= use
 					}
 					nodeTotals[inv.Name]++
 				}
 			}
 		}
+		nodeUsage[inv.Name] = remainingUsage
 	}
 
 	// Unassign devices that still point to this pool but no longer carry the assignment annotation.

@@ -61,7 +61,8 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 		return cradmission.Denied(fmt.Sprintf("device state must be Ready, got %s", device.Status.State))
 	}
 
-	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") {
+	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") ||
+		strings.EqualFold(device.Annotations["gpu.deckhouse.io/ignore"], "true") {
 		return cradmission.Denied("device is marked as ignored")
 	}
 
