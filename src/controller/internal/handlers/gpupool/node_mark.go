@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,7 +59,33 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 		nodesWithDevices[n.Name] = n.TotalDevices
 	}
 
-	for nodeName, total := range nodesWithDevices {
+	// Collect nodes that currently have devices plus nodes that still carry pool labels (to clean them up).
+	nodesToCheck := map[string]struct{}{}
+	for name := range nodesWithDevices {
+		nodesToCheck[name] = struct{}{}
+	}
+
+	addLabeled := func(selector labels.Selector) error {
+		if selector == nil {
+			return nil
+		}
+		var nodeList corev1.NodeList
+		if err := h.client.List(ctx, &nodeList, &client.ListOptions{LabelSelector: selector}); err != nil {
+			return err
+		}
+		for i := range nodeList.Items {
+			nodesToCheck[nodeList.Items[i].Name] = struct{}{}
+		}
+		return nil
+	}
+
+	_ = addLabeled(labels.SelectorFromSet(map[string]string{poolKey: poolValueFromKey(poolKey)}))
+	if altPoolKey != "" {
+		_ = addLabeled(labels.SelectorFromSet(map[string]string{altPoolKey: poolValueFromKey(altPoolKey)}))
+	}
+
+	for nodeName := range nodesToCheck {
+		total := nodesWithDevices[nodeName]
 		if err := h.syncNode(ctx, nodeName, poolKey, altPoolKey, total > 0, taintsEnabled); err != nil {
 			return contracts.Result{}, err
 		}

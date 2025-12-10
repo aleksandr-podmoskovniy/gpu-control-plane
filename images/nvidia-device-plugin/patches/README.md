@@ -15,3 +15,7 @@ Switch the default resource prefix to `gpu.deckhouse.io` and stop adding the def
 ### 004-gpu-uuid-pattern-match.patch
 
 Allow GPU resource patterns to match either product name or GPU UUID. This enables a strict allowlist per device by setting `resources.gpus[].pattern` to a specific UUID.
+
+### 005-resource-prefix-override.patch
+
+Make the resource prefix overridable via `NVIDIA_RESOURCE_PREFIX` env var so per-pool device-plugin can publish either `gpu.deckhouse.io/*` or `cluster.gpu.deckhouse.io/*` without rebuilding the image.

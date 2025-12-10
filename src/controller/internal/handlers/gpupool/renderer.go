@@ -455,6 +455,7 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 							Args: []string{"--config-file=/config/config.yaml", "--pass-device-specs=true", "--fail-on-init-error=false"},
 							Env: []corev1.EnvVar{
 								{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
+								{Name: "NVIDIA_RESOURCE_PREFIX", Value: poolPrefix(pool)},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "device-plugin", MountPath: "/var/lib/kubelet/device-plugins"},

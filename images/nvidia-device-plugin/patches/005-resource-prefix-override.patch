@@ -1,0 +1,48 @@
+diff --git a/api/config/v1/consts.go b/api/config/v1/consts.go
+index 43b5267..2ab3089 100644
+--- a/api/config/v1/consts.go
++++ b/api/config/v1/consts.go
+@@ -17,11 +17,15 @@
+ package v1
+ 
+ import (
++	"os"
++	"strings"
++
+ 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
+ )
+ 
+ // Constants related to resource names
+ const (
++	// ResourceNamePrefix is the default prefix; currentResourcePrefix reads an env override.
+ 	ResourceNamePrefix              = "gpu.deckhouse.io"
+ 	DefaultSharedResourceNameSuffix = ".shared"
+ 	MaxResourceNameLength           = 63
+@@ -54,3 +58,11 @@
+ 	DefaultNvidiaCTKPath       = "/usr/bin/nvidia-ctk"
+ 	DefaultContainerDriverRoot = "/driver-root"
+ )
++
++// currentResourcePrefix returns the prefix to use for resource names, honoring env override.
++func currentResourcePrefix() string {
++	if v := strings.TrimSpace(os.Getenv("NVIDIA_RESOURCE_PREFIX")); v != "" {
++		return v
++	}
++	return ResourceNamePrefix
++}
+diff --git a/api/config/v1/resources.go b/api/config/v1/resources.go
+index 26869da..74576f8 100644
+--- a/api/config/v1/resources.go
++++ b/api/config/v1/resources.go
+@@ -46,8 +46,9 @@
+ // NewResourceName builds a resource name from the standard prefix and a name.
+ // An error is returned if the format is incorrect.
+ func NewResourceName(n string) (ResourceName, error) {
+-	if !strings.HasPrefix(n, ResourceNamePrefix+"/") {
+-		n = ResourceNamePrefix + "/" + n
++	prefix := currentResourcePrefix()
++	if !strings.HasPrefix(n, prefix+"/") {
++		n = prefix + "/" + n
+ 	}
+ 
+ 	if len(n) > MaxResourceNameLength {
