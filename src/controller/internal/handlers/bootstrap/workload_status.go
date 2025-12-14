@@ -33,32 +33,32 @@ import (
 )
 
 const (
-	conditionReadyForPooling     = "ReadyForPooling"
-	conditionDriverMissing       = "DriverMissing"
-	conditionToolkitMissing      = "ToolkitMissing"
-	conditionMonitoringMissing   = "MonitoringMissing"
-	conditionGFDReady            = "GFDReady"
-	conditionManagedDisabled     = "ManagedDisabled"
-	conditionInventoryComplete   = "InventoryComplete"
-	conditionInfraDegraded       = "InfraDegraded"
-	conditionDegradedWorkloads   = "DegradedWorkloads"
-	reasonAllChecksPassed        = "AllChecksPassed"
-	reasonNoDevices              = "NoDevices"
-	reasonNodeDisabled           = "NodeDisabled"
-	reasonDriverNotDetected      = "DriverNotDetected"
-	reasonDriverDetected         = "DriverDetected"
-	reasonToolkitNotReady        = "ToolkitNotReady"
-	reasonToolkitReady           = "ToolkitReady"
-	reasonComponentPending       = "ComponentPending"
-	reasonMonitoringUnhealthy    = "MonitoringUnhealthy"
-	reasonMonitoringHealthy      = "MonitoringHealthy"
-	reasonComponentHealthy       = "ComponentHealthy"
-	reasonInventoryPending       = "InventoryPending"
-	reasonDevicesPending         = "DevicesPending"
-	reasonDevicesFaulted         = "DevicesFaulted"
-	reasonInfraDegraded          = "InfrastructureDegraded"
-	defaultNotReadyRequeueDelay  = 15 * time.Second
-	defaultReadyRequeueDelay     = time.Minute
+	conditionReadyForPooling    = "ReadyForPooling"
+	conditionDriverMissing      = "DriverMissing"
+	conditionToolkitMissing     = "ToolkitMissing"
+	conditionMonitoringMissing  = "MonitoringMissing"
+	conditionGFDReady           = "GFDReady"
+	conditionManagedDisabled    = "ManagedDisabled"
+	conditionInventoryComplete  = "InventoryComplete"
+	conditionInfraDegraded      = "InfraDegraded"
+	conditionDegradedWorkloads  = "DegradedWorkloads"
+	reasonAllChecksPassed       = "AllChecksPassed"
+	reasonNoDevices             = "NoDevices"
+	reasonNodeDisabled          = "NodeDisabled"
+	reasonDriverNotDetected     = "DriverNotDetected"
+	reasonDriverDetected        = "DriverDetected"
+	reasonToolkitNotReady       = "ToolkitNotReady"
+	reasonToolkitReady          = "ToolkitReady"
+	reasonComponentPending      = "ComponentPending"
+	reasonMonitoringUnhealthy   = "MonitoringUnhealthy"
+	reasonMonitoringHealthy     = "MonitoringHealthy"
+	reasonComponentHealthy      = "ComponentHealthy"
+	reasonInventoryPending      = "InventoryPending"
+	reasonDevicesPending        = "DevicesPending"
+	reasonDevicesFaulted        = "DevicesFaulted"
+	reasonInfraDegraded         = "InfrastructureDegraded"
+	defaultNotReadyRequeueDelay = 15 * time.Second
+	defaultReadyRequeueDelay    = time.Minute
 
 	gpuDeviceNodeLabelKey = "gpu.deckhouse.io/node"
 )
@@ -329,11 +329,6 @@ func pendingDevicesMessage(total int, throttled []string) string {
 		return message
 	}
 	return fmt.Sprintf("%s; manual intervention required for %s", message, strings.Join(throttled, ", "))
-}
-
-func managedDisabled(inventory *v1alpha1.GPUNodeState) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
-	return cond != nil && cond.Status == metav1.ConditionTrue
 }
 
 func pendingDeviceIDs(devices []v1alpha1.GPUDevice) []string {

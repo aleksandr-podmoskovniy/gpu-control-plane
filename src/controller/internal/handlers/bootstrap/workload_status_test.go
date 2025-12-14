@@ -159,24 +159,6 @@ func TestWorkloadStatusHandlerNameAndManagedDisabledHelper(t *testing.T) {
 	if handler.Name() == "" {
 		t.Fatalf("expected handler name")
 	}
-
-	inv := &v1alpha1.GPUNodeState{}
-	if managedDisabled(inv) {
-		t.Fatalf("expected managedDisabled=false when condition missing")
-	}
-
-	inv.Status.Conditions = []metav1.Condition{{
-		Type:   conditionManagedDisabled,
-		Status: metav1.ConditionFalse,
-	}}
-	if managedDisabled(inv) {
-		t.Fatalf("expected managedDisabled=false when condition false")
-	}
-
-	inv.Status.Conditions[0].Status = metav1.ConditionTrue
-	if !managedDisabled(inv) {
-		t.Fatalf("expected managedDisabled=true when condition true")
-	}
 }
 
 func TestWorkloadStatusHandlerEarlyReturnsAndListErrors(t *testing.T) {

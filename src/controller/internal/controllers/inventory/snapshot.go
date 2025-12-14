@@ -221,17 +221,6 @@ func extractDeviceSnapshots(labels map[string]string) []deviceSnapshot {
 	return result
 }
 
-func scoreDevice(dev deviceSnapshot) int {
-	score := 0
-	if dev.UUID != "" {
-		score += 2
-	}
-	if dev.PCIAddress != "" {
-		score++
-	}
-	return score
-}
-
 func sortDeviceSnapshots(devices []deviceSnapshot) {
 	sort.Slice(devices, func(i, j int) bool {
 		left := devices[i].Index

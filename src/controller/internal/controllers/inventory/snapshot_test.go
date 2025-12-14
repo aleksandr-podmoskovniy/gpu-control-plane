@@ -16,6 +16,7 @@ package inventory
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,7 +118,7 @@ func TestBuildNodeSnapshotMergesNodeAndFeatureLabels(t *testing.T) {
 		t.Fatalf("unexpected device UUID: %s", snapshot.Devices[0].UUID)
 	}
 	expectedPrecision := []string{"bf16", "fp16", "fp32", "tf32"}
-	if !stringSlicesEqual(snapshot.Devices[0].Precision, expectedPrecision) {
+	if !slices.Equal(snapshot.Devices[0].Precision, expectedPrecision) {
 		t.Fatalf("unexpected precision list: %+v", snapshot.Devices[0].Precision)
 	}
 }
@@ -252,21 +253,6 @@ func TestExtractDeviceSnapshotsSkipsMalformedEntries(t *testing.T) {
 	}
 	if devices[1].Product != "GPU Product" || devices[1].MemoryMiB != 12288 {
 		t.Fatalf("expected enriched product and memory, got %+v", devices[1])
-	}
-}
-
-func TestScoreDevice(t *testing.T) {
-	if scoreDevice(deviceSnapshot{}) != 0 {
-		t.Fatalf("expected score 0 for empty device")
-	}
-	if scoreDevice(deviceSnapshot{UUID: "GPU-UUID"}) != 2 {
-		t.Fatalf("expected score 2 when uuid present")
-	}
-	if scoreDevice(deviceSnapshot{PCIAddress: "0000:00:01.0"}) != 1 {
-		t.Fatalf("expected score 1 when pciAddress present")
-	}
-	if scoreDevice(deviceSnapshot{UUID: "GPU-UUID", PCIAddress: "0000:00:01.0"}) != 3 {
-		t.Fatalf("expected score 3 when uuid and pciAddress present")
 	}
 }
 

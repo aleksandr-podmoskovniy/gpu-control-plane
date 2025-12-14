@@ -46,8 +46,8 @@ import (
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
@@ -715,16 +715,4 @@ func gpuLabelsDiffer(oldLabels, newLabels map[string]string) bool {
 		}
 	}
 	return false
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
