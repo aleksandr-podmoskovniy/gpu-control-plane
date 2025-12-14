@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -36,11 +37,11 @@ import (
 )
 
 func localPoolReq(name string) poolRequest {
-	return poolRequest{name: name, keyPrefix: localPoolResourcePrefix, isCluster: false}
+	return poolRequest{name: name, keyPrefix: localPoolResourcePrefix}
 }
 
 func clusterPoolReq(name string) poolRequest {
-	return poolRequest{name: name, keyPrefix: clusterPoolResourcePrefix, isCluster: true}
+	return poolRequest{name: name, keyPrefix: clusterPoolResourcePrefix}
 }
 
 func enabledNS(name string) *corev1.Namespace {
@@ -56,13 +57,12 @@ func TestPodMutatorAddsAnnotation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"},
 	}
 	ns := enabledNS("d8-gpu-control-plane")
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 
 	pod := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
@@ -104,12 +104,11 @@ func TestPodMutatorAddsAnnotation(t *testing.T) {
 func TestPodMutatorRejectsMultiplePools(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"}}
 	ns := enabledNS("d8-gpu-control-plane")
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 
 	pod := corev1.Pod{
 		TypeMeta:   metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
@@ -150,7 +149,6 @@ func TestPodMutatorRejectsMultiplePools(t *testing.T) {
 func TestPodMutatorRejectsConflictingNodeSelector(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pod := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
@@ -178,7 +176,7 @@ func TestPodMutatorRejectsConflictingNodeSelector(t *testing.T) {
 		},
 	}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 	resp := mutator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial for conflicting nodeSelector")
@@ -188,7 +186,6 @@ func TestPodMutatorRejectsConflictingNodeSelector(t *testing.T) {
 func TestPodMutatorRejectsConflictingToleration(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pod := corev1.Pod{
 		TypeMeta: metav1.TypeMeta{Kind: "Pod", APIVersion: "v1"},
@@ -221,7 +218,7 @@ func TestPodMutatorRejectsConflictingToleration(t *testing.T) {
 		},
 	}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 	resp := mutator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial for conflicting toleration")
@@ -231,7 +228,6 @@ func TestPodMutatorRejectsConflictingToleration(t *testing.T) {
 func TestPodMutatorNamespaceNotFound(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
 
 	pod := corev1.Pod{
@@ -262,7 +258,7 @@ func TestPodMutatorNamespaceNotFound(t *testing.T) {
 
 	// client without namespace object
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial when namespace missing")
@@ -273,7 +269,6 @@ func TestPodMutatorTaintsDisabledSkipTolerations(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	ns := enabledNS("gpu-team")
 	pool := &v1alpha1.GPUPool{
@@ -300,7 +295,7 @@ func TestPodMutatorTaintsDisabledSkipTolerations(t *testing.T) {
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: rawPod, Object: &pod}}}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed for taints-disabled pool, got %v", resp.Result)
@@ -314,7 +309,6 @@ func TestPodMutatorNamespaceNotEnabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "gpu-team"}}
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
@@ -336,7 +330,7 @@ func TestPodMutatorNamespaceNotEnabled(t *testing.T) {
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: rawPod, Object: &pod}}}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial when namespace not enabled")
@@ -346,8 +340,7 @@ func TestPodMutatorNamespaceNotEnabled(t *testing.T) {
 func TestPodMutatorNoGPUResources(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
-	mutator := newPodMutator(testr.New(t), decoder, nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 
 	pod := corev1.Pod{}
 	rawPod, _ := json.Marshal(pod)
@@ -362,7 +355,6 @@ func TestPodMutatorObjectBranch(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	ns := enabledNS("gpu-team")
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
@@ -378,7 +370,7 @@ func TestPodMutatorObjectBranch(t *testing.T) {
 	}
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: pod}}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed when object branch used, got %v", resp.Result)
@@ -389,7 +381,6 @@ func TestPodMutatorSpreadAndCustomTolerations(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	ns := enabledNS("gpu-team")
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
@@ -412,7 +403,7 @@ func TestPodMutatorSpreadAndCustomTolerations(t *testing.T) {
 	}
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: pod}}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, store, cl)
+	mutator := newPodMutator(testr.New(t), store, cl)
 
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
@@ -433,12 +424,12 @@ func TestPodMutatorSpreadAndCustomTolerations(t *testing.T) {
 }
 
 func TestPodMutatorInvalidObjectAndEmptyRequest(t *testing.T) {
-	mutator := newPodMutator(testr.New(t), nil, nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 
 	// non-pod object should error
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: &corev1.Namespace{}}}}
 	resp := mutator.Handle(context.Background(), req)
-	if resp.Allowed || resp.Result == nil || resp.Result.Code != 422 {
+	if resp.Allowed || resp.Result == nil || resp.Result.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected errored response for non-pod object, got %+v", resp)
 	}
 
@@ -453,7 +444,6 @@ func TestPodMutatorHandleErrorBranches(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	ns := enabledNS("gpu-team")
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"}}
 	basePod := func() *corev1.Pod {
@@ -469,7 +459,7 @@ func TestPodMutatorHandleErrorBranches(t *testing.T) {
 		}
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 
 	// conflicting nodeSelector
 	pod := basePod()
@@ -505,26 +495,14 @@ func TestPodMutatorHandleErrorBranches(t *testing.T) {
 		t.Fatalf("expected denial for conflicting affinity")
 	}
 
-	// missing node referenced in pool status
-	pool.Status.Nodes = []v1alpha1.GPUPoolNodeStatus{{Name: "absent"}}
-	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator = newPodMutator(testr.New(t), decoder, nil, cl)
-	pod = basePod()
-	req = cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: pod}}}
-	if resp := mutator.Handle(context.Background(), req); resp.Allowed {
-		t.Fatalf("expected denial when node lookup fails")
-	}
-	pool.Status.Nodes = nil
-	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator = newPodMutator(testr.New(t), decoder, nil, cl)
-
 	// marshal error path
 	origMarshal := jsonMarshal
 	jsonMarshal = func(any) ([]byte, error) { return nil, errors.New("boom") }
 	defer func() { jsonMarshal = origMarshal }()
 	pod = basePod()
-	req = cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: pod}}}
-	if resp := mutator.Handle(context.Background(), req); resp.Allowed || resp.Result.Code != 500 {
+	raw, _ := json.Marshal(pod)
+	req = cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: raw}}}
+	if resp := mutator.Handle(context.Background(), req); resp.Allowed || resp.Result.Code != http.StatusInternalServerError {
 		t.Fatalf("expected errored response on marshal failure, got %+v", resp)
 	}
 }
@@ -532,7 +510,6 @@ func TestPodMutatorHandleErrorBranches(t *testing.T) {
 func TestPodMutatorAddsCustomTolerations(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	state := moduleconfig.DefaultState()
 	state.Settings.Placement.CustomTolerationKeys = []string{"dedicated.apiac.ru", "gpu-role"}
@@ -570,7 +547,7 @@ func TestPodMutatorAddsCustomTolerations(t *testing.T) {
 		},
 	}
 
-	mutator := newPodMutator(testr.New(t), decoder, store, cl)
+	mutator := newPodMutator(testr.New(t), store, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed, got denied: %v", resp.Result)
@@ -584,7 +561,6 @@ func TestPodMutatorSkipsPoolTolerationWhenTaintsDisabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	taintsEnabled := false
 	pool := &v1alpha1.GPUPool{
@@ -624,7 +600,7 @@ func TestPodMutatorSkipsPoolTolerationWhenTaintsDisabled(t *testing.T) {
 		},
 	}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed, got denied: %v", resp.Result)
@@ -638,7 +614,6 @@ func TestPodMutatorAddsSpreadConstraint(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"},
@@ -677,7 +652,7 @@ func TestPodMutatorAddsSpreadConstraint(t *testing.T) {
 		RequestResource: &metav1.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"},
 	}}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed, got denied: %v", resp.Result)
@@ -698,7 +673,6 @@ func TestPodMutatorRejectsConflictingSpreadConstraint(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"},
@@ -744,8 +718,8 @@ func TestPodMutatorRejectsConflictingSpreadConstraint(t *testing.T) {
 		RequestResource: &metav1.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"},
 	}}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
-	if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), "d8-gpu-control-plane"); err != nil {
+	mutator := newPodMutator(testr.New(t), nil, cl)
+	if _, err := resolvePoolByRequest(context.Background(), cl, localPoolReq("pool-a"), "d8-gpu-control-plane"); err != nil {
 		t.Fatalf("expected pool to be retrievable: %v", err)
 	}
 	resp := mutator.Handle(context.Background(), req)
@@ -758,7 +732,6 @@ func TestPodMutatorUsesModuleDefaultSpread(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"},
@@ -797,7 +770,7 @@ func TestPodMutatorUsesModuleDefaultSpread(t *testing.T) {
 		RequestResource: &metav1.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"},
 	}}
 
-	mutator := newPodMutator(testr.New(t), decoder, store, cl)
+	mutator := newPodMutator(testr.New(t), store, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed, got denied: %v", resp.Result)
@@ -808,7 +781,7 @@ func TestPodMutatorUsesModuleDefaultSpread(t *testing.T) {
 }
 
 func TestPodMutatorHandlesInvalidJSON(t *testing.T) {
-	mutator := newPodMutator(testr.New(t), cradmission.NewDecoder(runtime.NewScheme()), nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Object: runtime.RawExtension{Raw: []byte("not-a-pod")},
 	}}
@@ -822,7 +795,6 @@ func TestPodMutatorSpreadWithoutTopology(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "d8-gpu-control-plane"},
@@ -851,7 +823,7 @@ func TestPodMutatorSpreadWithoutTopology(t *testing.T) {
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Object: runtime.RawExtension{Object: &pod},
 	}}
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	resp := mutator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed, got %v", resp.Result)
@@ -865,7 +837,6 @@ func TestPodMutatorHandlesMarshalError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns"}}
 	ns := enabledNS("d8-gpu-control-plane")
@@ -889,7 +860,7 @@ func TestPodMutatorHandlesMarshalError(t *testing.T) {
 		Object: runtime.RawExtension{Raw: raw},
 	}}
 
-	mutator := newPodMutator(testr.New(t), decoder, nil, cl)
+	mutator := newPodMutator(testr.New(t), nil, cl)
 	origMarshal := jsonMarshal
 	t.Cleanup(func() { jsonMarshal = origMarshal })
 	jsonMarshal = func(any) ([]byte, error) { return nil, errors.New("marshal boom") }
@@ -901,8 +872,7 @@ func TestPodMutatorHandlesMarshalError(t *testing.T) {
 }
 
 func TestPodMutatorHandleRequestShapeEdgeCases(t *testing.T) {
-	decoder := cradmission.NewDecoder(runtime.NewScheme())
-	mutator := newPodMutator(testr.New(t), decoder, nil, nil)
+	mutator := newPodMutator(testr.New(t), nil, nil)
 
 	// empty request
 	resp := mutator.Handle(context.Background(), cradmission.Request{})
@@ -971,11 +941,10 @@ func TestPodMutatorRejectsConflictsWithResolvedPool(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns"}}
 	ns := enabledNS("default")
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	mutator := newPodMutator(testr.New(t), decoder, nil, client)
+	mutator := newPodMutator(testr.New(t), nil, client)
 
 	makeReq := func(pod corev1.Pod) cradmission.Request {
 		raw, _ := json.Marshal(pod)
@@ -1048,10 +1017,9 @@ func TestResolvePoolVariants(t *testing.T) {
 	clusterPool := &v1alpha1.ClusterGPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-b"}, Spec: v1alpha1.GPUPoolSpec{Scheduling: v1alpha1.GPUPoolSchedulingSpec{TopologyKey: "topology.kubernetes.io/zone"}}}
 
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(nsPool, clusterPool).Build()
-	mutator := newPodMutator(testr.New(t), cradmission.NewDecoder(scheme), nil, client)
 
 	// namespaced pool found
-	pool, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), "ns1")
+	pool, err := resolvePoolByRequest(context.Background(), client, localPoolReq("pool-a"), "ns1")
 	if err != nil {
 		t.Fatalf("expected namespaced pool, got error: %v", err)
 	}
@@ -1059,11 +1027,8 @@ func TestResolvePoolVariants(t *testing.T) {
 		t.Fatalf("unexpected spec from namespaced pool")
 	}
 
-	// cluster pool must be requested via cluster prefix
-	if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-b"), "ns1"); err == nil {
-		t.Fatalf("expected not found when requesting cluster pool with namespaced prefix")
-	}
-	pool, err = mutator.resolvePool(context.Background(), clusterPoolReq("pool-b"), "ns1")
+	// cluster pool is resolved via cluster prefix
+	pool, err = resolvePoolByRequest(context.Background(), client, clusterPoolReq("pool-b"), "ns1")
 	if err != nil {
 		t.Fatalf("expected cluster pool, got error: %v", err)
 	}
@@ -1072,15 +1037,15 @@ func TestResolvePoolVariants(t *testing.T) {
 	}
 
 	// client missing
-	if _, err := newPodMutator(testr.New(t), cradmission.NewDecoder(scheme), nil, nil).resolvePool(context.Background(), localPoolReq("pool-a"), "ns1"); err == nil {
+	if _, err := resolvePoolByRequest(context.Background(), nil, localPoolReq("pool-a"), "ns1"); err == nil {
 		t.Fatalf("expected error when client is nil")
 	}
 	// namespace missing
-	if _, err := mutator.resolvePool(context.Background(), localPoolReq("pool-a"), ""); err == nil {
+	if _, err := resolvePoolByRequest(context.Background(), client, localPoolReq("pool-a"), ""); err == nil {
 		t.Fatalf("expected error for empty namespace")
 	}
 	// not found
-	if _, err := mutator.resolvePool(context.Background(), localPoolReq("absent"), "ns1"); err == nil {
+	if _, err := resolvePoolByRequest(context.Background(), client, localPoolReq("absent"), "ns1"); err == nil {
 		t.Fatalf("expected not found error")
 	}
 }
@@ -1093,11 +1058,17 @@ func TestPodValidator(t *testing.T) {
 	ns := enabledNS("gpu-ns")
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-ns"},
-		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{
+				Type:   "Configured",
+				Status: metav1.ConditionTrue,
+			}},
+		},
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	validator := newPodValidator(testr.New(t), nil, nil, cl)
+	validator := newPodValidator(testr.New(t), cl)
 
 	makeReq := func(pod corev1.Pod) cradmission.Request {
 		raw, _ := json.Marshal(pod)
@@ -1128,7 +1099,7 @@ func TestPodValidator(t *testing.T) {
 	// ns without label
 	nsNoLabel := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "plain"}}
 	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(nsNoLabel, pool.DeepCopy()).Build()
-	validator = newPodValidator(testr.New(t), nil, nil, cl)
+	validator = newPodValidator(testr.New(t), cl)
 	pod.Namespace = "plain"
 	resp = validator.Handle(context.Background(), makeReq(pod))
 	if resp.Allowed {
@@ -1137,7 +1108,7 @@ func TestPodValidator(t *testing.T) {
 
 	// missing pool
 	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-	validator = newPodValidator(testr.New(t), nil, nil, cl)
+	validator = newPodValidator(testr.New(t), cl)
 	pod.Namespace = "gpu-ns"
 	resp = validator.Handle(context.Background(), makeReq(pod))
 	if resp.Allowed {
@@ -1146,7 +1117,7 @@ func TestPodValidator(t *testing.T) {
 }
 
 func TestPodValidatorNoPools(t *testing.T) {
-	validator := newPodValidator(testr.New(t), nil, nil, nil)
+	validator := newPodValidator(testr.New(t), nil)
 	pod := corev1.Pod{}
 	raw, _ := json.Marshal(pod)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: raw}}}
@@ -1163,7 +1134,7 @@ func TestPodValidatorMultiplePools(t *testing.T) {
 	ns := enabledNS("ns")
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "ns"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	validator := newPodValidator(testr.New(t), nil, nil, cl)
+	validator := newPodValidator(testr.New(t), cl)
 
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "ns"},

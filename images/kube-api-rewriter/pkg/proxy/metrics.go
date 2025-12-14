@@ -71,7 +71,7 @@ func (p *ProxyMetrics) TargetResponseError() {
 }
 
 func (p *ProxyMetrics) TargetResponseInvalidJSON(status int) {
-	p.provider.NewTargetResponseInvalidJSONTotal(p.name, p.resource, p.method, p.watch, strconv.Itoa(status))
+	p.provider.NewTargetResponseInvalidJSONTotal(p.name, p.resource, p.method, p.watch, strconv.Itoa(status)).Inc()
 }
 
 func (p *ProxyMetrics) RequestHandleSuccess() {
@@ -99,10 +99,6 @@ func (p *ProxyMetrics) ClientRequestRewriteError() {
 
 func (p *ProxyMetrics) ClientRequestRewriteSuccess() {
 	p.provider.NewRewritesTotal(p.name, p.resource, p.method, p.watch, clientSide, p.toTargetAction, noError).Inc()
-}
-
-func (p *ProxyMetrics) ClientRequestRewriteDuration(dur time.Duration) {
-	p.provider.NewRewritesDurationSeconds(p.name, p.resource, p.method, p.watch, clientSide, p.toTargetAction).Observe(dur.Seconds())
 }
 
 func (p *ProxyMetrics) TargetResponseRewriteDuration(dur time.Duration) {

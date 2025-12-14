@@ -22,7 +22,6 @@ import (
 )
 
 func TestClusterGPUPoolDeepCopy(t *testing.T) {
-	count := int32(1)
 	taintsEnabled := true
 	src := &ClusterGPUPool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -34,10 +33,8 @@ func TestClusterGPUPoolDeepCopy(t *testing.T) {
 			Backend:  "DevicePlugin",
 			Resource: GPUPoolResourceSpec{
 				Unit:          "MIG",
+				MIGProfile:    "1g.10gb",
 				SlicesPerUnit: 2,
-				MIGLayout: []GPUPoolMIGDeviceLayout{{
-					Profiles: []GPUPoolMIGProfile{{Name: "1g.10gb", Count: &count}},
-				}},
 			},
 			NodeSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"node": "gpu"}},
 			DeviceSelector: &GPUPoolDeviceSelector{
@@ -46,7 +43,7 @@ func TestClusterGPUPoolDeepCopy(t *testing.T) {
 			Scheduling: GPUPoolSchedulingSpec{TaintsEnabled: &taintsEnabled},
 		},
 		Status: GPUPoolStatus{
-			Capacity: GPUPoolCapacityStatus{Total: 1, Available: 1, SlicesPerUnit: 2},
+			Capacity: GPUPoolCapacityStatus{Total: 1},
 		},
 	}
 

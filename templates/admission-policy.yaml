@@ -27,8 +27,8 @@ spec:
         resources:
           - gpudevices
           - gpudevices/status
-          - gpunodeinventories
-          - gpunodeinventories/status
+          - gpunodestates
+          - gpunodestates/status
   validations:
     - expression: |
         request.userInfo.groups.exists(g, g == "system:masters") ||
@@ -46,6 +46,76 @@ metadata:
   {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
 spec:
   policyName: gpu-control-plane-restricted-access
+  validationActions:
+    - Deny
+  matchResources:
+    namespaceSelector: {}
+    objectSelector: {}
+---
+apiVersion: {{ $apiVersion }}
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: gpu-control-plane-gpu-enabled-namespace
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources:
+          - pods
+  validations:
+    - expression: |
+        !(
+          object.spec.containers.exists(c,
+            has(c.resources) && (
+              (has(c.resources.limits) &&
+                c.resources.limits.exists(k, v,
+                  k.startsWith("gpu.deckhouse.io/") ||
+                  k.startsWith("cluster.gpu.deckhouse.io/")
+                )
+              ) ||
+              (has(c.resources.requests) &&
+                c.resources.requests.exists(k, v,
+                  k.startsWith("gpu.deckhouse.io/") ||
+                  k.startsWith("cluster.gpu.deckhouse.io/")
+                )
+              )
+            )
+          ) ||
+          (has(object.spec.initContainers) && object.spec.initContainers.exists(c,
+            has(c.resources) && (
+              (has(c.resources.limits) &&
+                c.resources.limits.exists(k, v,
+                  k.startsWith("gpu.deckhouse.io/") ||
+                  k.startsWith("cluster.gpu.deckhouse.io/")
+                )
+              ) ||
+              (has(c.resources.requests) &&
+                c.resources.requests.exists(k, v,
+                  k.startsWith("gpu.deckhouse.io/") ||
+                  k.startsWith("cluster.gpu.deckhouse.io/")
+                )
+              )
+            )
+          ))
+        ) ||
+        (
+          has(namespaceObject.metadata.labels) &&
+          has(namespaceObject.metadata.labels["gpu.deckhouse.io/enabled"]) &&
+          namespaceObject.metadata.labels["gpu.deckhouse.io/enabled"] == "true"
+        )
+      message: "GPU resources may be requested only in namespaces with label gpu.deckhouse.io/enabled=true."
+---
+apiVersion: {{ $apiVersion }}
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: gpu-control-plane-gpu-enabled-namespace
+  {{- include "helm_lib_module_labels" (list .) | nindent 2 }}
+spec:
+  policyName: gpu-control-plane-gpu-enabled-namespace
   validationActions:
     - Deny
   matchResources:

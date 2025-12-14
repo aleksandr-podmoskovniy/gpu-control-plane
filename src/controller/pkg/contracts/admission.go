@@ -35,14 +35,3 @@ type AdmissionRegistry struct {
 func NewAdmissionRegistry() *AdmissionRegistry {
 	return &AdmissionRegistry{Registry: NewRegistry[AdmissionHandler]()}
 }
-
-// AdmissionHandlerFunc is a helper to build AdmissionHandler from a function.
-type AdmissionHandlerFunc func(context.Context, *v1alpha1.GPUPool) (Result, error)
-
-func (f AdmissionHandlerFunc) Name() string {
-	return "admission-func"
-}
-
-func (f AdmissionHandlerFunc) SyncPool(ctx context.Context, pool *v1alpha1.GPUPool) (Result, error) {
-	return f(ctx, pool)
-}

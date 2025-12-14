@@ -264,7 +264,10 @@ func TestEnsureNodeTolerations(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 
 	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-node-1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "gpu-node-1",
+			Labels: map[string]string{"gpu.deckhouse.io/pool-a": "pool-a"},
+		},
 		Spec: corev1.NodeSpec{
 			Taints: []corev1.Taint{
 				{Key: "dedicated.apiac.ru", Value: "w-gpu", Effect: corev1.TaintEffectNoSchedule},
@@ -273,10 +276,7 @@ func TestEnsureNodeTolerations(t *testing.T) {
 		},
 	}
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool-a"},
-		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "gpu-node-1"}},
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 	m := &podMutator{client: cl}
@@ -311,9 +311,12 @@ func TestEnsureNodeTolerations(t *testing.T) {
 	// missing node in API should be tolerated (log only)
 	m = &podMutator{client: cl}
 	pod = &corev1.Pod{}
-	missingPool := &v1alpha1.GPUPool{Status: v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "absent"}}}}
-	if err := m.ensureNodeTolerations(context.Background(), pod, missingPool); err == nil {
-		t.Fatalf("expected error on missing node")
+	missingPool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "absent", Namespace: "gpu-team"}}
+	if err := m.ensureNodeTolerations(context.Background(), pod, missingPool); err != nil {
+		t.Fatalf("expected no error when pool nodes are not labelled yet, got %v", err)
+	}
+	if len(pod.Spec.Tolerations) != 0 {
+		t.Fatalf("expected no tolerations when nodes not found, got %v", pod.Spec.Tolerations)
 	}
 }
 
@@ -333,7 +336,7 @@ func TestCollectPoolsRequests(t *testing.T) {
 		t.Fatalf("expected one pool from requests, got %d", len(pools))
 	}
 
-	// cluster-scoped pool resource
+	// cluster pool prefix is supported
 	pod = &corev1.Pod{Spec: corev1.PodSpec{
 		Containers: []corev1.Container{{
 			Resources: corev1.ResourceRequirements{
@@ -341,12 +344,8 @@ func TestCollectPoolsRequests(t *testing.T) {
 			},
 		}},
 	}}
-	pools := collectPools(pod)
-	if len(pools) != 1 {
-		t.Fatalf("expected one cluster pool, got %d", len(pools))
-	}
-	if p := pools["cluster:z"]; !p.isCluster {
-		t.Fatalf("expected cluster pool flag set")
+	if pools := collectPools(pod); len(pools) != 1 {
+		t.Fatalf("expected one pool from cluster prefix, got %d", len(pools))
 	}
 }
 
@@ -386,11 +385,7 @@ func TestToleratesTaintVariants(t *testing.T) {
 
 func TestMutatorResolvePoolNamespaceEmpty(t *testing.T) {
 	m := &podMutator{client: fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()}
-	if _, err := m.resolvePool(context.Background(), poolRequest{name: "pool"}, ""); err == nil {
-		t.Fatalf("expected error when namespace empty for namespaced pool")
-	}
-
-	if _, err := m.resolvePool(context.Background(), poolRequest{name: "cluster", isCluster: true}, ""); err == nil {
-		t.Fatalf("expected error when cluster pool missing")
+	if _, err := resolvePoolByRequest(context.Background(), m.client, poolRequest{name: "pool", keyPrefix: localPoolResourcePrefix}, ""); err == nil {
+		t.Fatalf("expected error when namespace empty")
 	}
 }

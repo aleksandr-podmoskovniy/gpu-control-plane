@@ -25,6 +25,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 // DPValidationHandler tracks per-pool validator readiness per node and updates device states.
@@ -64,6 +65,12 @@ func (h *DPValidationHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPU
 		return contracts.Result{}, nil
 	}
 
+	assignmentKey := assignmentAnnotationKey(pool)
+	assignmentField := indexer.GPUDeviceNamespacedAssignmentField
+	if assignmentKey == clusterAssignmentAnnotation {
+		assignmentField = indexer.GPUDeviceClusterAssignmentField
+	}
+
 	// collect validator-ready nodes for this pool
 	pods := &corev1.PodList{}
 	{
@@ -90,14 +97,14 @@ func (h *DPValidationHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPU
 	}
 
 	devices := &v1alpha1.GPUDeviceList{}
-	if err := h.client.List(ctx, devices); err != nil {
+	if err := h.client.List(ctx, devices, client.MatchingFields{assignmentField: pool.Name}); err != nil {
 		return contracts.Result{}, err
 	}
 
 	changed := false
 	for i := range devices.Items {
 		dev := &devices.Items[i]
-		if dev.Annotations[assignmentAnnotation] != pool.Name {
+		if dev.Annotations[assignmentKey] != pool.Name {
 			continue
 		}
 		node := dev.Status.NodeName

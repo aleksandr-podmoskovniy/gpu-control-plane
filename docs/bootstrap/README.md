@@ -34,7 +34,7 @@
 
    - Создать образы `gpu-gfd-src-artifact`/`gpu-gfd-build-artifact`/`gpu-gfd`.
    - Template: DaemonSet + (опционально) VPA по примеру `nvidia-gpu/gfd.yml`.
-   - Значения: только тюнинг (`sleepInterval`, `featuresDir`, `failOnInitError`, `hostSysPath`); включение/отключение управляется bootstrap-контроллером через `GPUNodeInventory.status.bootstrap` и значения `internal.bootstrap.components`.
+   - Значения: только тюнинг (`sleepInterval`, `featuresDir`, `failOnInitError`, `hostSysPath`); включение/отключение — через `ModuleConfig.spec.settings.bootstrap.gfd.enabled`, placement — через `gpuControlPlane.managedNode*`-хелперы (label-гейт по managed GPU‑нодам).
 
 2. **DCGM daemon**
 
@@ -46,15 +46,14 @@
 
    - Отдельный образ c distroless.
    - Helm: Deployment/DaemonSet + Service + ServiceMonitor (используем `templates/controller/scrapeconfig.yaml` как reference).
-   - Значения: порты, labels, аннотации ServiceMonitor; включение идёт от bootstrap state, а не из ModuleConfig.
+   - Значения: порты, labels, аннотации ServiceMonitor; включение/отключение — через `ModuleConfig.spec.settings.bootstrap.dcgmExporter.enabled` (и общие настройки мониторинга модуля).
 
 4. **Связка с bootstrap-контроллером**
 
-   - Контроллер следит за DaemonSet Ready/Unavailable и пишет condition'ы (`DriverMissing`,
-     `ToolkitMissing`, `MonitoringMissing`).
-   - Состояние хранится в `GPUNodeInventory.status.bootstrap`; hook `bootstrap_state_sync`
-     выгружает список CR и переносит его в `.Values.gpuControlPlane.internal.bootstrap`, после чего
-     Helm-шаблоны фильтруют узлы/ресурсы через `componentEnabled`/`componentHostExpression`.
+   - Контроллер следит за готовностью bootstrap‑ворклоадов и пишет только conditions в `GPUNodeState.status.conditions`
+     (например: `DriverMissing`, `ToolkitMissing`, `MonitoringMissing`, `GFDReady`, `ReadyForPooling`).
+   - Helm‑шаблоны **не зависят** от `GPUNodeState.status.*` для рендера: bootstrap DaemonSet’ы рендерятся по `ModuleConfig`,
+     а placement выполняется через `gpuControlPlane.managedNode*` (label‑гейт на managed GPU‑нодах).
 
 5. **Интеграция с Inventory**
 

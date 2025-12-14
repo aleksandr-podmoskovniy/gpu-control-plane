@@ -19,12 +19,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -96,14 +96,14 @@ type nodeDetection struct {
 	byIndex map[string]detectGPUEntry
 }
 
-func (r *Reconciler) collectNodeDetections(ctx context.Context, node string) (nodeDetection, error) {
+func (c *detectionCollector) Collect(ctx context.Context, node string) (nodeDetection, error) {
 	result := nodeDetection{
 		byUUID:  make(map[string]detectGPUEntry),
 		byIndex: make(map[string]detectGPUEntry),
 	}
 
 	pods := &corev1.PodList{}
-	if err := r.client.List(ctx, pods,
+	if err := c.client.List(ctx, pods,
 		client.InNamespace(meta.WorkloadsNamespace),
 		client.MatchingLabels{"app": meta.AppName(meta.ComponentGPUFeatureDiscovery)}); err != nil {
 		return result, err
@@ -197,27 +197,6 @@ func applyDetection(device *v1alpha1.GPUDevice, snapshot deviceSnapshot, detecti
 	if !ok {
 		return
 	}
-	health := &device.Status.Health
-	if health.Metrics == nil {
-		health.Metrics = make(map[string]string)
-	}
-	health.Metrics["detect.powerUsageMilliwatt"] = fmt.Sprintf("%d", entry.PowerUsage)
-	health.Metrics["detect.powerLimitMilliwatt"] = fmt.Sprintf("%d", entry.PowerManagementDefaultLimit)
-	health.Metrics["detect.memory.totalBytes"] = fmt.Sprintf("%d", entry.MemoryInfo.Total)
-	health.Metrics["detect.memory.freeBytes"] = fmt.Sprintf("%d", entry.MemoryInfo.Free)
-	health.Metrics["detect.memory.usedBytes"] = fmt.Sprintf("%d", entry.MemoryInfo.Used)
-	health.Metrics["detect.utilization.gpuPercent"] = fmt.Sprintf("%d", entry.Utilization.GPU)
-	health.Metrics["detect.utilization.memoryPercent"] = fmt.Sprintf("%d", entry.Utilization.Memory)
-	if entry.TemperatureC != 0 {
-		health.Metrics["detect.temperature.celsius"] = fmt.Sprintf("%d", entry.TemperatureC)
-		if device.Status.Health.TemperatureC == 0 {
-			device.Status.Health.TemperatureC = entry.TemperatureC
-		}
-	}
-
-	now := metav1.NewTime(time.Now().UTC())
-	health.LastUpdatedTime = &now
-	health.LastHealthyTime = &now
 
 	applyDetectionHardware(device, entry)
 }
@@ -240,15 +219,6 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 	if entry.UUID != "" {
 		hw.UUID = entry.UUID
 	}
-	if entry.MemoryMiB > 0 {
-		hw.MemoryMiB = entry.MemoryMiB
-	}
-	if entry.ComputeMajor > 0 {
-		capability := &v1alpha1.GPUComputeCapability{Major: entry.ComputeMajor, Minor: entry.ComputeMinor}
-		if !computeCapabilityEqual(hw.ComputeCapability, capability) {
-			hw.ComputeCapability = capability
-		}
-	}
 	if entry.PCI.Vendor != "" && hw.PCI.Vendor == "" {
 		hw.PCI.Vendor = strings.ToLower(entry.PCI.Vendor)
 	}
@@ -261,50 +231,39 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 	if entry.PCI.Address != "" && hw.PCI.Address == "" {
 		hw.PCI.Address = strings.ToLower(entry.PCI.Address)
 	}
-	if entry.NUMANode != nil && !int32PtrEqual(hw.NUMANode, entry.NUMANode) {
-		hw.NUMANode = entry.NUMANode
-	}
-	if entry.PowerManagementDefaultLimit > 0 {
-		hw.PowerLimitMilliWatt = detectionInt32Ptr(int32(entry.PowerManagementDefaultLimit))
-	}
-	if entry.SMCount != nil {
-		hw.SMCount = entry.SMCount
-	}
-	if entry.MemoryBandwidthMiB != nil {
-		hw.MemoryBandwidthMiB = entry.MemoryBandwidthMiB
-	}
-	desiredPCIE := v1alpha1.PCIELink{
-		Generation: entry.PCIE.Generation,
-		Width:      entry.PCIE.Width,
-	}
-	if !pcieEqual(hw.PCIE, desiredPCIE) {
-		hw.PCIE = desiredPCIE
-	}
-	if entry.Board != "" {
-		hw.Board = entry.Board
-	}
-	if entry.Family != "" {
-		hw.Family = entry.Family
-	}
-	if entry.Serial != "" {
-		hw.Serial = entry.Serial
-	}
-	if entry.DisplayMode != "" {
-		hw.DisplayMode = entry.DisplayMode
-	}
-	hw.PState = fmt.Sprintf("P%d", entry.PowerState)
 	if entry.MIG.Capable {
 		hw.MIG.Capable = true
 	}
+	if mode := strings.TrimSpace(entry.MIG.Mode); mode != "" {
+		switch strings.ToLower(mode) {
+		case "single":
+			hw.MIG.Strategy = v1alpha1.GPUMIGStrategySingle
+		case "mixed":
+			hw.MIG.Strategy = v1alpha1.GPUMIGStrategyMixed
+		default:
+			hw.MIG.Strategy = v1alpha1.GPUMIGStrategyNone
+		}
+	}
 	if len(entry.MIG.ProfilesSupported) > 0 {
-		hw.MIG.ProfilesSupported = append([]string(nil), entry.MIG.ProfilesSupported...)
+		seen := make(map[string]struct{}, len(entry.MIG.ProfilesSupported))
+		profiles := make([]string, 0, len(entry.MIG.ProfilesSupported))
+		for _, raw := range entry.MIG.ProfilesSupported {
+			profile := strings.TrimSpace(raw)
+			if profile == "" {
+				continue
+			}
+			profile = strings.ToLower(profile)
+			profile = strings.TrimPrefix(profile, "mig-")
+			if _, ok := seen[profile]; ok {
+				continue
+			}
+			seen[profile] = struct{}{}
+			profiles = append(profiles, profile)
+		}
+		sort.Strings(profiles)
+		hw.MIG.ProfilesSupported = profiles
 	}
-	if len(entry.Precision) > 0 && len(hw.Precision.Supported) == 0 {
-		hw.Precision.Supported = append([]string(nil), entry.Precision...)
+	if !hw.MIG.Capable && len(hw.MIG.ProfilesSupported) > 0 {
+		hw.MIG.Capable = true
 	}
-}
-
-func detectionInt32Ptr(value int32) *int32 {
-	val := value
-	return &val
 }

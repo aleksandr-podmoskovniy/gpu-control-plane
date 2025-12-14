@@ -32,23 +32,25 @@ type stubCounter struct {
 	addCalls []float64
 }
 
-func (s *stubCounter) Desc() *prometheus.Desc                      { return nil }
-func (s *stubCounter) Write(*dto.Metric) error                     { return nil }
-func (s *stubCounter) Describe(chan<- *prometheus.Desc)            {}
-func (s *stubCounter) Collect(chan<- prometheus.Metric)            {}
-func (s *stubCounter) Inc()                                        { s.incCalls++ }
-func (s *stubCounter) Add(v float64)                               { s.addCalls = append(s.addCalls, v) }
-func (s *stubCounter) Value() (int, []float64)                     { return s.incCalls, append([]float64(nil), s.addCalls...) }
-func (s *stubCounter) AddExplicit(v float64)                       { s.addCalls = append(s.addCalls, v) }
-func (s *stubCounter) GetLabelValues() map[string]string           { return map[string]string{} }
-func (s *stubCounter) String() string                              { return "" }
-func (s *stubCounter) SetToCurrentTime()                           {}
-func (s *stubCounter) AddWithExemplar(float64, prometheus.Labels)  {}
-func (s *stubCounter) IncWithExemplar(prometheus.Labels)           {}
-func (s *stubCounter) DescFunc(func(*prometheus.Desc))             {}
-func (s *stubCounter) WriteFunc(func(*dto.Metric) error) error     { return nil }
-func (s *stubCounter) DescribeFunc(func(chan<- *prometheus.Desc))  {}
-func (s *stubCounter) CollectFunc(func(chan<- prometheus.Metric))  {}
+func (s *stubCounter) Desc() *prometheus.Desc           { return nil }
+func (s *stubCounter) Write(*dto.Metric) error          { return nil }
+func (s *stubCounter) Describe(chan<- *prometheus.Desc) {}
+func (s *stubCounter) Collect(chan<- prometheus.Metric) {}
+func (s *stubCounter) Inc()                             { s.incCalls++ }
+func (s *stubCounter) Add(v float64)                    { s.addCalls = append(s.addCalls, v) }
+func (s *stubCounter) Value() (int, []float64) {
+	return s.incCalls, append([]float64(nil), s.addCalls...)
+}
+func (s *stubCounter) AddExplicit(v float64)                      { s.addCalls = append(s.addCalls, v) }
+func (s *stubCounter) GetLabelValues() map[string]string          { return map[string]string{} }
+func (s *stubCounter) String() string                             { return "" }
+func (s *stubCounter) SetToCurrentTime()                          {}
+func (s *stubCounter) AddWithExemplar(float64, prometheus.Labels) {}
+func (s *stubCounter) IncWithExemplar(prometheus.Labels)          {}
+func (s *stubCounter) DescFunc(func(*prometheus.Desc))            {}
+func (s *stubCounter) WriteFunc(func(*dto.Metric) error) error    { return nil }
+func (s *stubCounter) DescribeFunc(func(chan<- *prometheus.Desc)) {}
+func (s *stubCounter) CollectFunc(func(chan<- prometheus.Metric)) {}
 
 type stubObserver struct {
 	values []float64
@@ -142,7 +144,6 @@ func TestProxyMetricsCounters(t *testing.T) {
 	pm.TargetResponseRewriteSuccess()
 	pm.ClientRequestRewriteError()
 	pm.ClientRequestRewriteSuccess()
-	pm.ClientRequestRewriteDuration(220 * time.Millisecond)
 	pm.TargetResponseRewriteDuration(330 * time.Millisecond)
 	pm.FromClientBytesAdd("pass", 10)
 	pm.ToTargetBytesAdd("rewrite", 20)
@@ -151,11 +152,11 @@ func TestProxyMetricsCounters(t *testing.T) {
 
 	expectCounterInc(t, provider, "clientRequests", 1)
 	expectCounterInc(t, provider, "targetResponses", 2)
-	expectCounterExists(t, provider, "targetInvalidJSON")
+	expectCounterInc(t, provider, "targetInvalidJSON", 1)
 	expectCounterInc(t, provider, "handled", 2)
 	expectObserverCalls(t, provider, "handlingSeconds", 1)
 	expectCounterInc(t, provider, "rewrites", 4)
-	expectObserverCalls(t, provider, "rewriteSeconds", 2)
+	expectObserverCalls(t, provider, "rewriteSeconds", 1)
 
 	expectCounterAdds(t, provider, "fromClientBytes", []float64{10})
 	expectCounterAdds(t, provider, "toTargetBytes", []float64{20})

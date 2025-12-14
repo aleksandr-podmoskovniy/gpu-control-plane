@@ -16,14 +16,18 @@ package webhook
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
+	"sort"
+	"strings"
 
 	"github.com/go-logr/logr"
 	admv1 "k8s.io/api/admission/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -34,13 +38,15 @@ type gpupoolValidator struct {
 	log      logr.Logger
 	decoder  cradmission.Decoder
 	handlers []contracts.AdmissionHandler
+	client   client.Client
 }
 
-func newGPUPoolValidator(log logr.Logger, decoder cradmission.Decoder, handlers []contracts.AdmissionHandler) *gpupoolValidator {
+func newGPUPoolValidator(log logr.Logger, decoder cradmission.Decoder, handlers []contracts.AdmissionHandler, c client.Client) *gpupoolValidator {
 	return &gpupoolValidator{
 		log:      log.WithName("gpupool-validator"),
 		decoder:  decoder,
 		handlers: handlers,
+		client:   c,
 	}
 }
 
@@ -60,8 +66,13 @@ func (v *gpupoolValidator) Handle(ctx context.Context, req cradmission.Request) 
 		}
 	}
 
+	if err := validateNamespacedPoolNameUnique(ctx, v.client, pool, req.Namespace); err != nil {
+		return cradmission.Denied(err.Error())
+	}
+
+	candidate := pool.DeepCopy()
 	for _, h := range v.handlers {
-		if _, err := h.SyncPool(ctx, pool.DeepCopy()); err != nil {
+		if _, err := h.SyncPool(ctx, candidate); err != nil {
 			return cradmission.Denied(err.Error())
 		}
 	}
@@ -100,7 +111,10 @@ func (d *gpupoolDefaulter) Handle(ctx context.Context, req cradmission.Request) 
 	}
 
 	originalRaw := req.Object.Raw
-	mutatedRaw, _ := json.Marshal(pool)
+	mutatedRaw, err := jsonMarshal(pool)
+	if err != nil {
+		return cradmission.Errored(http.StatusInternalServerError, err)
+	}
 	return cradmission.PatchResponseFromRaw(originalRaw, mutatedRaw)
 }
 
@@ -135,4 +149,53 @@ func immutableView(p *v1alpha1.GPUPool) immutableSpec {
 		NodeSelector:   p.Spec.NodeSelector,
 		Scheduling:     p.Spec.Scheduling,
 	}
+}
+
+func validateNamespacedPoolNameUnique(ctx context.Context, c client.Client, pool *v1alpha1.GPUPool, admissionNamespace string) error {
+	if pool == nil {
+		return nil
+	}
+	if c == nil {
+		return fmt.Errorf("webhook client is not configured")
+	}
+
+	ns := pool.Namespace
+	if ns == "" {
+		ns = admissionNamespace
+	}
+
+	name := strings.TrimSpace(pool.Name)
+	if name == "" {
+		return nil
+	}
+
+	clusterPool := &v1alpha1.ClusterGPUPool{}
+	if err := c.Get(ctx, client.ObjectKey{Name: name}, clusterPool); err == nil {
+		return fmt.Errorf("GPUPool name %q conflicts with existing ClusterGPUPool of the same name", name)
+	} else if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("check ClusterGPUPool %q: %w", name, err)
+	}
+
+	list := &v1alpha1.GPUPoolList{}
+	if err := c.List(ctx, list); err != nil {
+		return fmt.Errorf("list GPUPools: %w", err)
+	}
+
+	var namespaces []string
+	for _, item := range list.Items {
+		if item.Name != name {
+			continue
+		}
+		if item.Namespace == ns {
+			continue
+		}
+		namespaces = append(namespaces, item.Namespace)
+	}
+
+	if len(namespaces) == 0 {
+		return nil
+	}
+
+	sort.Strings(namespaces)
+	return fmt.Errorf("GPUPool name %q must be unique cluster-wide (found in namespaces: %s)", name, strings.Join(namespaces, ", "))
 }

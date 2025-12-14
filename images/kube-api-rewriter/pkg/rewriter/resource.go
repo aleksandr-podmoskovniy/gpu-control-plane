@@ -18,7 +18,6 @@ package rewriter
 
 import (
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func RewriteCustomResourceOrList(rules *RewriteRules, obj []byte, action Action) ([]byte, error) {
@@ -95,25 +94,25 @@ func RestoreResource(rules *RewriteRules, obj []byte) ([]byte, error) {
 
 func RenameAPIVersionAndKind(rules *RewriteRules, obj []byte) ([]byte, error) {
 	apiVersion := gjson.GetBytes(obj, "apiVersion").String()
-	obj, err := sjson.SetBytes(obj, "apiVersion", rules.RenameApiVersion(apiVersion))
+	obj, err := sjsonSetBytes(obj, "apiVersion", rules.RenameApiVersion(apiVersion))
 	if err != nil {
 		return nil, err
 	}
 
 	kind := gjson.GetBytes(obj, "kind").String()
-	return sjson.SetBytes(obj, "kind", rules.RenameKind(kind))
+	return sjsonSetBytes(obj, "kind", rules.RenameKind(kind))
 }
 
 func RestoreAPIVersionAndKind(rules *RewriteRules, obj []byte) ([]byte, error) {
 	apiVersion := gjson.GetBytes(obj, "apiVersion").String()
 	apiVersion = rules.RestoreApiVersion(apiVersion)
-	obj, err := sjson.SetBytes(obj, "apiVersion", apiVersion)
+	obj, err := sjsonSetBytes(obj, "apiVersion", apiVersion)
 	if err != nil {
 		return nil, err
 	}
 
 	kind := gjson.GetBytes(obj, "kind").String()
-	return sjson.SetBytes(obj, "kind", rules.RestoreKind(kind))
+	return sjsonSetBytes(obj, "kind", rules.RestoreKind(kind))
 }
 
 func RewriteOwnerReferences(rules *RewriteRules, obj []byte, path string, action Action) ([]byte, error) {

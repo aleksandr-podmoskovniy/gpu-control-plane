@@ -18,7 +18,6 @@ package log
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 )
 
@@ -43,35 +42,6 @@ func (r *ReaderLogger) Read(p []byte) (n int, err error) {
 
 func (r *ReaderLogger) Close() error {
 	return r.wrappedReader.Close()
-}
-
-func HeadString(obj interface{}, limit int) string {
-	readLog, ok := obj.(*ReaderLogger)
-	if !ok {
-		return ""
-	}
-	bufLen := readLog.buf.Len()
-	bufStr := readLog.buf.String()
-	if bufLen < limit {
-		return bufStr
-	}
-	return bufStr[0:limit]
-}
-
-func HeadStringEx(obj interface{}, limit int) string {
-	s := HeadString(obj, limit)
-	if s == "" {
-		return "<empty>"
-	}
-	return fmt.Sprintf("[%d] %s", len(s), s)
-}
-
-func HasData(obj interface{}) bool {
-	readLog, ok := obj.(*ReaderLogger)
-	if !ok {
-		return false
-	}
-	return readLog.buf.Len() > 0
 }
 
 func Bytes(obj interface{}) []byte {

@@ -38,6 +38,7 @@ type FileCertificateManager struct {
 	certBytesPath      string
 	keyBytesPath       string
 	errorRetryInterval time.Duration
+	rotateCertsFn      func() error
 }
 
 func NewFileCertificateManager(certBytesPath, keyBytesPath string) *FileCertificateManager {
@@ -49,11 +50,42 @@ func NewFileCertificateManager(certBytesPath, keyBytesPath string) *FileCertific
 	}
 }
 
+type watcher interface {
+	Add(string) error
+	Close() error
+	Events() <-chan fsnotify.Event
+	Errors() <-chan error
+}
+
+type fsnotifyWatcher struct {
+	w *fsnotify.Watcher
+}
+
+func (f fsnotifyWatcher) Add(name string) error         { return f.w.Add(name) }
+func (f fsnotifyWatcher) Close() error                  { return f.w.Close() }
+func (f fsnotifyWatcher) Events() <-chan fsnotify.Event { return f.w.Events }
+func (f fsnotifyWatcher) Errors() <-chan error          { return f.w.Errors }
+
+var newWatcher = func() (watcher, error) {
+	w, err := fsnotifyNewWatcher()
+	if err != nil {
+		return nil, err
+	}
+	return fsnotifyWatcher{w: w}, nil
+}
+
+var fsnotifyNewWatcher = fsnotify.NewWatcher
+
+var sleep = time.Sleep
+
+var onRetryDrop func()
+
 func (f *FileCertificateManager) Start() {
 	objectUpdated := make(chan struct{}, 1)
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := newWatcher()
 	if err != nil {
 		slog.Error("failed to create an inotify watcher", logutil.SlogErr(err))
+		return
 	}
 	defer watcher.Close()
 
@@ -73,7 +105,7 @@ func (f *FileCertificateManager) Start() {
 	go func() {
 		for {
 			select {
-			case _, ok := <-watcher.Events:
+			case _, ok := <-watcher.Events():
 				if !ok {
 					return
 				}
@@ -82,7 +114,7 @@ func (f *FileCertificateManager) Start() {
 				default:
 					slog.Debug("Dropping redundant wakeup for cert reload")
 				}
-			case err, ok := <-watcher.Errors:
+			case err, ok := <-watcher.Errors():
 				if !ok {
 					return
 				}
@@ -94,17 +126,25 @@ func (f *FileCertificateManager) Start() {
 	// ensure we load the certificates on startup
 	objectUpdated <- struct{}{}
 
+	rotate := f.rotateCerts
+	if f.rotateCertsFn != nil {
+		rotate = f.rotateCertsFn
+	}
+
 sync:
 	for {
 		select {
 		case <-objectUpdated:
-			if err := f.rotateCerts(); err != nil {
+			if err := rotate(); err != nil {
 				go func() {
-					time.Sleep(f.errorRetryInterval)
+					sleep(f.errorRetryInterval)
 					select {
 					case objectUpdated <- struct{}{}:
 					default:
 						slog.Debug("Dropping redundant wakeup for cert reload")
+						if onRetryDrop != nil {
+							onRetryDrop()
+						}
 					}
 				}()
 			}

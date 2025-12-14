@@ -41,22 +41,3 @@ func TestDeviceStateHandlerName(t *testing.T) {
 		t.Fatalf("unexpected handler name: %s", h.Name())
 	}
 }
-
-func TestDeviceStateHandlerMarksFaultedOnHealthError(t *testing.T) {
-	h := NewDeviceStateHandler(testr.New(t))
-	device := &v1alpha1.GPUDevice{
-		Status: v1alpha1.GPUDeviceStatus{
-			State: v1alpha1.GPUDeviceStateReady,
-			Health: v1alpha1.GPUDeviceHealth{
-				LastError:       "DCGM reported XID error code 31",
-				LastErrorReason: "XIDError",
-			},
-		},
-	}
-	if _, err := h.HandleDevice(context.Background(), device); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if device.Status.State != v1alpha1.GPUDeviceStateFaulted {
-		t.Fatalf("expected device marked faulted, got %s", device.Status.State)
-	}
-}

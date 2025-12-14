@@ -48,4 +48,18 @@ func TestNodePredicates(t *testing.T) {
 	if reqs := mapNodeFeatureToNode(context.Background(), nil); len(reqs) != 0 {
 		t.Fatalf("expected nil feature to produce no requests")
 	}
+
+	// same GPU labels should not requeue
+	sameOld := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de"}}}
+	sameNew := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de"}}}
+	if preds.Update(event.UpdateEvent{ObjectOld: sameOld, ObjectNew: sameNew}) {
+		t.Fatalf("expected update with unchanged GPU labels to be filtered out")
+	}
+
+	// adding GPU labels should trigger
+	noLabels := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}}}
+	withLabels := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"gpu.deckhouse.io/device.00.vendor": "10de"}}}
+	if !preds.Update(event.UpdateEvent{ObjectOld: noLabels, ObjectNew: withLabels}) {
+		t.Fatalf("expected update adding GPU labels to trigger")
+	}
 }

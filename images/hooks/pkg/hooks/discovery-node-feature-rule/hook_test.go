@@ -479,31 +479,6 @@ func TestEnsureNodeFeatureRuleMetadataInitialization(t *testing.T) {
 	}
 }
 
-func TestEnsureNamespaceCreatesNamespaceWithLabels(t *testing.T) {
-	pc := mock.NewPatchCollectorMock(t)
-	var captured any
-	pc.CreateIfNotExistsMock.Set(func(obj any) { captured = obj })
-
-	if err := ensureNamespace(pc); err != nil {
-		t.Fatalf("ensureNamespace returned error: %v", err)
-	}
-
-	unstr, ok := captured.(*unstructured.Unstructured)
-	if !ok {
-		t.Fatalf("unexpected object type: %T", captured)
-	}
-	if unstr.GetName() != settings.ModuleNamespace {
-		t.Fatalf("unexpected namespace name: %s", unstr.GetName())
-	}
-	labels := unstr.GetLabels()
-	if labels["app.kubernetes.io/name"] != settings.ModuleName {
-		t.Fatalf("unexpected module label: %#v", labels)
-	}
-	if labels["app.kubernetes.io/managed-by"] != "deckhouse" {
-		t.Fatalf("unexpected managed-by label: %#v", labels)
-	}
-}
-
 func TestEnsureNodeFeatureRuleUnmarshalError(t *testing.T) {
 	resetSeams()
 

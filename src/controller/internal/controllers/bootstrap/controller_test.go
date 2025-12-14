@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
-	"github.com/prometheus/client_golang/prometheus/testutil"
+	promdto "github.com/prometheus/client_model/go"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -45,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -53,6 +53,10 @@ import (
 	bootstrapmeta "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
+	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/validation"
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
 // --- Test fakes ----------------------------------------------------------------
@@ -62,6 +66,7 @@ type fakeManager struct {
 	scheme *runtime.Scheme
 	log    logr.Logger
 	cache  cache.Cache
+	indexer client.FieldIndexer
 }
 
 func newFakeManager(c client.Client, scheme *runtime.Scheme) *fakeManager {
@@ -70,7 +75,7 @@ func newFakeManager(c client.Client, scheme *runtime.Scheme) *fakeManager {
 
 func (f *fakeManager) GetClient() client.Client                        { return f.client }
 func (f *fakeManager) GetScheme() *runtime.Scheme                      { return f.scheme }
-func (f *fakeManager) GetFieldIndexer() client.FieldIndexer            { return nil }
+func (f *fakeManager) GetFieldIndexer() client.FieldIndexer            { return f.indexer }
 func (f *fakeManager) GetHTTPClient() *http.Client                     { return nil }
 func (f *fakeManager) GetConfig() *rest.Config                         { return nil }
 func (f *fakeManager) GetCache() cache.Cache                           { return f.cache }
@@ -98,22 +103,24 @@ type fakeBuilder struct {
 	completeCalls  int
 }
 
-func (f *fakeBuilder) Named(name string) controllerBuilder {
+func (f *fakeBuilder) Named(name string) controllerbuilder.Builder {
 	f.named = name
 	return f
 }
 
-func (f *fakeBuilder) For(obj client.Object, _ ...builder.ForOption) controllerBuilder {
+func (f *fakeBuilder) For(obj client.Object, _ ...builder.ForOption) controllerbuilder.Builder {
 	f.forObject = obj
 	return f
 }
 
-func (f *fakeBuilder) WithOptions(opts controller.Options) controllerBuilder {
+func (f *fakeBuilder) Owns(client.Object, ...builder.OwnsOption) controllerbuilder.Builder { return f }
+
+func (f *fakeBuilder) WithOptions(opts controller.Options) controllerbuilder.Builder {
 	f.options = opts
 	return f
 }
 
-func (f *fakeBuilder) WatchesRawSource(src source.Source) controllerBuilder {
+func (f *fakeBuilder) WatchesRawSource(src source.Source) controllerbuilder.Builder {
 	f.watchedSources = append(f.watchedSources, src)
 	return f
 }
@@ -123,52 +130,69 @@ func (f *fakeBuilder) Complete(reconcile.Reconciler) error {
 	return f.completeErr
 }
 
-func resetBootstrapMetrics() {
-	bootstrapPhaseGauge.Reset()
-	bootstrapConditionGauge.Reset()
-	bootstrapHandlerErrors.Reset()
+func labelsMatch(metric *promdto.Metric, expected map[string]string) bool {
+	for name, want := range expected {
+		found := false
+		for _, pair := range metric.Label {
+			if pair.GetName() != name {
+				continue
+			}
+			found = true
+			if pair.GetValue() != want {
+				return false
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
-type fakeRuntimeAdapter struct {
-	namedCalled    bool
-	forCalled      bool
-	options        controller.Options
-	completeCalled bool
+func findMetric(t *testing.T, name string, labels map[string]string) (*promdto.Metric, bool) {
+	t.Helper()
+
+	families, err := crmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.Metric {
+			if labelsMatch(metric, labels) {
+				return metric, true
+			}
+		}
+		return nil, false
+	}
+
+	return nil, false
 }
 
-func (f *fakeRuntimeAdapter) Named(string) controllerRuntimeAdapter {
-	f.namedCalled = true
-	return f
+func counterValue(t *testing.T, name string, labels map[string]string) (float64, bool) {
+	t.Helper()
+
+	metric, ok := findMetric(t, name, labels)
+	if !ok || metric.Counter == nil {
+		return 0, false
+	}
+	return metric.Counter.GetValue(), true
 }
 
-func (f *fakeRuntimeAdapter) For(client.Object, ...builder.ForOption) controllerRuntimeAdapter {
-	f.forCalled = true
-	return f
-}
+func gaugeValue(t *testing.T, name string, labels map[string]string) (float64, bool) {
+	t.Helper()
 
-func (f *fakeRuntimeAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
-	f.options = opts
-	return f
-}
-
-func (f *fakeRuntimeAdapter) WatchesRawSource(source.Source) controllerRuntimeAdapter {
-	return f
-}
-
-func (f *fakeRuntimeAdapter) Complete(reconcile.Reconciler) error {
-	f.completeCalled = true
-	return nil
+	metric, ok := findMetric(t, name, labels)
+	if !ok || metric.Gauge == nil {
+		return 0, false
+	}
+	return metric.Gauge.GetValue(), true
 }
 
 type fakeCache struct{ cache.Cache }
-
-type fakeSource struct{}
-
-func (fakeSource) Start(context.Context, workqueue.RateLimitingInterface) error {
-	return nil
-}
-
-func (fakeSource) WaitForSync(context.Context) error { return nil }
 
 type stubBootstrapHandler struct {
 	name   string
@@ -179,7 +203,7 @@ type stubBootstrapHandler struct {
 
 func (s *stubBootstrapHandler) Name() string { return s.name }
 
-func (s *stubBootstrapHandler) HandleNode(context.Context, *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
+func (s *stubBootstrapHandler) HandleNode(context.Context, *v1alpha1.GPUNodeState) (contracts.Result, error) {
 	s.calls++
 	return s.result, s.err
 }
@@ -190,7 +214,7 @@ type clientAwareBootstrapHandler struct {
 
 func (h *clientAwareBootstrapHandler) Name() string { return "client-aware" }
 
-func (h *clientAwareBootstrapHandler) HandleNode(context.Context, *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
+func (h *clientAwareBootstrapHandler) HandleNode(context.Context, *v1alpha1.GPUNodeState) (contracts.Result, error) {
 	return contracts.Result{}, nil
 }
 
@@ -198,12 +222,46 @@ func (h *clientAwareBootstrapHandler) SetClient(cl client.Client) {
 	h.client = cl
 }
 
+type stubValidator struct {
+	statusCalls int
+}
+
+func (s *stubValidator) Status(context.Context, string) (validation.Result, error) {
+	s.statusCalls++
+	return validation.Result{}, nil
+}
+
+type capturingValidator struct {
+	statusCalls int
+	nodeName    string
+	result      validation.Result
+	err         error
+}
+
+func (v *capturingValidator) Status(_ context.Context, nodeName string) (validation.Result, error) {
+	v.statusCalls++
+	v.nodeName = nodeName
+	return v.result, v.err
+}
+
 type statusChangingHandler struct{}
 
 func (statusChangingHandler) Name() string { return "status-changer" }
 
-func (statusChangingHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
+func (statusChangingHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
 	inventory.Status.Conditions = append(inventory.Status.Conditions, metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue})
+	return contracts.Result{}, nil
+}
+
+type statusReadingHandler struct {
+	present bool
+	status  validation.Result
+}
+
+func (h *statusReadingHandler) Name() string { return "status-reader" }
+
+func (h *statusReadingHandler) HandleNode(ctx context.Context, _ *v1alpha1.GPUNodeState) (contracts.Result, error) {
+	h.status, h.present = validation.StatusFromContext(ctx)
 	return contracts.Result{}, nil
 }
 
@@ -223,6 +281,18 @@ type failingListClient struct {
 
 func (f *failingListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
 	return f.err
+}
+
+type stubFieldIndexer struct {
+	results [][]string
+	err     error
+}
+
+func (s *stubFieldIndexer) IndexField(_ context.Context, _ client.Object, _ string, extractValue client.IndexerFunc) error {
+	s.results = append(s.results, extractValue(&corev1.Pod{Spec: corev1.PodSpec{NodeName: "node-a"}}))
+	s.results = append(s.results, extractValue(&corev1.Pod{}))
+	s.results = append(s.results, extractValue(&corev1.Node{}))
+	return s.err
 }
 
 func newScheme(t *testing.T) *runtime.Scheme {
@@ -256,7 +326,7 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 
 	stub := &fakeBuilder{}
 	rec := New(testr.New(t), config.ControllerConfig{Workers: 3}, nil, nil)
-	rec.builders = func(ctrl.Manager) controllerBuilder { return stub }
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder { return stub }
 
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
 		t.Fatalf("SetupWithManager failed: %v", err)
@@ -270,8 +340,8 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 	if stub.named != "gpu-bootstrap-controller" {
 		t.Fatalf("unexpected controller name: %s", stub.named)
 	}
-	if _, ok := stub.forObject.(*v1alpha1.GPUNodeInventory); !ok {
-		t.Fatalf("expected For GPUNodeInventory, got %T", stub.forObject)
+	if _, ok := stub.forObject.(*v1alpha1.GPUNodeState); !ok {
+		t.Fatalf("expected For GPUNodeState, got %T", stub.forObject)
 	}
 	if stub.options.MaxConcurrentReconciles != 3 {
 		t.Fatalf("expected workers=3, got %d", stub.options.MaxConcurrentReconciles)
@@ -290,6 +360,44 @@ func TestSetupWithManagerUsesBuilder(t *testing.T) {
 	}
 }
 
+func TestSetupWithManagerIndexesPodsWhenIndexerProvided(t *testing.T) {
+	scheme := newScheme(t)
+	cl := clientfake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := newFakeManager(cl, scheme)
+	mgr.indexer = &stubFieldIndexer{}
+
+	rec := New(testr.New(t), config.ControllerConfig{Workers: 1}, nil, nil)
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder { return &fakeBuilder{} }
+
+	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
+		t.Fatalf("SetupWithManager failed: %v", err)
+	}
+	idx := mgr.indexer.(*stubFieldIndexer)
+	if len(idx.results) != 3 {
+		t.Fatalf("expected 3 extractValue calls, got %d", len(idx.results))
+	}
+	if len(idx.results[0]) != 1 || idx.results[0][0] != "node-a" {
+		t.Fatalf("unexpected extractValue result: %#v", idx.results[0])
+	}
+	if idx.results[1] != nil || idx.results[2] != nil {
+		t.Fatalf("expected nil extractValue results for non-matching objects, got %#v", idx.results[1:])
+	}
+}
+
+func TestSetupWithManagerPropagatesIndexerError(t *testing.T) {
+	scheme := newScheme(t)
+	cl := clientfake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := newFakeManager(cl, scheme)
+	mgr.indexer = &stubFieldIndexer{err: errors.New("index fail")}
+
+	rec := New(testr.New(t), config.ControllerConfig{Workers: 1}, nil, nil)
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder { return &fakeBuilder{} }
+
+	if err := rec.SetupWithManager(context.Background(), mgr); err == nil {
+		t.Fatalf("expected indexer error")
+	}
+}
+
 func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
 	scheme := newScheme(t)
 	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
@@ -298,7 +406,7 @@ func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
 
 	stub := &fakeBuilder{}
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.builders = func(ctrl.Manager) controllerBuilder { return stub }
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder { return stub }
 
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
 		t.Fatalf("SetupWithManager failed: %v", err)
@@ -341,7 +449,7 @@ func TestSetupWithManagerPropagatesError(t *testing.T) {
 	mgr := newFakeManager(client, scheme)
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.builders = func(ctrl.Manager) controllerBuilder {
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder {
 		return &fakeBuilder{completeErr: errors.New("builder fail")}
 	}
 
@@ -418,7 +526,7 @@ func TestInjectClientNoClient(t *testing.T) {
 
 func TestReconcileAggregatesResults(t *testing.T) {
 	scheme := newScheme(t)
-	node := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	node := &v1alpha1.GPUNodeState{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 
 	handlerA := &stubBootstrapHandler{name: "a", result: contracts.Result{Requeue: true}}
@@ -442,13 +550,11 @@ func TestReconcileAggregatesResults(t *testing.T) {
 
 func TestRequeueAllInventories(t *testing.T) {
 	scheme := newScheme(t)
-	invA := &v1alpha1.GPUNodeInventory{
+	invA := &v1alpha1.GPUNodeState{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-a"}}},
 	}
-	invB := &v1alpha1.GPUNodeInventory{
+	invB := &v1alpha1.GPUNodeState{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-b"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-b"}}},
 	}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(invA, invB).Build()
 
@@ -467,32 +573,10 @@ func TestRequeueAllInventories(t *testing.T) {
 	}
 }
 
-func TestRequeueAllInventoriesSkipsNodesWithoutHardware(t *testing.T) {
-	scheme := newScheme(t)
-	withGPU := &v1alpha1.GPUNodeInventory{
-		ObjectMeta: metav1.ObjectMeta{Name: "node-ready"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-ready"}}},
-	}
-	withoutGPU := &v1alpha1.GPUNodeInventory{
-		ObjectMeta: metav1.ObjectMeta{Name: "node-empty"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{},
-	}
-	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(withGPU, withoutGPU).Build()
-
-	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.client = client
-
-	reqs := rec.requeueAllInventories(context.Background())
-	if len(reqs) != 1 || reqs[0].Name != "node-ready" {
-		t.Fatalf("expected only node-ready to be scheduled, got %#v", reqs)
-	}
-}
-
 func TestMapModuleConfigRequeuesInventories(t *testing.T) {
 	scheme := newScheme(t)
-	inventory := &v1alpha1.GPUNodeInventory{
+	inventory := &v1alpha1.GPUNodeState{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status:     v1alpha1.GPUNodeInventoryStatus{Devices: []v1alpha1.GPUNodeDevice{{InventoryID: "dev-a"}}},
 	}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
 
@@ -502,6 +586,22 @@ func TestMapModuleConfigRequeuesInventories(t *testing.T) {
 	reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{})
 	if len(reqs) != 1 || reqs[0].Name != "node-a" {
 		t.Fatalf("unexpected requests: %#v", reqs)
+	}
+}
+
+func TestMapModuleConfigSkipsWhenModuleDisabled(t *testing.T) {
+	scheme := newScheme(t)
+	inventory := &v1alpha1.GPUNodeState{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
+	}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
+	store := config.NewModuleConfigStore(moduleconfig.State{Enabled: false, Settings: moduleconfig.DefaultState().Settings})
+
+	rec := New(testr.New(t), config.ControllerConfig{}, store, nil)
+	rec.client = client
+
+	if reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{}); len(reqs) != 0 {
+		t.Fatalf("expected no requests when module is disabled, got %#v", reqs)
 	}
 }
 
@@ -515,12 +615,12 @@ func TestRequeueAllInventoriesHandlesError(t *testing.T) {
 }
 
 func TestReconcileHandlerError(t *testing.T) {
-	resetBootstrapMetrics()
 	scheme := newScheme(t)
-	node := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	node := &v1alpha1.GPUNodeState{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 
-	handler := &stubBootstrapHandler{name: "boom", err: errors.New("handler fail")}
+	handlerName := "boom-" + t.Name()
+	handler := &stubBootstrapHandler{name: handlerName, err: errors.New("handler fail")}
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, []contracts.BootstrapHandler{handler})
 	rec.client = client
 	rec.scheme = scheme
@@ -531,8 +631,29 @@ func TestReconcileHandlerError(t *testing.T) {
 	if handler.calls != 1 {
 		t.Fatalf("expected handler called once, got %d", handler.calls)
 	}
-	if v := testutil.ToFloat64(bootstrapHandlerErrors.WithLabelValues("boom")); v != 1 {
+	if v, ok := counterValue(t, cpmetrics.BootstrapHandlerErrorsTotal, map[string]string{"handler": handlerName}); !ok || v != 1 {
 		t.Fatalf("expected handler error metric incremented, got %f", v)
+	}
+}
+
+func TestReconcileSkipsWhenModuleDisabled(t *testing.T) {
+	scheme := newScheme(t)
+	inventory := &v1alpha1.GPUNodeState{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
+	store := config.NewModuleConfigStore(moduleconfig.State{Enabled: false, Settings: moduleconfig.DefaultState().Settings})
+
+	rec := New(testr.New(t), config.ControllerConfig{}, store, nil)
+	rec.client = client
+	rec.scheme = scheme
+	rec.validator = &stubValidator{}
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "node"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val := rec.validator.(*stubValidator)
+	if val.statusCalls != 0 {
+		t.Fatalf("expected validator not to be called, got status=%d", val.statusCalls)
 	}
 }
 
@@ -546,35 +667,47 @@ func TestReconcileGetError(t *testing.T) {
 }
 
 func TestUpdateBootstrapMetricsSetsPhaseAndConditions(t *testing.T) {
-	resetBootstrapMetrics()
+	nodeName := "node-metrics-update"
 	rec := &Reconciler{}
-	inventory := newInventoryWithPhase("node-a", v1alpha1.GPUNodeBootstrapPhaseMonitoring)
+	inventory := &v1alpha1.GPUNodeState{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Spec:       v1alpha1.GPUNodeStateSpec{NodeName: nodeName},
+	}
 	apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionReadyForPooling, Status: metav1.ConditionTrue})
-	rec.updateBootstrapMetrics("node-a", v1alpha1.GPUNodeBootstrapPhaseValidating, inventory)
+	rec.updateBootstrapMetrics(nodeName, "Validating", inventory)
 
-	if v := testutil.ToFloat64(bootstrapPhaseGauge.WithLabelValues("node-a", string(v1alpha1.GPUNodeBootstrapPhaseMonitoring))); v != 1 {
+	if v, ok := gaugeValue(t, cpmetrics.BootstrapNodePhaseMetric, map[string]string{"node": nodeName, "phase": "Ready"}); !ok || v != 1 {
 		t.Fatalf("expected phase gauge to be set, got %f", v)
 	}
-	if v := testutil.ToFloat64(bootstrapConditionGauge.WithLabelValues("node-a", conditionReadyForPooling)); v != 1 {
+	if v, ok := gaugeValue(t, cpmetrics.BootstrapConditionMetric, map[string]string{"node": nodeName, "condition": conditionReadyForPooling}); !ok || v != 1 {
 		t.Fatalf("expected condition gauge to be set, got %f", v)
 	}
 }
 
 func TestClearBootstrapMetricsRemovesValues(t *testing.T) {
-	resetBootstrapMetrics()
+	nodeName := "node-metrics-clear"
 	rec := &Reconciler{}
-	inventory := newInventoryWithPhase("node-a", v1alpha1.GPUNodeBootstrapPhaseMonitoring)
-	rec.updateBootstrapMetrics("node-a", v1alpha1.GPUNodeBootstrapPhaseValidating, inventory)
+	inventory := &v1alpha1.GPUNodeState{
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		Spec:       v1alpha1.GPUNodeStateSpec{NodeName: nodeName},
+	}
+	apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionReadyForPooling, Status: metav1.ConditionTrue})
+	rec.updateBootstrapMetrics(nodeName, "Validating", inventory)
 
-	if count := testutil.CollectAndCount(bootstrapPhaseGauge); count == 0 {
+	if _, ok := findMetric(t, cpmetrics.BootstrapNodePhaseMetric, map[string]string{"node": nodeName, "phase": "Ready"}); !ok {
 		t.Fatalf("expected phase gauge populated")
 	}
-	rec.clearBootstrapMetrics("node-a")
-	if count := testutil.CollectAndCount(bootstrapPhaseGauge); count != 0 {
-		t.Fatalf("expected phase gauge cleared, still have %d metrics", count)
+	if _, ok := findMetric(t, cpmetrics.BootstrapConditionMetric, map[string]string{"node": nodeName, "condition": conditionReadyForPooling}); !ok {
+		t.Fatalf("expected condition gauge populated")
 	}
-	if count := testutil.CollectAndCount(bootstrapConditionGauge); count != 0 {
-		t.Fatalf("expected condition gauge cleared, still have %d metrics", count)
+
+	rec.clearBootstrapMetrics(nodeName)
+
+	if _, ok := findMetric(t, cpmetrics.BootstrapNodePhaseMetric, map[string]string{"node": nodeName, "phase": "Ready"}); ok {
+		t.Fatalf("expected phase gauge cleared")
+	}
+	if _, ok := findMetric(t, cpmetrics.BootstrapConditionMetric, map[string]string{"node": nodeName, "condition": conditionReadyForPooling}); ok {
+		t.Fatalf("expected condition gauge cleared")
 	}
 }
 
@@ -593,7 +726,7 @@ func TestReconcileNotFound(t *testing.T) {
 
 func TestReconcileNoHandlers(t *testing.T) {
 	scheme := newScheme(t)
-	node := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	node := &v1alpha1.GPUNodeState{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
 	client := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
@@ -611,11 +744,11 @@ func TestReconcileNoHandlers(t *testing.T) {
 
 func TestReconcilePersistsStatusChanges(t *testing.T) {
 	scheme := newScheme(t)
-	node := &v1alpha1.GPUNodeInventory{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	node := &v1alpha1.GPUNodeState{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
 	client := clientfake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(node).
-		WithStatusSubresource(&v1alpha1.GPUNodeInventory{}).
+		WithStatusSubresource(&v1alpha1.GPUNodeState{}).
 		Build()
 
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, []contracts.BootstrapHandler{statusChangingHandler{}})
@@ -626,7 +759,7 @@ func TestReconcilePersistsStatusChanges(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	updated := &v1alpha1.GPUNodeInventory{}
+	updated := &v1alpha1.GPUNodeState{}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "node"}, updated); err != nil {
 		t.Fatalf("get inventory: %v", err)
 	}
@@ -636,98 +769,108 @@ func TestReconcilePersistsStatusChanges(t *testing.T) {
 }
 
 func TestEffectiveBootstrapPhaseDefaultAndDisabled(t *testing.T) {
-	inventory := &v1alpha1.GPUNodeInventory{}
-	if phase := effectiveBootstrapPhase(inventory); phase != v1alpha1.GPUNodeBootstrapPhaseValidating {
+	inventory := &v1alpha1.GPUNodeState{}
+	if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
 		t.Fatalf("expected default phase Validating, got %s", phase)
 	}
 	inventory.Status.Conditions = []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}
-	if phase := effectiveBootstrapPhase(inventory); phase != v1alpha1.GPUNodeBootstrapPhaseDisabled {
+	if phase := effectiveBootstrapPhase(inventory); phase != "Disabled" {
 		t.Fatalf("expected phase Disabled when managed-disabled, got %s", phase)
 	}
 }
 
-func TestRuntimeControllerBuilderDelegates(t *testing.T) {
-	adapter := &fakeRuntimeAdapter{}
-	wrapper := &runtimeControllerBuilder{adapter: adapter}
+func TestEffectiveBootstrapPhaseVariants(t *testing.T) {
+	t.Run("ready", func(t *testing.T) {
+		inventory := &v1alpha1.GPUNodeState{}
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionReadyForPooling, Status: metav1.ConditionTrue})
+		if phase := effectiveBootstrapPhase(inventory); phase != "Ready" {
+			t.Fatalf("expected phase Ready, got %s", phase)
+		}
+	})
 
-	if wrapper.Named("bootstrap") != wrapper {
-		t.Fatal("Named should return wrapper")
-	}
-	if wrapper.For(&v1alpha1.GPUNodeInventory{}) != wrapper {
-		t.Fatal("For should return wrapper")
-	}
-	opts := controller.Options{MaxConcurrentReconciles: 2}
-	if wrapper.WithOptions(opts) != wrapper {
-		t.Fatal("WithOptions should return wrapper")
-	}
-	if wrapper.WatchesRawSource(nil) != wrapper {
-		t.Fatal("WatchesRawSource should return wrapper")
-	}
-	if err := wrapper.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
-		return reconcile.Result{}, nil
-	})); err != nil {
-		t.Fatalf("Complete returned error: %v", err)
-	}
-	if !adapter.namedCalled || !adapter.forCalled || !adapter.completeCalled {
-		t.Fatalf("adapter methods were not invoked: %+v", adapter)
-	}
-	if adapter.options.MaxConcurrentReconciles != opts.MaxConcurrentReconciles {
-		t.Fatalf("options were not propagated: %+v", adapter.options)
-	}
+	t.Run("validating-driver", func(t *testing.T) {
+		inventory := &v1alpha1.GPUNodeState{}
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionDriverMissing, Status: metav1.ConditionTrue})
+		if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
+			t.Fatalf("expected phase Validating, got %s", phase)
+		}
+	})
+
+	t.Run("validating-toolkit", func(t *testing.T) {
+		inventory := &v1alpha1.GPUNodeState{}
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionToolkitMissing, Status: metav1.ConditionTrue})
+		if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
+			t.Fatalf("expected phase Validating, got %s", phase)
+		}
+	})
+
+	t.Run("monitoring-missing", func(t *testing.T) {
+		inventory := &v1alpha1.GPUNodeState{}
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionMonitoringMissing, Status: metav1.ConditionTrue})
+		if phase := effectiveBootstrapPhase(inventory); phase != "Monitoring" {
+			t.Fatalf("expected phase Monitoring, got %s", phase)
+		}
+	})
+
+	t.Run("monitoring-gfd-false", func(t *testing.T) {
+		inventory := &v1alpha1.GPUNodeState{}
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionGFDReady, Status: metav1.ConditionFalse})
+		if phase := effectiveBootstrapPhase(inventory); phase != "Monitoring" {
+			t.Fatalf("expected phase Monitoring, got %s", phase)
+		}
+	})
 }
 
-func TestBuilderControllerAdapterDelegates(t *testing.T) {
+func TestReconcileLogsValidatorStatusErrorsAndUsesSpecNodeName(t *testing.T) {
 	scheme := newScheme(t)
-	client := clientfake.NewClientBuilder().WithScheme(scheme).Build()
-	mgr := newFakeManager(client, scheme)
-	mgr.cache = &fakeCache{}
+	inventory := &v1alpha1.GPUNodeState{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-validator-error"},
+		Spec:       v1alpha1.GPUNodeStateSpec{NodeName: "node-from-spec"},
+	}
+	cl := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
 
-	adapter := &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)}
+	validator := &capturingValidator{err: errors.New("validator status failed")}
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
+	rec.client = cl
+	rec.scheme = scheme
+	rec.validator = validator
 
-	obj := &v1alpha1.GPUNodeInventory{}
-	if adapter.Named("bootstrap") != adapter {
-		t.Fatal("Named should return adapter")
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: inventory.Name}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if adapter.For(obj) != adapter {
-		t.Fatal("For should return adapter")
-	}
-	opts := controller.Options{MaxConcurrentReconciles: 2}
-	if adapter.WithOptions(opts) != adapter {
-		t.Fatal("WithOptions should return adapter")
-	}
-	if adapter.WatchesRawSource(fakeSource{}) != adapter {
-		t.Fatal("WatchesRawSource should return adapter")
-	}
-	if err := adapter.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
-		return reconcile.Result{}, nil
-	})); err != nil {
-		t.Fatalf("Complete returned error: %v", err)
+	if validator.statusCalls != 1 || validator.nodeName != "node-from-spec" {
+		t.Fatalf("expected validator called with node-from-spec once, got calls=%d node=%q", validator.statusCalls, validator.nodeName)
 	}
 }
 
-func TestNewControllerManagedByReturnsWrapper(t *testing.T) {
-	if b := newControllerManagedBy(nil); b == nil {
-		t.Fatal("expected builder wrapper")
+func TestReconcilePassesValidatorStatusToHandlers(t *testing.T) {
+	scheme := newScheme(t)
+	inventory := &v1alpha1.GPUNodeState{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-validator-status"},
+	}
+	cl := clientfake.NewClientBuilder().WithScheme(scheme).WithObjects(inventory).Build()
+
+	validator := &capturingValidator{result: validation.Result{DriverReady: true}}
+	handler := &statusReadingHandler{}
+
+	rec := New(testr.New(t), config.ControllerConfig{}, nil, []contracts.BootstrapHandler{handler})
+	rec.client = cl
+	rec.scheme = scheme
+	rec.validator = validator
+
+	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: inventory.Name}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !handler.present || !handler.status.DriverReady {
+		t.Fatalf("expected validator status propagated to handler, got present=%t status=%+v", handler.present, handler.status)
 	}
 }
 
 func TestReconcileWrapsAPIError(t *testing.T) {
 	rec := New(testr.New(t), config.ControllerConfig{}, nil, nil)
-	rec.client = &failingClient{err: apierrors.NewConflict(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "gpunodeinventories"}, "node", errors.New("boom"))}
+	rec.client = &failingClient{err: apierrors.NewConflict(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "gpunodestates"}, "node", errors.New("boom"))}
 
 	if _, err := rec.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: "node"}}); err == nil {
 		t.Fatal("expected API error")
-	}
-}
-
-func newInventoryWithPhase(name string, phase v1alpha1.GPUNodeBootstrapPhase) *v1alpha1.GPUNodeInventory {
-	return &v1alpha1.GPUNodeInventory{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       v1alpha1.GPUNodeInventorySpec{NodeName: name},
-		Status: v1alpha1.GPUNodeInventoryStatus{
-			Bootstrap: v1alpha1.GPUNodeBootstrapStatus{
-				Phase: phase,
-			},
-		},
 	}
 }

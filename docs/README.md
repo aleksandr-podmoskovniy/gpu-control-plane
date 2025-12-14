@@ -41,8 +41,8 @@ consistent view of detected hardware for other Deckhouse modules.
 
 - Keeps a per-device representation in `GPUDevice` objects (PCI IDs, MIG
   profiles, memory, compute capability, precision support, management flags).
-- Aggregates node-wide state in `GPUNodeInventory`, including driver/toolkit
-  readiness, conditions, and the set of managed devices.
+- Aggregates node-wide state in `GPUNodeState`, including driver/toolkit
+  versions, bootstrap status, and readiness conditions.
 - Emits Kubernetes events (`GPUDeviceDetected`, `GPUInventoryConditionChanged`)
   and Prometheus metrics (`gpu_inventory_devices_total`,
   `gpu_inventory_condition`) for monitoring and alerting.
@@ -58,9 +58,9 @@ consistent view of detected hardware for other Deckhouse modules.
 - **GPUDevice** – represents a single GPU discovered on a node. The controller
   keeps hardware facts in the status, updates management flags, and triggers
   downstream handlers that apply contracts (auto-attach, health, pools).
-- **GPUNodeInventory** – node-level aggregate with driver/toolkit summary,
-  management conditions, and an ordered list of devices that can be consumed by
-  higher-level controllers or admission webhooks.
+- **GPUNodeState** – node-level aggregate with driver/toolkit summary,
+  bootstrap status, and readiness conditions consumed by higher-level
+  controllers and admission webhooks.
 
 ## Controller workflow
 
@@ -72,7 +72,7 @@ consistent view of detected hardware for other Deckhouse modules.
    ensuring metadata (labels, inventory ID) and status stay in sync.
 4. Removes orphan devices when NodeFeature data disappears or labels are
    cleared, and publishes corresponding events.
-5. Reconciles `GPUNodeInventory` status, updates conditions
+5. Reconciles `GPUNodeState` status, updates conditions
    (`ManagedDisabled`, `InventoryComplete`) and records metrics.
 
 ## Hooks and bootstrap
@@ -95,9 +95,8 @@ The module relies on `module-sdk` hooks to integrate with addon-operator:
 The bootstrap DaemonSets always deploy the NVIDIA stack (GFD + gfd-extender,
 DCGM hostengine/exporter, watchdog, validator) on managed nodes regardless of
 `monitoring.serviceMonitor`. The monitoring flag only controls whether Prometheus
-scrape objects and Grafana dashboards are rendered; health collection keeps
-running so `GPUDevice.status.health` remains populated even when you disable the
-cluster-wide monitoring integration.
+scrape objects and Grafana dashboards are rendered; DCGM telemetry is exposed via
+Prometheus and is not persisted in CRDs.
 
 ## Packaging and deployment assets
 
@@ -125,8 +124,10 @@ cluster-wide monitoring integration.
 1. Build or download the module images. When building from source use `werf`:
 
    ```bash
-   werf build            # builds controller, hooks and bundle images
-   werf bundle assemble  # prepares artifacts for modules operator
+   werf build  # builds controller, hooks and bundle images locally
+
+   # push to a registry and add readable tags like <image>-dev
+   MODULES_MODULE_SOURCE=127.0.0.1:5001/gpu-control-plane MODULES_MODULE_TAG=dev make werf-build
    ```
 
 2. Upload images or bundles to the registry used by Deckhouse.
@@ -164,7 +165,7 @@ If a field is omitted the module applies defaults:
 `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
 
 5. Confirm that the controller is running in the `d8-gpu-control-plane`
-  namespace and that `GPUDevice`/`GPUNodeInventory` CRs are created for GPU
+  namespace and that `GPUDevice`/`GPUNodeState` CRs are created for GPU
   nodes.
 
 The background rescan interval can be adjusted via

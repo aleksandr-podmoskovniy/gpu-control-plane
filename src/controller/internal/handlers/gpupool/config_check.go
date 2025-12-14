@@ -24,6 +24,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 )
 
 const conditionConfigured = "Configured"
@@ -66,5 +67,8 @@ func (h *ConfigCheckHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUP
 		}
 	}
 	meta.SetStatusCondition(&pool.Status.Conditions, cond)
+	if cond.Status == metav1.ConditionFalse {
+		return contracts.Result{}, reconciler.ErrStopChain
+	}
 	return contracts.Result{}, nil
 }

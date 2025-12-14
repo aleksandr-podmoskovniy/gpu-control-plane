@@ -5,7 +5,7 @@ spec:
         openAPIV3Schema:
           description: >
             Кластерный ресурс, описывающий пул GPU (selector/нарезка/backend/taints).
-            Доступен для workload’ов напрямую по ресурсу `gpu.deckhouse.io/<имя пула>`.
+            Доступен для workload’ов напрямую по ресурсу `cluster.gpu.deckhouse.io/<имя пула>`.
           properties:
             spec:
               description: Желаемая конфигурация кластерного пула.
@@ -19,7 +19,7 @@ spec:
                   enum: [DevicePlugin, DRA]
                   default: DevicePlugin
                 resource:
-                  description: Единица ресурса и параметры нарезки (имя ресурса `gpu.deckhouse.io/<имя пула>`). Поле неизменяемо.
+                  description: Единица ресурса и параметры нарезки (имя ресурса `cluster.gpu.deckhouse.io/<имя пула>`). Поле неизменяемо.
                   properties:
                     unit:
                       description: Единица («Card» или «MIG»).
@@ -31,6 +31,8 @@ spec:
                       description: Лимит устройств, который может предоставить один узел.
                     slicesPerUnit:
                       description: Тайм-шеринговые слои на одну карту/партицию (1 — эксклюзив).
+                    timeSlicingResources:
+                      description: Переопределения slicesPerUnit для отдельных ресурсов (опционально).
                 nodeSelector:
                   description: Ограничение узлов, которые могут предоставлять карты в пул (immutable).
                 deviceSelector:
@@ -59,15 +61,17 @@ spec:
                 capacity:
                   description: Текущая ёмкость пула (всего/использовано/доступно).
                   properties:
+                    total:
+                      description: Общая ёмкость пула в единицах ресурса.
+                    used:
+                      description: Текущая занятая ёмкость.
+                    available:
+                      description: Доступная ёмкость (total-used).
+                    unit:
+                      description: Единица ресурса (`Card` или `MIG`).
                     baseUnits:
                       description: Число базовых устройств/партиций, участвующих в пуле.
                     slicesPerUnit:
                       description: Сколько слоёв (slices) даёт один base unit.
-                nodes:
-                  description: Статистика по узлам, участвующим в пуле.
-                candidates:
-                  description: Узлы или устройства, ожидающие принятия в пул.
-                devices:
-                  description: Перечень устройств пула и их состояние (`Discovered`, `Validating`, `Ready`, `PendingAssignment`, `Assigned`, `Reserved`, `InUse`, `Faulted`).
                 conditions:
                   description: Список агрегированных условий готовности пула.

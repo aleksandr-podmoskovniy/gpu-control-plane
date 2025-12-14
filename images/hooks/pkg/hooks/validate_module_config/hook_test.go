@@ -355,6 +355,42 @@ func TestHandleValidateModuleConfigRemovesStaleValues(t *testing.T) {
 	}
 }
 
+func TestHandleValidateModuleConfigDisabledRemovesMetrics(t *testing.T) {
+	initial := map[string]any{
+		"gpuControlPlane": map[string]any{
+			"internal": map[string]any{
+				"metrics": map[string]any{"foo": "bar"},
+			},
+		},
+	}
+	input, values := newHookInput(t, initial)
+
+	customState := &moduleconfig.State{
+		Enabled:   false,
+		Sanitized: map[string]any{},
+	}
+	orig := moduleConfigFromSnapshotFn
+	moduleConfigFromSnapshotFn = func(*pkg.HookInput) (*moduleconfig.State, error) {
+		clone := customState.Clone()
+		return &clone, nil
+	}
+	t.Cleanup(func() { moduleConfigFromSnapshotFn = orig })
+
+	if err := handleValidateModuleConfig(context.Background(), input); err != nil {
+		t.Fatalf("handleValidateModuleConfig: %v", err)
+	}
+
+	var removed bool
+	for _, op := range values.GetPatches() {
+		if op.Op == "remove" && op.Path == "/gpuControlPlane/internal/metrics" {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Fatalf("expected internal metrics removal, patches: %#v", values.GetPatches())
+	}
+}
+
 func TestResolveHTTPSConfigPrefersUserValue(t *testing.T) {
 	input, _ := newHookInput(t, map[string]any{})
 	user := map[string]any{"mode": "CustomCertificate"}
@@ -567,6 +603,13 @@ func TestBuildControllerConfigModuleSectionOnly(t *testing.T) {
 	}
 	if _, ok := result["controllers"]; ok {
 		t.Fatalf("controllers section must be absent when inventory missing: %#v", result)
+	}
+}
+
+func TestGlobalHTTPSDefaultsNilInput(t *testing.T) {
+	got := globalHTTPSDefaults(nil)
+	if got.Mode != "" || got.CertManagerIssuer != "" || got.CustomSecret != "" {
+		t.Fatalf("expected empty global defaults, got %#v", got)
 	}
 }
 

@@ -85,7 +85,8 @@ func main() {
 		rulesFromFile, err := rewriter.LoadRules(os.Getenv("RULES_PATH"))
 		if err != nil {
 			log.Error("Load rules from %s: %v", os.Getenv("RULES_PATH"), err)
-			os.Exit(1)
+			exitFunc(1)
+			return
 		}
 		rewriteRules = rulesFromFile
 	}
@@ -107,7 +108,8 @@ func main() {
 		config, err := target.NewKubernetesTarget()
 		if err != nil {
 			log.Error("Load Kubernetes REST", logutil.SlogErr(err))
-			os.Exit(1)
+			exitFunc(1)
+			return
 		}
 		lAddr := server.ConstructListenAddr(
 			os.Getenv("CLIENT_PROXY_ADDRESS"), os.Getenv("CLIENT_PROXY_PORT"),
@@ -139,7 +141,8 @@ func main() {
 		config, err := target.NewWebhookTarget()
 		if err != nil {
 			log.Error("Configure webhook client", logutil.SlogErr(err))
-			os.Exit(1)
+			exitFunc(1)
+			return
 		}
 		lAddr := server.ConstructListenAddr(
 			os.Getenv("WEBHOOK_PROXY_ADDRESS"), os.Getenv("WEBHOOK_PROXY_PORT"),
@@ -220,5 +223,8 @@ func main() {
 			exitCode = 1
 		}
 	}
-	os.Exit(exitCode)
+	exitFunc(exitCode)
+	return
 }
+
+var exitFunc = os.Exit

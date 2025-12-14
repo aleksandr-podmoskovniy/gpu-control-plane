@@ -43,20 +43,8 @@ func TestValidateResourceAdditionalBranches(t *testing.T) {
 		t.Fatalf("expected error for slicesPerUnit >64")
 	}
 
-	// time slicing resource invalid
-	spec := &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:                 "Card",
-			SlicesPerUnit:        1,
-			TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{{Name: "custom", SlicesPerUnit: 0}},
-		},
-	}
-	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected error for invalid time slicing resource")
-	}
-
 	// DRA constraints
-	spec = &v1alpha1.GPUPoolSpec{
+	spec := &v1alpha1.GPUPoolSpec{
 		Backend: "DRA",
 		Resource: v1alpha1.GPUPoolResourceSpec{
 			Unit:          "MIG",
@@ -94,53 +82,6 @@ func TestValidateResourceAdditionalBranches(t *testing.T) {
 	spec = &v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card", SlicesPerUnit: 1, MIGProfile: "1g.10gb"}}
 	if err := h.validateResource(spec); err == nil {
 		t.Fatalf("expected error when migProfile set for card unit")
-	}
-	spec = &v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{
-		Unit:          "Card",
-		SlicesPerUnit: 1,
-		MIGLayout:     []v1alpha1.GPUPoolMIGDeviceLayout{{Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb"}}}},
-	}}
-	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected error when migLayout set for card unit")
-	}
-
-	// valid MIG layout with profiles and consistent slices
-	count := int32(1)
-	spec = &v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{
-		Unit:          "MIG",
-		SlicesPerUnit: 2,
-		MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-			SlicesPerUnit: &count,
-			Profiles:      []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb", Count: &count}},
-		}},
-	}}
-	if err := h.validateResource(spec); err != nil {
-		t.Fatalf("expected valid mig layout, got %v", err)
-	}
-
-	// MIG layout only should still validate
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:          "MIG",
-			SlicesPerUnit: 1,
-			MIGLayout:     []v1alpha1.GPUPoolMIGDeviceLayout{{Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb"}}}},
-		},
-	}
-	if err := h.validateResource(spec); err != nil {
-		t.Fatalf("expected mig layout without profile to be valid, got %v", err)
-	}
-
-	// MIG layout invalid should bubble error
-	zero := int32(0)
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:          "MIG",
-			SlicesPerUnit: 1,
-			MIGLayout:     []v1alpha1.GPUPoolMIGDeviceLayout{{Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb", Count: &zero}}}},
-		},
-	}
-	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected invalid mig layout to fail via validateResource")
 	}
 
 	// Scheduling empty strategy allowed

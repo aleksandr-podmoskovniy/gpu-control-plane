@@ -38,7 +38,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 
 	pool := &v1alpha1.GPUPool{
 		TypeMeta:   metav1TypeMeta("GPUPool"),
-		ObjectMeta: metav1ObjectMeta("pool-a"),
+		ObjectMeta: metav1ObjectMeta("pool-a", "gpu-team-local"),
 		Spec: v1alpha1.GPUPoolSpec{
 			DeviceSelector: &v1alpha1.GPUPoolDeviceSelector{
 				Include: v1alpha1.GPUPoolSelectorRules{
@@ -54,13 +54,13 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 
 	device := &v1alpha1.GPUDevice{
 		TypeMeta:   metav1TypeMeta("GPUDevice"),
-		ObjectMeta: metav1ObjectMeta("dev-a"),
+		ObjectMeta: metav1ObjectMeta("dev-a", ""),
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "inv-1",
 			State:       v1alpha1.GPUDeviceStateReady,
 		},
 	}
-	device.Annotations = map[string]string{assignmentAnnotation: "pool-a"}
+	device.Annotations = map[string]string{namespacedAssignmentAnnotation: "pool-a"}
 	raw, _ := json.Marshal(device)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Update,
@@ -82,7 +82,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	}
 
 	// Missing pool should be denied.
-	device.Annotations[assignmentAnnotation] = "absent"
+	device.Annotations[namespacedAssignmentAnnotation] = "absent"
 	raw, _ = json.Marshal(device)
 	req.Object = runtime.RawExtension{Raw: raw}
 	resp = validator.Handle(context.Background(), req)
@@ -91,7 +91,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	}
 
 	// No annotation -> allowed.
-	delete(device.Annotations, assignmentAnnotation)
+	delete(device.Annotations, namespacedAssignmentAnnotation)
 	raw, _ = json.Marshal(device)
 	req.Object = runtime.RawExtension{Raw: raw}
 	resp = validator.Handle(context.Background(), req)
@@ -110,7 +110,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	}
 
 	// Non-create/update operation is allowed
-	device.Annotations[assignmentAnnotation] = "pool-a"
+	device.Annotations[namespacedAssignmentAnnotation] = "pool-a"
 	raw, _ = json.Marshal(device)
 	otherReq := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Delete,
@@ -138,27 +138,107 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	if resp.Allowed {
 		t.Fatalf("expected denial for ignored device")
 	}
+}
 
-	// Ignored via annotation is denied.
-	delete(device.Labels, "gpu.deckhouse.io/ignore")
-	device.Annotations = map[string]string{"gpu.deckhouse.io/ignore": "true"}
-	raw, _ = json.Marshal(device)
-	req.Object = runtime.RawExtension{Raw: raw}
-	resp = validator.Handle(context.Background(), req)
-	if resp.Allowed {
-		t.Fatalf("expected denial for ignored device via annotation")
+func TestGPUDeviceAssignmentValidatorAmbiguousPoolName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	poolA := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns-a"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	poolB := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns-b"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(poolA, poolB).Build()
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev-a",
+			Annotations: map[string]string{namespacedAssignmentAnnotation: "pool-a"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			State:       v1alpha1.GPUDeviceStateReady,
+			InventoryID: "inv-1",
+		},
+	}
+	raw, _ := json.Marshal(device)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Update,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if resp.Allowed || resp.Result == nil || resp.Result.Code != http.StatusForbidden {
+		t.Fatalf("expected denial for ambiguous pool name, got %+v", resp.Result)
 	}
 }
 
-func TestMigProfilesHelper(t *testing.T) {
-	cfg := v1alpha1.GPUMIGConfig{ProfilesSupported: []string{"1g.10gb"}}
-	if profiles := migProfiles(cfg); len(profiles) != 1 || profiles[0] != "1g.10gb" {
-		t.Fatalf("expected profilesSupported passthrough")
-	}
+func TestGPUDeviceAssignmentValidatorClusterPool(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
 
-	cfg = v1alpha1.GPUMIGConfig{Types: []v1alpha1.GPUMIGTypeCapacity{{Name: "2g.20gb"}, {Name: ""}}}
-	if profiles := migProfiles(cfg); len(profiles) != 1 || profiles[0] != "2g.20gb" {
-		t.Fatalf("expected fallback to types, got %v", profiles)
+	clusterPool := &v1alpha1.ClusterGPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster-a"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+			DeviceSelector: &v1alpha1.GPUPoolDeviceSelector{
+				Include: v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"inv-1"}},
+			},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(clusterPool).Build()
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev-a",
+			Annotations: map[string]string{clusterAssignmentAnnotation: "cluster-a"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			State:       v1alpha1.GPUDeviceStateReady,
+			InventoryID: "inv-1",
+		},
+	}
+	raw, _ := json.Marshal(device)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Update,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if !resp.Allowed {
+		t.Fatalf("expected allowed assignment to ClusterGPUPool, got %+v", resp.Result)
+	}
+}
+
+func TestGPUDeviceAssignmentValidatorRejectsBothAssignments(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, fake.NewClientBuilder().WithScheme(scheme).Build())
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "dev-a",
+			Annotations: map[string]string{
+				namespacedAssignmentAnnotation: "pool-a",
+				clusterAssignmentAnnotation:    "cluster-a",
+			},
+		},
+		Status: v1alpha1.GPUDeviceStatus{State: v1alpha1.GPUDeviceStateReady},
+	}
+	raw, _ := json.Marshal(device)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Update,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if resp.Allowed || resp.Result == nil || resp.Result.Code != http.StatusForbidden {
+		t.Fatalf("expected denial when both assignment annotations are set, got %+v", resp.Result)
 	}
 }
 
@@ -177,7 +257,7 @@ func TestGPUDeviceValidatorClientError(t *testing.T) {
 		TypeMeta: metav1TypeMeta("GPUDevice"),
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "dev",
-			Annotations: map[string]string{assignmentAnnotation: "pool"},
+			Annotations: map[string]string{clusterAssignmentAnnotation: "pool"},
 		},
 		Status: v1alpha1.GPUDeviceStatus{State: v1alpha1.GPUDeviceStateReady},
 	}
@@ -201,6 +281,6 @@ func metav1TypeMeta(kind string) metav1.TypeMeta {
 	return metav1.TypeMeta{Kind: kind, APIVersion: v1alpha1.GroupVersion.String()}
 }
 
-func metav1ObjectMeta(name string) metav1.ObjectMeta {
-	return metav1.ObjectMeta{Name: name}
+func metav1ObjectMeta(name, ns string) metav1.ObjectMeta {
+	return metav1.ObjectMeta{Name: name, Namespace: ns}
 }

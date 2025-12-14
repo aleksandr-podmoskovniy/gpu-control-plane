@@ -186,3 +186,49 @@ func TestPrettyHandlerHandleComplex(t *testing.T) {
 		t.Fatalf("expected output written")
 	}
 }
+
+func TestPrettyHandlerHandleReturnsErrorWhenGatherAttrsFails(t *testing.T) {
+	handler := NewPrettyHandler(io.Discard, nil)
+	handler.jh = handlerFunc{
+		handle: func(context.Context, slog.Record) error {
+			return fmt.Errorf("boom")
+		},
+	}
+
+	if err := handler.Handle(context.Background(), slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)); err == nil {
+		t.Fatalf("expected handle error")
+	}
+}
+
+func TestPrettyHandlerHandleWritesRegularStringAttr(t *testing.T) {
+	buf := &bytes.Buffer{}
+	handler := NewPrettyHandler(buf, nil)
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(
+		slog.String("foo", "bar"),
+		slog.Int("num", 1),
+	)
+
+	if err := handler.Handle(context.Background(), rec); err != nil {
+		t.Fatalf("handle error: %v", err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(`foo="bar"`)) {
+		t.Fatalf("expected foo attribute in output, got %q", buf.String())
+	}
+}
+
+func TestPrettyHandlerHandleYAMLMarshalError(t *testing.T) {
+	orig := yamlMarshal
+	yamlMarshal = func(any) ([]byte, error) {
+		return nil, fmt.Errorf("boom")
+	}
+	t.Cleanup(func() { yamlMarshal = orig })
+
+	handler := NewPrettyHandler(io.Discard, nil)
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(slog.Any("group", map[string]any{"k": "v"}))
+
+	if err := handler.Handle(context.Background(), rec); err == nil {
+		t.Fatalf("expected YAML marshal error")
+	}
+}

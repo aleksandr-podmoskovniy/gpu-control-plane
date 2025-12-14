@@ -24,8 +24,8 @@ func TestApplyDetectionNoMatch(t *testing.T) {
 	device := &v1alpha1.GPUDevice{}
 	snapshot := deviceSnapshot{Index: "1", UUID: "missing"}
 	applyDetection(device, snapshot, nodeDetection{})
-	if device.Status.Health.Metrics != nil {
-		t.Fatalf("metrics should remain nil when detection missing")
+	if device.Status.Hardware.UUID != "" {
+		t.Fatalf("hardware should remain untouched when detection missing")
 	}
 }
 
@@ -42,29 +42,14 @@ func TestApplyDetectionWithTemperatureAndMIG(t *testing.T) {
 				MemoryInfo:                  detectGPUMemory{Total: 2, Free: 1, Used: 1},
 				Utilization:                 detectGPUUtilization{GPU: 10, Memory: 20},
 				MIG:                         detectGPUMIG{Capable: true, ProfilesSupported: []string{"1g.10gb"}},
-				PCIE:                        detectGPUPCIELink{Generation: detectionPtrInt32(4), Width: detectionPtrInt32(16)},
-				Precision:                   []string{"fp32"},
-				PowerState:                  2,
 			},
 		},
 	}
 
 	applyDetection(device, snapshot, detections)
 
-	if device.Status.Health.TemperatureC != 70 {
-		t.Fatalf("expected temperature propagated, got %d", device.Status.Health.TemperatureC)
-	}
 	if device.Status.Hardware.MIG.Capable == false || len(device.Status.Hardware.MIG.ProfilesSupported) != 1 {
 		t.Fatalf("expected MIG capabilities propagated: %+v", device.Status.Hardware.MIG)
-	}
-	if device.Status.Hardware.PCIE.Generation == nil || *device.Status.Hardware.PCIE.Generation != 4 {
-		t.Fatalf("expected PCIE generation set")
-	}
-	if len(device.Status.Hardware.Precision.Supported) != 1 {
-		t.Fatalf("expected precision propagated")
-	}
-	if device.Status.Hardware.PState != "P2" {
-		t.Fatalf("expected PState P2, got %s", device.Status.Hardware.PState)
 	}
 }
 
@@ -72,10 +57,6 @@ func TestApplyDetectionHardwareNilFields(t *testing.T) {
 	device := &v1alpha1.GPUDevice{}
 	entry := detectGPUEntry{}
 	applyDetectionHardware(device, entry)
-	// Should not panic and should still set defaults like PState
-	if device.Status.Hardware.PState == "" {
-		t.Fatalf("expected PState to be set even with zero power state")
-	}
 	if device.Status.Hardware.MIG.Capable {
 		t.Fatalf("expected MIG capable to remain default false")
 	}

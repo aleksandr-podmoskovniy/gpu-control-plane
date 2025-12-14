@@ -10,7 +10,7 @@ spec:
             status:
               description: >
                 Текущее состояние карты, собранное контроллерами (инвентаризация,
-                телеметрия, привязка к пулам и условия готовности).
+                привязка к пулам и условия готовности).
               properties:
                 nodeName:
                   description: Имя узла Kubernetes, на котором установлена карта.
@@ -27,8 +27,6 @@ spec:
                   properties:
                     name:
                       description: Имя пула, использующего карту.
-                    resource:
-                      description: Полное имя ресурса device-plugin, опубликованного для пула.
                 hardware:
                   description: Набор аппаратных характеристик, полученных от инвентаризации.
                   properties:
@@ -82,26 +80,5 @@ spec:
                                 description: Идентификаторы GPU- и Compute-инстансов.
                               engines:
                                 description: Количество доступных движков (copy, NVENC, NVDEC, OFA).
-                health:
-                  description: Последняя телеметрия DCGM по устройству (температуры, ECC и т.п.).
-                  properties:
-                    temperatureC:
-                      description: Температура GPU в градусах Цельсия.
-                    eccErrorsTotal:
-                      description: Суммарное количество ошибок ECC.
-                    lastUpdated:
-                      description: Время последнего обновления телеметрии.
-                    lastHealthyTime:
-                      description: Время последнего «здорового» heartbeat без ошибок.
-                    consecutiveHealthy:
-                      description: Количество подряд идущих успешных heartbeat'ов.
-                    lastError:
-                      description: Текст последней зарегистрированной ошибки по устройству.
-                    lastErrorReason:
-                      description: Категория последней ошибки (XID, ECC и т.п.).
-                    lastErrorTime:
-                      description: Время, когда ошибка была зафиксирована.
-                    metrics:
-                      description: Произвольные ключи/значения с дополнительными показателями от драйвера.
                 conditions:
                   description: Список условий, выставляемых контроллерами (ReadyForPooling, Faulted, ManagedDisabled и т.д.).

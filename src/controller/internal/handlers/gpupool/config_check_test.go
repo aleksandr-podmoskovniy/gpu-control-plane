@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 )
 
 func TestConfigCheckName(t *testing.T) {
@@ -51,8 +52,8 @@ func TestConfigCheckHandlesCollisionAndSuccess(t *testing.T) {
 			Generation: 1,
 		},
 	}
-	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
-		t.Fatalf("HandlePool returned error: %v", err)
+	if _, err := handler.HandlePool(context.Background(), pool); err == nil || !errors.Is(err, reconciler.ErrStopChain) {
+		t.Fatalf("expected stop-chain error, got %v", err)
 	}
 	cond := meta.FindStatusCondition(pool.Status.Conditions, conditionConfigured)
 	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "NameCollision" {

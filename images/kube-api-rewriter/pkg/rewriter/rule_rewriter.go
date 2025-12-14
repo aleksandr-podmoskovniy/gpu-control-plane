@@ -196,11 +196,6 @@ func (rw *RuleBasedRewriter) rewriteLabelSelector(rawQuery string) string {
 		return rawQuery
 	}
 
-	// Return early if labelSelector is empty, e.g. ?labelSelector=&limit=500
-	if labelSelector == nil {
-		return rawQuery
-	}
-
 	rwrMatchLabels := rw.Rules.LabelsRewriter().RenameMap(labelSelector.MatchLabels)
 
 	rwrMatchExpressions := make([]metav1.LabelSelectorRequirement, 0)
@@ -378,35 +373,6 @@ func (rw *RuleBasedRewriter) FilterExcludes(obj []byte, action Action) ([]byte, 
 		return obj, err
 	}
 	return obj, nil
-}
-
-func shouldRewriteOwnerReferences(resourceType string) bool {
-	switch resourceType {
-	case CRDKind, CRDListKind,
-		RoleKind, RoleListKind,
-		RoleBindingKind, RoleBindingListKind,
-		PodDisruptionBudgetKind, PodDisruptionBudgetListKind,
-		ControllerRevisionKind, ControllerRevisionListKind,
-		ClusterRoleKind, ClusterRoleListKind,
-		ClusterRoleBindingKind, ClusterRoleBindingListKind,
-		APIServiceKind, APIServiceListKind,
-		DeploymentKind, DeploymentListKind,
-		DaemonSetKind, DaemonSetListKind,
-		StatefulSetKind, StatefulSetListKind,
-		PodKind, PodListKind,
-		JobKind, JobListKind,
-		ValidatingWebhookConfigurationKind,
-		ValidatingWebhookConfigurationListKind,
-		MutatingWebhookConfigurationKind,
-		MutatingWebhookConfigurationListKind,
-		ServiceKind, ServiceListKind,
-		PersistentVolumeClaimKind, PersistentVolumeClaimListKind,
-		PrometheusRuleKind, PrometheusRuleListKind,
-		ServiceMonitorKind, ServiceMonitorListKind:
-		return true
-	}
-
-	return false
 }
 
 // isExcludeKind returns true if kind may be excluded from rewriting.

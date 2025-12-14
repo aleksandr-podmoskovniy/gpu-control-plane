@@ -36,8 +36,11 @@ func Register(_ context.Context, mgr webhookManager, deps Dependencies) error {
 
 	decoder := cradmission.NewDecoder(mgr.GetScheme())
 
-	poolValidator := newGPUPoolValidator(deps.Logger, decoder, deps.AdmissionHandlers.List())
+	poolValidator := newGPUPoolValidator(deps.Logger, decoder, deps.AdmissionHandlers.List(), deps.Client)
 	server.Register("/validate-gpu-deckhouse-io-v1alpha1-gpupool", &ctrlwebhook.Admission{Handler: poolValidator})
+
+	clusterPoolValidator := newClusterGPUPoolValidator(deps.Logger, decoder, deps.AdmissionHandlers.List(), deps.Client)
+	server.Register("/validate-gpu-deckhouse-io-v1alpha1-clustergpupool", &ctrlwebhook.Admission{Handler: clusterPoolValidator})
 
 	deviceValidator := newGPUDeviceAssignmentValidator(deps.Logger, decoder, deps.Client)
 	server.Register("/validate-gpu-deckhouse-io-v1alpha1-gpudevice", &ctrlwebhook.Admission{Handler: deviceValidator})
@@ -45,9 +48,12 @@ func Register(_ context.Context, mgr webhookManager, deps Dependencies) error {
 	poolDefaulter := newGPUPoolDefaulter(deps.Logger, decoder, deps.AdmissionHandlers.List())
 	server.Register("/mutate-gpu-deckhouse-io-v1alpha1-gpupool", &ctrlwebhook.Admission{Handler: poolDefaulter})
 
-	podMutator := newPodMutator(deps.Logger, decoder, deps.ModuleConfigStore, deps.Client)
+	clusterPoolDefaulter := newClusterGPUPoolDefaulter(deps.Logger, decoder, deps.AdmissionHandlers.List())
+	server.Register("/mutate-gpu-deckhouse-io-v1alpha1-clustergpupool", &ctrlwebhook.Admission{Handler: clusterPoolDefaulter})
+
+	podMutator := newPodMutator(deps.Logger, deps.ModuleConfigStore, deps.Client)
 	server.Register("/mutate-v1-pod-gpupool", &ctrlwebhook.Admission{Handler: podMutator})
-	podValidator := newPodValidator(deps.Logger, decoder, deps.ModuleConfigStore, deps.Client)
+	podValidator := newPodValidator(deps.Logger, deps.Client)
 	server.Register("/validate-v1-pod-gpupool", &ctrlwebhook.Admission{Handler: podValidator})
 
 	return nil

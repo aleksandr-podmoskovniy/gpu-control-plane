@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,8 +29,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -39,92 +40,17 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 )
 
-type controllerBuilder interface {
-	Named(string) controllerBuilder
-	For(client.Object, ...builder.ForOption) controllerBuilder
-	WithOptions(controller.Options) controllerBuilder
-	WatchesRawSource(source.Source) controllerBuilder
-	Complete(reconcile.Reconciler) error
-}
-
-type controllerRuntimeAdapter interface {
-	Named(string) controllerRuntimeAdapter
-	For(client.Object, ...builder.ForOption) controllerRuntimeAdapter
-	WithOptions(controller.Options) controllerRuntimeAdapter
-	WatchesRawSource(source.Source) controllerRuntimeAdapter
-	Complete(reconcile.Reconciler) error
-}
-
-type runtimeControllerBuilder struct {
-	adapter controllerRuntimeAdapter
-}
-
-func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
-	b.adapter = b.adapter.Named(name)
-	return b
-}
-
-func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
-	b.adapter = b.adapter.For(obj, opts...)
-	return b
-}
-
-func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
-	b.adapter = b.adapter.WithOptions(opts)
-	return b
-}
-
-func (b *runtimeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
-	b.adapter = b.adapter.WatchesRawSource(src)
-	return b
-}
-
-func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
-	return b.adapter.Complete(r)
-}
-
-type builderControllerAdapter struct {
-	delegate *builder.Builder
-}
-
-func (a *builderControllerAdapter) Named(name string) controllerRuntimeAdapter {
-	a.delegate = a.delegate.Named(name)
-	return a
-}
-
-func (a *builderControllerAdapter) For(obj client.Object, opts ...builder.ForOption) controllerRuntimeAdapter {
-	a.delegate = a.delegate.For(obj, opts...)
-	return a
-}
-
-func (a *builderControllerAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
-	a.delegate = a.delegate.WithOptions(opts)
-	return a
-}
-
-func (a *builderControllerAdapter) WatchesRawSource(src source.Source) controllerRuntimeAdapter {
-	a.delegate = a.delegate.WatchesRawSource(src)
-	return a
-}
-
-func (a *builderControllerAdapter) Complete(r reconcile.Reconciler) error {
-	return a.delegate.Complete(r)
-}
-
 const (
 	controllerName           = "gpu-pool-controller"
 	cacheSyncTimeoutDuration = 10 * time.Minute
+	assignmentAnnotation     = "gpu.deckhouse.io/assignment"
 )
-
-var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
-	return &runtimeControllerBuilder{
-		adapter: &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)},
-	}
-}
 
 type Reconciler struct {
 	client               client.Client
@@ -133,8 +59,8 @@ type Reconciler struct {
 	cfg                  config.ControllerConfig
 	store                *config.ModuleConfigStore
 	handlers             []contracts.PoolHandler
-	builders             func(ctrl.Manager) controllerBuilder
-	moduleWatcherFactory func(cache.Cache, controllerBuilder) controllerBuilder
+	builders             func(ctrl.Manager) controllerbuilder.Builder
+	moduleWatcherFactory func(cache.Cache, controllerbuilder.Builder) controllerbuilder.Builder
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) *Reconciler {
@@ -147,10 +73,10 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 		cfg:      cfg,
 		store:    store,
 		handlers: handlers,
-		builders: newControllerManagedBy,
+		builders: controllerbuilder.NewManagedBy,
 	}
-	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
-		return rec.attachModuleWatcher(builder, c)
+	rec.moduleWatcherFactory = func(c cache.Cache, b controllerbuilder.Builder) controllerbuilder.Builder {
+		return rec.attachModuleWatcher(b, c)
 	}
 	return rec
 }
@@ -159,62 +85,159 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.client = mgr.GetClient()
 	r.scheme = mgr.GetScheme()
 
+	if idx := mgr.GetFieldIndexer(); idx != nil {
+		if err := indexer.IndexGPUDeviceByPoolRefName(ctx, idx); err != nil {
+			return err
+		}
+		if err := indexer.IndexGPUDeviceByNamespacedAssignment(ctx, idx); err != nil {
+			return err
+		}
+		if err := indexer.IndexGPUDeviceByClusterAssignment(ctx, idx); err != nil {
+			return err
+		}
+		if err := indexer.IndexGPUPoolByName(ctx, idx); err != nil {
+			return err
+		}
+	}
+
 	options := controller.Options{
 		MaxConcurrentReconciles: r.cfg.Workers,
 		RecoverPanic:            ptr.To(true),
 		LogConstructor:          logger.NewConstructor(r.log),
 		CacheSyncTimeout:        cacheSyncTimeoutDuration,
+		NewQueue:                reconciler.NewNamedQueue(reconciler.UsePriorityQueue()),
 	}
 
-	builder := r.builders(mgr).
+	ctrlBuilder := r.builders(mgr).
 		Named(controllerName).
-		For(&v1alpha1.GPUPool{}).
+		For(&v1alpha1.GPUPool{}, builder.WithPredicates(poolPredicates())).
 		WithOptions(options)
 
 	if cache := mgr.GetCache(); cache != nil {
 		if r.moduleWatcherFactory != nil {
-			builder = r.moduleWatcherFactory(cache, builder)
+			ctrlBuilder = r.moduleWatcherFactory(cache, ctrlBuilder)
 		}
-		builder = r.attachPoolDependencyWatcher(cache, builder)
+		ctrlBuilder = r.attachPoolDependencyWatcher(cache, ctrlBuilder)
 	}
 
-	return builder.Complete(r)
+	return ctrlBuilder.Complete(r)
 }
 
-func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, c cache.Cache) controllerBuilder {
+func (r *Reconciler) attachModuleWatcher(b controllerbuilder.Builder, c cache.Cache) controllerbuilder.Builder {
 	moduleConfig := &unstructured.Unstructured{}
 	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
 	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(r.mapModuleConfig)
-	return builder.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
+	return b.WatchesRawSource(source.Kind(c, moduleConfig, handlerFunc))
 }
 
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
+	if r.store != nil && !r.store.Current().Enabled {
+		return nil
+	}
 	return r.requeueAllPools(ctx)
 }
 
-func (r *Reconciler) attachPoolDependencyWatcher(c cache.Cache, builder controllerBuilder) controllerBuilder {
+func (r *Reconciler) attachPoolDependencyWatcher(c cache.Cache, b controllerbuilder.Builder) controllerbuilder.Builder {
 	dev := &v1alpha1.GPUDevice{}
-	builder = builder.WatchesRawSource(source.Kind(c, dev, handler.TypedEnqueueRequestsFromMapFunc(r.mapDevice)))
+	b = b.WatchesRawSource(source.Kind(c, dev, handler.TypedEnqueueRequestsFromMapFunc(r.mapDevice), devicePredicates()))
 
-	inv := &v1alpha1.GPUNodeInventory{}
-	builder = builder.WatchesRawSource(source.Kind(c, inv, handler.TypedEnqueueRequestsFromMapFunc(r.mapInventory)))
-
-	pod := &corev1.Pod{}
-	builder = builder.WatchesRawSource(source.Kind(c, pod, handler.TypedEnqueueRequestsFromMapFunc(r.mapPod)))
-
-	return builder
+	return b
 }
 
-func (r *Reconciler) mapDevice(ctx context.Context, _ *v1alpha1.GPUDevice) []reconcile.Request {
-	return r.requeueAllPools(ctx)
+func (r *Reconciler) mapDevice(ctx context.Context, dev *v1alpha1.GPUDevice) []reconcile.Request {
+	if dev == nil {
+		return nil
+	}
+
+	targetPools := map[string]struct{}{}
+	reqSet := map[types.NamespacedName]struct{}{}
+
+	if ref := dev.Status.PoolRef; ref != nil {
+		if ref.Name != "" {
+			if ref.Namespace != "" {
+				reqSet[types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}] = struct{}{}
+			} else {
+				targetPools[ref.Name] = struct{}{}
+			}
+		}
+	}
+
+	if ann := dev.Annotations[assignmentAnnotation]; ann != "" {
+		targetPools[ann] = struct{}{}
+	}
+
+	if len(targetPools) == 0 || r.client == nil {
+		if len(reqSet) == 0 {
+			return nil
+		}
+
+		reqs := make([]reconcile.Request, 0, len(reqSet))
+		for nn := range reqSet {
+			reqs = append(reqs, reconcile.Request{NamespacedName: nn})
+		}
+		return reqs
+	}
+
+	for poolName := range targetPools {
+		list := &v1alpha1.GPUPoolList{}
+		if err := r.client.List(ctx, list, client.MatchingFields{indexer.GPUPoolNameField: poolName}); err != nil {
+			if r.log.GetSink() != nil {
+				r.log.Error(err, "list GPUPool by name to map device event", "device", dev.Name, "pool", poolName)
+			}
+			continue
+		}
+		for i := range list.Items {
+			pool := list.Items[i]
+			reqSet[types.NamespacedName{Namespace: pool.Namespace, Name: pool.Name}] = struct{}{}
+		}
+	}
+
+	if len(reqSet) == 0 {
+		return nil
+	}
+
+	reqs := make([]reconcile.Request, 0, len(reqSet))
+	for nn := range reqSet {
+		reqs = append(reqs, reconcile.Request{NamespacedName: nn})
+	}
+	return reqs
 }
 
-func (r *Reconciler) mapInventory(ctx context.Context, _ *v1alpha1.GPUNodeInventory) []reconcile.Request {
-	return r.requeueAllPools(ctx)
+func devicePredicates() predicate.TypedPredicate[*v1alpha1.GPUDevice] {
+	return predicate.TypedFuncs[*v1alpha1.GPUDevice]{
+		CreateFunc: func(e event.TypedCreateEvent[*v1alpha1.GPUDevice]) bool {
+			dev := e.Object
+			return dev != nil && (dev.Annotations[assignmentAnnotation] != "" || dev.Status.PoolRef != nil)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*v1alpha1.GPUDevice]) bool {
+			oldDev := e.ObjectOld
+			newDev := e.ObjectNew
+			if oldDev == nil || newDev == nil {
+				return true
+			}
+			return deviceChanged(oldDev, newDev)
+		},
+		DeleteFunc:  func(event.TypedDeleteEvent[*v1alpha1.GPUDevice]) bool { return true },
+		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUDevice]) bool { return false },
+	}
 }
 
-func (r *Reconciler) mapPod(ctx context.Context, _ *corev1.Pod) []reconcile.Request {
-	return r.requeueAllPools(ctx)
+func deviceChanged(oldDev, newDev *v1alpha1.GPUDevice) bool {
+	if oldDev.Annotations[assignmentAnnotation] != newDev.Annotations[assignmentAnnotation] {
+		return true
+	}
+	if oldDev.Status.State != newDev.Status.State || oldDev.Status.NodeName != newDev.Status.NodeName {
+		return true
+	}
+	if (oldDev.Status.PoolRef == nil) != (newDev.Status.PoolRef == nil) {
+		return true
+	}
+	if oldDev.Status.PoolRef != nil && newDev.Status.PoolRef != nil {
+		if oldDev.Status.PoolRef.Name != newDev.Status.PoolRef.Name || oldDev.Status.PoolRef.Namespace != newDev.Status.PoolRef.Namespace {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -230,12 +253,14 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
+	resource := reconciler.NewResource(pool, r.client)
+
 	rec := reconciler.NewBase(r.handlers)
 	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.PoolHandler) (contracts.Result, error) {
 		return handler.HandlePool(ctx, pool)
 	})
 	rec.SetResourceUpdater(func(ctx context.Context) error {
-		return r.client.Status().Update(ctx, pool)
+		return resource.PatchStatus(ctx)
 	})
 
 	res, err := rec.Reconcile(ctx)

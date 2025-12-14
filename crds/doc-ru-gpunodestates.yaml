@@ -1,0 +1,58 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Ресурс, описывающий состояние GPU-инфраструктуры на конкретном узле Kubernetes:
+            наличие поддерживаемых GPU, версии драйвера/toolkit, прогресс bootstrap и условия готовности.
+            Детальные сведения по картам хранятся в отдельных объектах GPUDevice.
+          properties:
+            spec:
+              description: Настройка связывает состояние с конкретным узлом.
+              properties:
+                nodeName:
+                  description: Имя узла Kubernetes, для которого ведётся учёт состояния.
+            status:
+              description: Текущие сведения об узле и его готовности к выдаче GPU в пулы.
+              properties:
+                hw:
+                  description: Наличие поддерживаемых GPU устройств на узле.
+                  properties:
+                    present:
+                      description: Есть ли поддерживаемые карты на узле.
+                driver:
+                  description: Версии драйвера и CUDA toolkits, установленные на узле.
+                  properties:
+                    version:
+                      description: Версия драйвера NVIDIA.
+                    cudaVersion:
+                      description: Версия CUDA Runtime.
+                    toolkitInstalled:
+                      description: Установлены ли необходимые CUDA-компоненты на узле.
+                bootstrap:
+                  description: Статус bootstrap-подготовки узла.
+                  properties:
+                    phase:
+                      description: Текущая фаза bootstrap (`Disabled`, `Validating`, `ValidatingFailed`, `GFD`, `Monitoring`, `Ready`).
+                    components:
+                      description: Набор включённых bootstrap-компонентов (например `validator`, `gpu-feature-discovery`, `dcgm`, `dcgm-exporter`).
+                    lastRun:
+                      description: Последнее время запуска bootstrap-процедуры.
+                    validatorRequired:
+                      description: Требуется ли валидация (есть устройства, ожидающие проверку).
+                    pendingDevices:
+                      description: Список inventoryID устройств, ожидающих валидации.
+                    validations:
+                      description: Состояние попыток валидации по каждому устройству.
+                      items:
+                        type: object
+                        properties:
+                          inventoryID:
+                            description: Стабильный идентификатор карты (`GPUDevice.status.inventoryID`).
+                          attempts:
+                            description: Число неудачных попыток валидации.
+                          lastFailure:
+                            description: Время последней неудачной попытки.
+                conditions:
+                  description: Список агрегированных условий готовности узла.

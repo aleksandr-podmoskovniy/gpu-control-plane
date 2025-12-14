@@ -369,6 +369,106 @@ func TestWaitForRemovalTimeout(t *testing.T) {
 		t.Fatal("expected waitForRemoval to report timeout")
 	}
 }
+
+func TestWaitForCollectionRemovalHandlesListError(t *testing.T) {
+	hook := &PreDeleteHook{WaitTimeout: time.Second}
+	client := &fakeResource{
+		listResponses: []listResponse{{err: errors.New("list fail")}},
+	}
+	res := Resource{GVR: schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"}}
+
+	if !hook.waitForCollectionRemoval(context.Background(), client, res) {
+		t.Fatal("expected waitForCollectionRemoval to stop on list error")
+	}
+}
+
+func TestWaitForCollectionRemovalEmptyList(t *testing.T) {
+	hook := &PreDeleteHook{WaitTimeout: time.Second}
+	client := &fakeResource{
+		listResponses: []listResponse{{list: &unstructured.UnstructuredList{}}},
+	}
+	res := Resource{GVR: schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"}}
+
+	if !hook.waitForCollectionRemoval(context.Background(), client, res) {
+		t.Fatal("expected waitForCollectionRemoval to report success on empty list")
+	}
+}
+
+func TestWaitForCollectionRemovalContextCancelled(t *testing.T) {
+	hook := &PreDeleteHook{WaitTimeout: time.Second}
+	client := &fakeResource{
+		listResponses: []listResponse{{list: &unstructured.UnstructuredList{Items: []unstructured.Unstructured{{}}}}},
+	}
+	res := Resource{GVR: schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if !hook.waitForCollectionRemoval(ctx, client, res) {
+		t.Fatal("expected waitForCollectionRemoval to exit on context cancellation")
+	}
+}
+
+func TestWaitForCollectionRemovalTimeout(t *testing.T) {
+	hook := &PreDeleteHook{WaitTimeout: 0}
+	client := &fakeResource{}
+	res := Resource{GVR: schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"}}
+
+	if hook.waitForCollectionRemoval(context.Background(), client, res) {
+		t.Fatal("expected waitForCollectionRemoval to report timeout")
+	}
+}
+
+func TestDeleteResourceCollectionDeleteError(t *testing.T) {
+	resIface := &fakeResource{deleteCollectionErr: errors.New("delete fail")}
+	hook := &PreDeleteHook{dynamicClient: &fakeDynamicClient{iface: &fakeNamespaceable{fakeResource: resIface}}}
+
+	hook.deleteResource(context.Background(), Resource{
+		GVR: schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"},
+	})
+
+	if resIface.deleteCollectionCalls.Load() != 1 {
+		t.Fatalf("expected delete collection to be called once, got %d", resIface.deleteCollectionCalls.Load())
+	}
+}
+
+func TestDeleteResourceCollectionSuccess(t *testing.T) {
+	resIface := &fakeResource{
+		listResponses: []listResponse{{list: &unstructured.UnstructuredList{}}},
+	}
+	hook := &PreDeleteHook{
+		dynamicClient: &fakeDynamicClient{iface: &fakeNamespaceable{fakeResource: resIface}},
+		WaitTimeout:   time.Second,
+	}
+
+	hook.deleteResource(context.Background(), Resource{
+		GVR:      schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"},
+		Selector: "app=test",
+	})
+
+	if resIface.deleteCollectionCalls.Load() != 1 {
+		t.Fatalf("expected delete collection to be called once, got %d", resIface.deleteCollectionCalls.Load())
+	}
+	if resIface.listIndex == 0 {
+		t.Fatalf("expected list to be called at least once")
+	}
+}
+
+func TestDeleteResourceCollectionTimeout(t *testing.T) {
+	resIface := &fakeResource{
+		listResponses: []listResponse{{list: &unstructured.UnstructuredList{Items: []unstructured.Unstructured{{}}}}},
+	}
+	hook := &PreDeleteHook{
+		dynamicClient: &fakeDynamicClient{iface: &fakeNamespaceable{fakeResource: resIface}},
+		WaitTimeout:   0,
+	}
+
+	hook.deleteResource(context.Background(), Resource{
+		GVR:      schema.GroupVersionResource{Group: "deckhouse.io", Version: "v1", Resource: "tests"},
+		Selector: "app=test",
+	})
+}
+
 func TestBuildConfigInClusterError(t *testing.T) {
 	hook := &PreDeleteHook{}
 	if _, err := hook.buildConfig(); err == nil {
@@ -399,11 +499,20 @@ func (f *fakeNamespaceable) Cluster(ns string) dynamic.ResourceInterface {
 	return f
 }
 
+type listResponse struct {
+	list *unstructured.UnstructuredList
+	err  error
+}
+
 type fakeResource struct {
-	deleteErr   error
-	getErrors   []error
-	getIndex    int
-	deleteCalls atomic.Int32
+	deleteErr            error
+	deleteCollectionErr  error
+	getErrors            []error
+	getIndex             int
+	listResponses        []listResponse
+	listIndex            int
+	deleteCalls          atomic.Int32
+	deleteCollectionCalls atomic.Int32
 }
 
 func (f *fakeResource) Create(context.Context, *unstructured.Unstructured, metav1.CreateOptions, ...string) (*unstructured.Unstructured, error) {
@@ -424,7 +533,8 @@ func (f *fakeResource) Delete(context.Context, string, metav1.DeleteOptions, ...
 }
 
 func (f *fakeResource) DeleteCollection(context.Context, metav1.DeleteOptions, metav1.ListOptions) error {
-	return nil
+	f.deleteCollectionCalls.Add(1)
+	return f.deleteCollectionErr
 }
 
 func (f *fakeResource) Get(context.Context, string, metav1.GetOptions, ...string) (*unstructured.Unstructured, error) {
@@ -437,7 +547,13 @@ func (f *fakeResource) Get(context.Context, string, metav1.GetOptions, ...string
 }
 
 func (f *fakeResource) List(context.Context, metav1.ListOptions) (*unstructured.UnstructuredList, error) {
-	return nil, nil
+	if f.listIndex < len(f.listResponses) {
+		resp := f.listResponses[f.listIndex]
+		f.listIndex++
+		return resp.list, resp.err
+	}
+	f.listIndex++
+	return &unstructured.UnstructuredList{}, nil
 }
 
 func (f *fakeResource) Watch(context.Context, metav1.ListOptions) (watch.Interface, error) {

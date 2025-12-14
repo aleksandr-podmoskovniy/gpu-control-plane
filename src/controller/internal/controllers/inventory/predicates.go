@@ -32,7 +32,7 @@ func (r *Reconciler) nodePredicates() predicate.Funcs {
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNode, _ := e.ObjectOld.(*corev1.Node)
 			newNode, _ := e.ObjectNew.(*corev1.Node)
-			return nodeHasGPUHardwareLabels(nodeLabels(oldNode)) || nodeHasGPUHardwareLabels(nodeLabels(newNode))
+			return gpuNodeLabelsChanged(oldNode, newNode)
 		},
 		DeleteFunc: func(event.DeleteEvent) bool {
 			return true

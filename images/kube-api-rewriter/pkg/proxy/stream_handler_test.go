@@ -81,6 +81,38 @@ func TestStreamHandlerHandleSuccess(t *testing.T) {
 	}
 }
 
+func TestStreamHandlerHandle_DebugLoggerCoversBranches(t *testing.T) {
+	setSlogDebug(t)
+
+	rwr := newSimpleRewriter(t)
+	handler := &StreamHandler{
+		Rewriter:        rwr,
+		MetricsProvider: newStubMetricsProvider(),
+	}
+
+	stream := []byte(`{"type":"ADDED","object":{"apiVersion":"prefixed.resources.group.io/v1","kind":"PrefixedSomeResource","metadata":{"name":"sr1"}}}`)
+	resp := &http.Response{
+		Body:       io.NopCloser(bytes.NewReader(stream)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		StatusCode: http.StatusOK,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://kubernetes/apis/original.group.io/v1/someresources?watch=true", nil)
+	targetReq := rewriter.NewTargetRequest(rwr, req)
+	if targetReq == nil {
+		t.Fatal("expected non-nil target request")
+	}
+
+	recorder := httptest.NewRecorder()
+	if err := handler.Handle(context.Background(), recorder, resp, targetReq); err != nil {
+		t.Fatalf("handle returned error: %v", err)
+	}
+
+	if recorder.Body.Len() == 0 {
+		t.Fatalf("expected body to contain forwarded event")
+	}
+}
+
 func TestStreamHandlerHandleInitError(t *testing.T) {
 	handler := &StreamHandler{
 		Rewriter:        &rewriter.RuleBasedRewriter{Rules: &rewriter.RewriteRules{}},

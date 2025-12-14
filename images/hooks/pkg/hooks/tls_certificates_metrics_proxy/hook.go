@@ -23,6 +23,25 @@ import (
 	"hooks/pkg/settings"
 )
 
+func beforeHookCheck(input *pkg.HookInput) bool {
+	cfg := input.Values.Get(settings.InternalModuleConfigPath)
+	if !cfg.Exists() || !cfg.Get("enabled").Bool() {
+		return false
+	}
+
+	metrics := input.Values.Get(settings.InternalMetricsPath)
+	if !metrics.Exists() || !metrics.IsObject() {
+		return false
+	}
+
+	cert := metrics.Get("cert")
+	if !cert.Exists() || !cert.IsObject() {
+		input.Values.Set(settings.InternalMetricsCertPath, map[string]any{})
+	}
+
+	return true
+}
+
 var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLSHookConf{
 	CN:            settings.MetricsProxyCertCN,
 	TLSSecretName: settings.MetricsTLSSecretName,
@@ -37,22 +56,5 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 	}),
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
 	CommonCAValuesPath:   settings.InternalRootCAPath,
-	BeforeHookCheck: func(input *pkg.HookInput) bool {
-		cfg := input.Values.Get(settings.InternalModuleConfigPath)
-		if !cfg.Exists() || !cfg.Get("enabled").Bool() {
-			return false
-		}
-
-		metrics := input.Values.Get(settings.InternalMetricsPath)
-		if !metrics.Exists() || !metrics.IsObject() {
-			return false
-		}
-
-		cert := metrics.Get("cert")
-		if !cert.Exists() || !cert.IsObject() {
-			input.Values.Set(settings.InternalMetricsCertPath, map[string]any{})
-		}
-
-		return true
-	},
+	BeforeHookCheck:       beforeHookCheck,
 })

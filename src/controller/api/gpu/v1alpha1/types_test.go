@@ -33,8 +33,8 @@ func TestAddToSchemeRegistersAllTypes(t *testing.T) {
 	kinds := []string{
 		"GPUDevice",
 		"GPUDeviceList",
-		"GPUNodeInventory",
-		"GPUNodeInventoryList",
+		"GPUNodeState",
+		"GPUNodeStateList",
 		"GPUPool",
 		"GPUPoolList",
 		"ClusterGPUPool",

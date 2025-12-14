@@ -38,7 +38,7 @@ func (h *NodeReadinessHandler) Name() string {
 	return "node-readiness"
 }
 
-func (h *NodeReadinessHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
+func (h *NodeReadinessHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
 	ready := false
 	for _, cond := range inventory.Status.Conditions {
 		if cond.Type == conditionReadyForPooling && cond.Status == metav1.ConditionTrue {

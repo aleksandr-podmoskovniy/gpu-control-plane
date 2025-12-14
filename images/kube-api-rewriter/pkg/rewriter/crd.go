@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 const (
@@ -81,44 +80,44 @@ func RestoreCRD(rules *RewriteRules, obj []byte) ([]byte, error) {
 	}
 
 	newName := resourceRule.Plural + "." + groupRule.Group
-	obj, err := sjson.SetBytes(obj, "metadata.name", newName)
+	obj, err := sjsonSetBytes(obj, "metadata.name", newName)
 	if err != nil {
 		return nil, err
 	}
 
-	obj, err = sjson.SetBytes(obj, "spec.group", groupRule.Group)
+	obj, err = sjsonSetBytes(obj, "spec.group", groupRule.Group)
 	if err != nil {
 		return nil, err
 	}
 
 	names := []byte(gjson.GetBytes(obj, "spec.names").Raw)
 
-	names, err = sjson.SetBytes(names, "categories", rules.RestoreCategories(resourceRule))
+	names, err = sjsonSetBytes(names, "categories", rules.RestoreCategories(resourceRule))
 	if err != nil {
 		return nil, err
 	}
-	names, err = sjson.SetBytes(names, "kind", rules.RestoreKind(resourceRule.Kind))
+	names, err = sjsonSetBytes(names, "kind", rules.RestoreKind(resourceRule.Kind))
 	if err != nil {
 		return nil, err
 	}
-	names, err = sjson.SetBytes(names, "listKind", rules.RestoreKind(resourceRule.ListKind))
+	names, err = sjsonSetBytes(names, "listKind", rules.RestoreKind(resourceRule.ListKind))
 	if err != nil {
 		return nil, err
 	}
-	names, err = sjson.SetBytes(names, "plural", rules.RestoreResource(resourceRule.Plural))
+	names, err = sjsonSetBytes(names, "plural", rules.RestoreResource(resourceRule.Plural))
 	if err != nil {
 		return nil, err
 	}
-	names, err = sjson.SetBytes(names, "singular", rules.RestoreResource(resourceRule.Singular))
+	names, err = sjsonSetBytes(names, "singular", rules.RestoreResource(resourceRule.Singular))
 	if err != nil {
 		return nil, err
 	}
-	names, err = sjson.SetBytes(names, "shortNames", rules.RestoreShortNames(resourceRule.ShortNames))
+	names, err = sjsonSetBytes(names, "shortNames", rules.RestoreShortNames(resourceRule.ShortNames))
 	if err != nil {
 		return nil, err
 	}
 
-	obj, err = sjson.SetRawBytes(obj, "spec.names", names)
+	obj, err = sjsonSetRawBytes(obj, "spec.names", names)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +151,7 @@ func RenameCRD(rules *RewriteRules, obj []byte) ([]byte, error) {
 	}
 
 	newName := rules.RenameResource(resource) + "." + rules.RenameApiVersion(group)
-	obj, err := sjson.SetBytes(obj, "metadata.name", newName)
+	obj, err := sjsonSetBytes(obj, "metadata.name", newName)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +161,7 @@ func RenameCRD(rules *RewriteRules, obj []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sjson.SetRawBytes(obj, "spec", newSpec)
+	return sjsonSetRawBytes(obj, "spec", newSpec)
 }
 
 func renameCRDSpec(rules *RewriteRules, resourceRule *ResourceRule, spec []byte) ([]byte, error) {
@@ -179,43 +178,43 @@ func renameCRDSpec(rules *RewriteRules, resourceRule *ResourceRule, spec []byte)
 	names := []byte(gjson.GetBytes(spec, "names").Raw)
 
 	if gjson.GetBytes(names, "categories").Exists() {
-		names, err = sjson.SetBytes(names, "categories", rules.RenameCategories(resourceRule.Categories))
+		names, err = sjsonSetBytes(names, "categories", rules.RenameCategories(resourceRule.Categories))
 		if err != nil {
 			return nil, err
 		}
 	}
 	if gjson.GetBytes(names, "kind").Exists() {
-		names, err = sjson.SetBytes(names, "kind", rules.RenameKind(resourceRule.Kind))
+		names, err = sjsonSetBytes(names, "kind", rules.RenameKind(resourceRule.Kind))
 		if err != nil {
 			return nil, err
 		}
 	}
 	if gjson.GetBytes(names, "listKind").Exists() {
-		names, err = sjson.SetBytes(names, "listKind", rules.RenameKind(resourceRule.ListKind))
+		names, err = sjsonSetBytes(names, "listKind", rules.RenameKind(resourceRule.ListKind))
 		if err != nil {
 			return nil, err
 		}
 	}
 	if gjson.GetBytes(names, "plural").Exists() {
-		names, err = sjson.SetBytes(names, "plural", rules.RenameResource(resourceRule.Plural))
+		names, err = sjsonSetBytes(names, "plural", rules.RenameResource(resourceRule.Plural))
 		if err != nil {
 			return nil, err
 		}
 	}
 	if gjson.GetBytes(names, "singular").Exists() {
-		names, err = sjson.SetBytes(names, "singular", rules.RenameResource(resourceRule.Singular))
+		names, err = sjsonSetBytes(names, "singular", rules.RenameResource(resourceRule.Singular))
 		if err != nil {
 			return nil, err
 		}
 	}
 	if gjson.GetBytes(names, "shortNames").Exists() {
-		names, err = sjson.SetBytes(names, "shortNames", rules.RenameShortNames(resourceRule.ShortNames))
+		names, err = sjsonSetBytes(names, "shortNames", rules.RenameShortNames(resourceRule.ShortNames))
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	spec, err = sjson.SetRawBytes(spec, "names", names)
+	spec, err = sjsonSetRawBytes(spec, "names", names)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +242,7 @@ func RenameCRDPatch(rules *RewriteRules, resourceRule *ResourceRule, obj []byte)
 			if err != nil {
 				return nil, err
 			}
-			return sjson.SetRawBytes(singlePatch, "value", newValue)
+			return sjsonSetRawBytes(singlePatch, "value", newValue)
 		}
 
 		return nil, nil

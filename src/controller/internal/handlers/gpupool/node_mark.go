@@ -22,13 +22,12 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 // NodeMarkHandler adds/removes per-pool labels and taints on nodes hosting pool devices.
@@ -52,39 +51,57 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 
 	poolKey := poolLabelKey(pool)
 	altPoolKey := alternatePoolLabelKey(pool)
-	// Temporarily disable taints to avoid evicting bootstrap workloads during pooling.
-	taintsEnabled := false
+	taintsEnabled := pool.Spec.Scheduling.TaintsEnabled != nil && *pool.Spec.Scheduling.TaintsEnabled
+
 	nodesWithDevices := make(map[string]int32)
-	for _, n := range pool.Status.Nodes {
-		nodesWithDevices[n.Name] = n.TotalDevices
+
+	devices := &v1alpha1.GPUDeviceList{}
+	if err := h.client.List(ctx, devices, client.MatchingFields{indexer.GPUDevicePoolRefNameField: pool.Name}); err != nil {
+		return contracts.Result{}, err
+	}
+	for i := range devices.Items {
+		dev := &devices.Items[i]
+		if isDeviceIgnored(dev) {
+			continue
+		}
+		if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
+			continue
+		}
+		nodeName := dev.Status.NodeName
+		if nodeName == "" {
+			nodeName = dev.Labels["kubernetes.io/hostname"]
+		}
+		if nodeName == "" {
+			continue
+		}
+		nodesWithDevices[nodeName]++
 	}
 
-	// Collect nodes that currently have devices plus nodes that still carry pool labels (to clean them up).
-	nodesToCheck := map[string]struct{}{}
-	for name := range nodesWithDevices {
-		nodesToCheck[name] = struct{}{}
+	nodesToSync := make(map[string]struct{}, len(nodesWithDevices))
+	for nodeName := range nodesWithDevices {
+		nodesToSync[nodeName] = struct{}{}
 	}
 
-	addLabeled := func(selector labels.Selector) error {
-		if selector == nil {
-			return nil
-		}
-		var nodeList corev1.NodeList
-		if err := h.client.List(ctx, &nodeList, &client.ListOptions{LabelSelector: selector}); err != nil {
-			return err
-		}
-		for i := range nodeList.Items {
-			nodesToCheck[nodeList.Items[i].Name] = struct{}{}
-		}
-		return nil
+	poolValue := poolValueFromKey(poolKey)
+	nodeList := &corev1.NodeList{}
+	if err := h.client.List(ctx, nodeList, client.MatchingLabels{poolKey: poolValue}); err != nil {
+		return contracts.Result{}, err
+	}
+	for i := range nodeList.Items {
+		nodesToSync[nodeList.Items[i].Name] = struct{}{}
 	}
 
-	_ = addLabeled(labels.SelectorFromSet(map[string]string{poolKey: poolValueFromKey(poolKey)}))
 	if altPoolKey != "" {
-		_ = addLabeled(labels.SelectorFromSet(map[string]string{altPoolKey: poolValueFromKey(altPoolKey)}))
+		altList := &corev1.NodeList{}
+		if err := h.client.List(ctx, altList, client.MatchingLabels{altPoolKey: poolValue}); err != nil {
+			return contracts.Result{}, err
+		}
+		for i := range altList.Items {
+			nodesToSync[altList.Items[i].Name] = struct{}{}
+		}
 	}
 
-	for nodeName := range nodesToCheck {
+	for nodeName := range nodesToSync {
 		total := nodesWithDevices[nodeName]
 		if err := h.syncNode(ctx, nodeName, poolKey, altPoolKey, total > 0, taintsEnabled); err != nil {
 			return contracts.Result{}, err
@@ -96,7 +113,7 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey, altPoolKey string, hasDevices bool, taintsEnabled bool) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		node := &corev1.Node{}
-		if err := h.client.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+		if err := h.client.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil
 			}
@@ -121,9 +138,11 @@ func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey, altPo
 					changed = true
 				}
 			}
-		} else if _, ok := node.Labels[poolKey]; ok {
-			delete(node.Labels, poolKey)
-			changed = true
+		} else {
+			if _, ok := node.Labels[poolKey]; ok {
+				delete(node.Labels, poolKey)
+				changed = true
+			}
 			if altPoolKey != "" {
 				if _, ok := node.Labels[altPoolKey]; ok {
 					delete(node.Labels, altPoolKey)
@@ -202,30 +221,17 @@ func ensureTaints(current []corev1.Taint, desired []corev1.Taint, poolKey string
 }
 
 func poolLabelKey(pool *v1alpha1.GPUPool) string {
-	return fmt.Sprintf("%s/%s", poolPrefix(pool), pool.Name)
+	return fmt.Sprintf("%s/%s", poolResourcePrefixFor(pool), pool.Name)
 }
 
 func alternatePoolLabelKey(pool *v1alpha1.GPUPool) string {
 	if pool == nil {
 		return ""
 	}
-	current := poolPrefix(pool)
-	alt := "gpu.deckhouse.io"
-	if current == alt {
-		alt = "cluster.gpu.deckhouse.io"
-	}
-	return fmt.Sprintf("%s/%s", alt, pool.Name)
+	return fmt.Sprintf("%s/%s", alternatePoolResourcePrefixFor(pool), pool.Name)
 }
 
 func poolValueFromKey(key string) string {
 	parts := strings.Split(key, "/")
 	return parts[len(parts)-1]
-}
-
-func poolPrefix(pool *v1alpha1.GPUPool) string {
-	// Cluster-scoped pools (ClusterGPUPool kind) must use cluster prefix even if a namespace is set by caller.
-	if pool != nil && (pool.Namespace == "" || pool.Kind == "ClusterGPUPool") {
-		return "cluster.gpu.deckhouse.io"
-	}
-	return "gpu.deckhouse.io"
 }

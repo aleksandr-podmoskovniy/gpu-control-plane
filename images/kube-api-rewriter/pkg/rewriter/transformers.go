@@ -17,10 +17,7 @@ limitations under the License.
 package rewriter
 
 import (
-	"encoding/json"
-
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // TransformString transforms string value addressed by path.
@@ -30,7 +27,7 @@ func TransformString(obj []byte, path string, transformFn func(field string) str
 		return obj, nil
 	}
 	rwrString := transformFn(pathStr.String())
-	return sjson.SetBytes(obj, path, rwrString)
+	return sjsonSetBytes(obj, path, rwrString)
 }
 
 // TransformObject transforms object value addressed by path.
@@ -43,7 +40,7 @@ func TransformObject(obj []byte, path string, transformFn func(item []byte) ([]b
 	if err != nil {
 		return nil, err
 	}
-	return sjson.SetRawBytes(obj, path, rwrObj)
+	return sjsonSetRawBytes(obj, path, rwrObj)
 }
 
 // TransformArrayOfStrings transforms array value addressed by path.
@@ -58,7 +55,7 @@ func TransformArrayOfStrings(obj []byte, arrayPath string, transformFn func(item
 		rwrItems[i] = transformFn(item.String())
 	}
 
-	return sjson.SetBytes(obj, arrayPath, rwrItems)
+	return sjsonSetBytes(obj, arrayPath, rwrItems)
 }
 
 // TransformPatch treats obj as a JSON patch or Merge patch and calls
@@ -96,16 +93,9 @@ func GetBytes(obj []byte, path string) gjson.Result {
 	return gjson.GetBytes(obj, path)
 }
 
-func SetBytes(obj []byte, path string, value interface{}) ([]byte, error) {
-	if path == Root {
-		return json.Marshal(value)
-	}
-	return sjson.SetBytes(obj, path, value)
-}
-
 func SetRawBytes(obj []byte, path string, value []byte) ([]byte, error) {
 	if path == Root {
 		return value, nil
 	}
-	return sjson.SetRawBytes(obj, path, value)
+	return sjsonSetRawBytes(obj, path, value)
 }

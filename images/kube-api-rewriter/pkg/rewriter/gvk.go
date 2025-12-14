@@ -18,7 +18,6 @@ package rewriter
 
 import (
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func RewriteAPIGroupAndKind(rules *RewriteRules, obj []byte, action Action) ([]byte, error) {
@@ -60,10 +59,10 @@ func RewriteGVK(rules *RewriteRules, obj []byte, action Action, gvFieldName stri
 		}
 	}
 
-	obj, err := sjson.SetBytes(obj, "kind", rwrKind)
+	obj, err := sjsonSetBytes(obj, "kind", rwrKind)
 	if err != nil {
 		return nil, err
 	}
 
-	return sjson.SetBytes(obj, gvFieldName, rwrApiVersion)
+	return sjsonSetBytes(obj, gvFieldName, rwrApiVersion)
 }

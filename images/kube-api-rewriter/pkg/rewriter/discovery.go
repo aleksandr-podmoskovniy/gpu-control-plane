@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // RewriteAPIGroupList restores groups and kinds in "groups" array in /apis/ response.
@@ -116,7 +115,7 @@ func RewriteAPIGroup(rules *RewriteRules, obj []byte) ([]byte, error) {
 	if !rules.IsRenamedGroup(groupName) {
 		return obj, nil
 	}
-	obj, err := sjson.SetBytes(obj, "name", rules.RestoreApiVersion(groupName))
+	obj, err := sjsonSetBytes(obj, "name", rules.RestoreApiVersion(groupName))
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +186,7 @@ func RewriteAPIResourceList(rules *RewriteRules, obj []byte) ([]byte, error) {
 		return obj, nil
 	}
 	origGroup := rules.RestoreApiVersion(groupVersion)
-	obj, err := sjson.SetBytes(obj, "groupVersion", origGroup)
+	obj, err := sjsonSetBytes(obj, "groupVersion", origGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +233,7 @@ func RewriteAPIResourceList(rules *RewriteRules, obj []byte) ([]byte, error) {
 		categories := gjson.GetBytes(resource, "categories")
 		if categories.Exists() {
 			restoredCategories := rules.RestoreCategories(resourceRule)
-			resource, err = sjson.SetBytes(resource, "categories", restoredCategories)
+			resource, err = sjsonSetBytes(resource, "categories", restoredCategories)
 			if err != nil {
 				return nil, err
 			}
@@ -278,17 +277,6 @@ func newSliceBytesBuilder() *sliceBytesBuilder {
 type sliceBytesBuilder struct {
 	buf   *bytes.Buffer
 	begin bool
-}
-
-func (b *sliceBytesBuilder) WriteString(s string) {
-	if s == "" {
-		return
-	}
-	if b.begin {
-		b.buf.WriteString(",")
-	}
-	b.buf.WriteString(s)
-	b.begin = true
 }
 
 func (b *sliceBytesBuilder) Write(bytes []byte) {
@@ -351,7 +339,7 @@ func RewriteAPIGroupDiscoveryList(rules *RewriteRules, obj []byte) ([]byte, erro
 		}
 	}
 
-	return sjson.SetRawBytes(obj, "items", rwrItems.Complete().Bytes())
+	return sjsonSetRawBytes(obj, "items", rwrItems.Complete().Bytes())
 }
 
 // RestoreAggregatedGroupDiscovery returns an array of APIGroupDiscovery objects with restored resources.
@@ -443,7 +431,7 @@ func RestoreAggregatedGroupDiscovery(rules *RewriteRules, obj []byte) ([][]byte,
 					restoredVersionResources.Write(resource)
 				}
 				// Set resources field.
-				restoredVersionObj, err = sjson.SetRawBytes(restoredVersionObj, "resources", restoredVersionResources.Complete().Bytes())
+				restoredVersionObj, err = sjsonSetRawBytes(restoredVersionObj, "resources", restoredVersionResources.Complete().Bytes())
 				if err != nil {
 					return nil, err
 				}
@@ -452,7 +440,7 @@ func RestoreAggregatedGroupDiscovery(rules *RewriteRules, obj []byte) ([][]byte,
 			// Append restored APIVersionDiscovery object.
 			restoredVersions.Write(restoredVersionObj)
 		}
-		restoredGroupObj, err := sjson.SetRawBytes(restoredGroupObj, "versions", restoredVersions.Complete().Bytes())
+		restoredGroupObj, err := sjsonSetRawBytes(restoredGroupObj, "versions", restoredVersions.Complete().Bytes())
 		if err != nil {
 			return nil, err
 		}
@@ -506,7 +494,7 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 
 	origGroup := groupRule.Group
 
-	obj, err = sjson.SetBytes(obj, "resource", origResource)
+	obj, err = sjsonSetBytes(obj, "resource", origResource)
 	if err != nil {
 		return "", nil, err
 	}
@@ -514,11 +502,11 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 	// Reconstruct group and kind in responseKind field.
 	responseKind := gjson.GetBytes(obj, "responseKind")
 	if responseKind.IsObject() {
-		obj, err = sjson.SetBytes(obj, "responseKind.group", origGroup)
+		obj, err = sjsonSetBytes(obj, "responseKind.group", origGroup)
 		if err != nil {
 			return "", nil, err
 		}
-		obj, err = sjson.SetBytes(obj, "responseKind.kind", resRule.Kind)
+		obj, err = sjsonSetBytes(obj, "responseKind.kind", resRule.Kind)
 		if err != nil {
 			return "", nil, err
 		}
@@ -526,7 +514,7 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 
 	singular := gjson.GetBytes(obj, "singularResource").String()
 	if singular != "" {
-		obj, err = sjson.SetBytes(obj, "singularResource", rules.RestoreResource(singular))
+		obj, err = sjsonSetBytes(obj, "singularResource", rules.RestoreResource(singular))
 		if err != nil {
 			return "", nil, err
 		}
@@ -539,7 +527,7 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 			strShortNames = append(strShortNames, shortName.String())
 		}
 		newShortNames := rules.RestoreShortNames(strShortNames)
-		obj, err = sjson.SetBytes(obj, "shortNames", newShortNames)
+		obj, err = sjsonSetBytes(obj, "shortNames", newShortNames)
 		if err != nil {
 			return "", nil, err
 		}
@@ -548,7 +536,7 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 	categories := gjson.GetBytes(obj, "categories")
 	if categories.Exists() {
 		restoredCategories := rules.RestoreCategories(resRule)
-		obj, err = sjson.SetBytes(obj, "categories", restoredCategories)
+		obj, err = sjsonSetBytes(obj, "categories", restoredCategories)
 		if err != nil {
 			return "", nil, err
 		}
@@ -558,11 +546,11 @@ func RestoreAggregatedDiscoveryResource(rules *RewriteRules, obj []byte) (string
 		// Reconstruct group and kind in responseKind field.
 		responseKind := gjson.GetBytes(item, "responseKind")
 		if responseKind.IsObject() {
-			item, err = sjson.SetBytes(item, "responseKind.group", origGroup)
+			item, err = sjsonSetBytes(item, "responseKind.group", origGroup)
 			if err != nil {
 				return nil, err
 			}
-			item, err = sjson.SetBytes(item, "responseKind.kind", resRule.Kind)
+			item, err = sjsonSetBytes(item, "responseKind.kind", resRule.Kind)
 			if err != nil {
 				return nil, err
 			}

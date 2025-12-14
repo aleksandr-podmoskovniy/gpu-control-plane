@@ -22,9 +22,27 @@ import (
 )
 
 func TestFilterDevicesIncludeExclude(t *testing.T) {
-	devs := []v1alpha1.GPUNodeDevice{
-		{InventoryID: "id-a", Product: "A100", PCI: v1alpha1.PCIAddress{Vendor: "10de", Device: "20b0"}, MIG: v1alpha1.GPUMIGConfig{Capable: true, ProfilesSupported: []string{"1g.10gb"}}},
-		{InventoryID: "id-b", Product: "V100", PCI: v1alpha1.PCIAddress{Vendor: "10de", Device: "1db4"}, MIG: v1alpha1.GPUMIGConfig{Capable: false}},
+	devs := []v1alpha1.GPUDevice{
+		{
+			Status: v1alpha1.GPUDeviceStatus{
+				InventoryID: "id-a",
+				Hardware: v1alpha1.GPUDeviceHardware{
+					Product: "A100",
+					PCI:     v1alpha1.PCIAddress{Vendor: "10de", Device: "20b0"},
+					MIG:     v1alpha1.GPUMIGConfig{Capable: true, ProfilesSupported: []string{"1g.10gb"}},
+				},
+			},
+		},
+		{
+			Status: v1alpha1.GPUDeviceStatus{
+				InventoryID: "id-b",
+				Hardware: v1alpha1.GPUDeviceHardware{
+					Product: "V100",
+					PCI:     v1alpha1.PCIAddress{Vendor: "10de", Device: "1db4"},
+					MIG:     v1alpha1.GPUMIGConfig{Capable: false},
+				},
+			},
+		},
 	}
 
 	sel := &v1alpha1.GPUPoolDeviceSelector{
@@ -35,7 +53,7 @@ func TestFilterDevicesIncludeExclude(t *testing.T) {
 		},
 	}
 	got := FilterDevices(devs, sel)
-	if len(got) != 1 || got[0].InventoryID != "id-a" {
+	if len(got) != 1 || got[0].Status.InventoryID != "id-a" {
 		t.Fatalf("expected only id-a, got %+v", got)
 	}
 
@@ -48,13 +66,13 @@ func TestFilterDevicesIncludeExclude(t *testing.T) {
 	// Exclude MIG capable only removes first.
 	sel.Include = v1alpha1.GPUPoolSelectorRules{}
 	sel.Exclude = v1alpha1.GPUPoolSelectorRules{MIGCapable: boolPtr(true)}
-	if filtered := FilterDevices(devs, sel); len(filtered) != 1 || filtered[0].InventoryID != "id-b" {
+	if filtered := FilterDevices(devs, sel); len(filtered) != 1 || filtered[0].Status.InventoryID != "id-b" {
 		t.Fatalf("expected only id-b after exclude MIG capable, got %v", filtered)
 	}
 }
 
 func TestMatchesIncludeEmptySelector(t *testing.T) {
-	dev := v1alpha1.GPUNodeDevice{InventoryID: "id-a"}
+	dev := v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{InventoryID: "id-a"}}
 	if !matchesInclude(v1alpha1.GPUPoolSelectorRules{}, dev) {
 		t.Fatalf("empty include should match everything")
 	}
@@ -81,7 +99,7 @@ func TestContainsHelper(t *testing.T) {
 func boolPtr(v bool) *bool { return &v }
 
 func TestFilterDevicesNilSelectorCopiesSlice(t *testing.T) {
-	devs := []v1alpha1.GPUNodeDevice{{InventoryID: "x"}}
+	devs := []v1alpha1.GPUDevice{{Status: v1alpha1.GPUDeviceStatus{InventoryID: "x"}}}
 	res := FilterDevices(devs, nil)
 	if !reflect.DeepEqual(devs, res) {
 		t.Fatalf("expected copy of devices when selector is nil")

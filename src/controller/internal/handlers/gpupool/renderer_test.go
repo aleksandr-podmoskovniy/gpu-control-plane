@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
@@ -38,7 +37,7 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	_ = appsv1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).Build()
 	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
 		Namespace:            "gpu-ns",
 		DevicePluginImage:    "device-plugin:tag",
@@ -142,6 +141,48 @@ func TestRendererCreatesDevicePluginResources(t *testing.T) {
 	}
 }
 
+func TestRendererCreatesResourcesWhenPoolHasPendingAssignments(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "device-1"},
+		Status: v1alpha1.GPUDeviceStatus{
+			PoolRef:   &v1alpha1.GPUPoolReference{Name: "alpha"},
+			State:     v1alpha1.GPUDeviceStatePendingAssignment,
+			Hardware:  v1alpha1.GPUDeviceHardware{UUID: "GPU-AAA"},
+			Managed:   true,
+			AutoAttach: false,
+		},
+	}
+
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(device).Build()
+	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
+		Namespace:         "gpu-ns",
+		DevicePluginImage: "device-plugin:tag",
+		ValidatorImage:    "validator:tag",
+	})
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "alpha", Namespace: "gpu-ns", UID: "12345"},
+		Spec: v1alpha1.GPUPoolSpec{
+			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
+		},
+		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 0}},
+	}
+
+	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool: %v", err)
+	}
+
+	ds := &appsv1.DaemonSet{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "gpu-ns", Name: "nvidia-device-plugin-alpha"}, ds); err != nil {
+		t.Fatalf("get daemonset: %v", err)
+	}
+}
+
 func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
@@ -162,7 +203,6 @@ func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
 		},
 		Status: v1alpha1.GPUPoolStatus{
 			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
-			Nodes:    []v1alpha1.GPUPoolNodeStatus{{Name: "node1"}},
 		},
 	}
 
@@ -181,6 +221,77 @@ func TestRendererEnablesPluginValidationWhenConfigured(t *testing.T) {
 	}
 	if !mountExists(validator.Spec.Template.Spec.InitContainers[0].VolumeMounts, "/var/lib/kubelet/device-plugins") {
 		t.Fatalf("expected kubelet device-plugins mount when enabled")
+	}
+}
+
+func TestRendererHelperFunctionsCoverage(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{Namespace: "gpu-ns", DevicePluginImage: "device-plugin:tag"})
+	if handler.Name() == "" {
+		t.Fatalf("expected handler name")
+	}
+
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-ns", UID: "uid"}}
+
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cm", Namespace: "gpu-ns"}}
+	if hasOwner(cm, pool) {
+		t.Fatalf("expected hasOwner=false before adding owner reference")
+	}
+	addOwner(cm, pool)
+	if !hasOwner(cm, pool) {
+		t.Fatalf("expected hasOwner=true after adding owner reference")
+	}
+
+	cm1 := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "cm1",
+			Namespace:       "gpu-ns",
+			Labels:          map[string]string{"a": "b"},
+			Annotations:     map[string]string{"x": "y"},
+			OwnerReferences: cm.OwnerReferences,
+		},
+		Data:       map[string]string{"k": "v"},
+		BinaryData: map[string][]byte{"bin": []byte("data")},
+	}
+	cm2 := cm1.DeepCopy()
+	if !handler.configMapEqual(cm1, cm2) {
+		t.Fatalf("expected configmaps to be equal")
+	}
+	cm2.Data["k"] = "changed"
+	if handler.configMapEqual(cm1, cm2) {
+		t.Fatalf("expected configmaps to differ after data change")
+	}
+
+	ds1 := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "ds1",
+			Namespace:       "gpu-ns",
+			Labels:          map[string]string{"a": "b"},
+			Annotations:     map[string]string{"x": "y"},
+			OwnerReferences: cm.OwnerReferences,
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"a": "b"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"a": "b"}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "img"}},
+				},
+			},
+		},
+	}
+	ds2 := ds1.DeepCopy()
+	if !handler.daemonSetEqual(ds1, ds2) {
+		t.Fatalf("expected daemonsets to be equal")
+	}
+	ds2.Spec.Template.Spec.Containers[0].Image = "changed"
+	if handler.daemonSetEqual(ds1, ds2) {
+		t.Fatalf("expected daemonsets to differ after spec change")
 	}
 }
 
@@ -204,15 +315,6 @@ func TestRendererCreatesMIGManagerResources(t *testing.T) {
 			Resource: v1alpha1.GPUPoolResourceSpec{
 				Unit:       "MIG",
 				MIGProfile: "1g.10gb",
-				MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{
-					{
-						PCIBusIDs: []string{"0000:01:00.0"},
-						Profiles: []v1alpha1.GPUPoolMIGProfile{
-							{Name: "3g.40gb", Count: ptr.To[int32](1)},
-							{Name: "1g.10gb", Count: ptr.To[int32](2)},
-						},
-					},
-				},
 			},
 		},
 		Status: v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
@@ -229,11 +331,11 @@ func TestRendererCreatesMIGManagerResources(t *testing.T) {
 	if len(cm.OwnerReferences) != 1 || cm.OwnerReferences[0].Name != "beta" {
 		t.Fatalf("owner reference not set on MIG ConfigMap")
 	}
-	if !strings.Contains(cm.Data["config.yaml"], "3g.40gb") || !strings.Contains(cm.Data["config.yaml"], "1g.10gb") {
+	if !strings.Contains(cm.Data["config.yaml"], "1g.10gb") {
 		t.Fatalf("config.yaml does not contain expected profiles: %s", cm.Data["config.yaml"])
 	}
-	if !strings.Contains(cm.Data["config.yaml"], "0000:01:00.0") {
-		t.Fatalf("config.yaml does not contain bus id: %s", cm.Data["config.yaml"])
+	if !strings.Contains(cm.Data["config.yaml"], "pciBusId: all") {
+		t.Fatalf("config.yaml does not contain expected target: %s", cm.Data["config.yaml"])
 	}
 
 	scripts := &corev1.ConfigMap{}
@@ -282,7 +384,7 @@ func TestRendererCleansUpForNonDevicePluginBackend(t *testing.T) {
 		&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: migDSName, Namespace: "gpu-ns"}},
 	}
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(objs...).Build()
 	handler := NewRendererHandler(testr.New(t), cl, RenderConfig{
 		Namespace:         "gpu-ns",
 		DevicePluginImage: "device-plugin:tag",

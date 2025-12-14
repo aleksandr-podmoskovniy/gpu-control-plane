@@ -415,8 +415,9 @@ func (h *Handler) transformResponse(ctx context.Context, targetReq *rewriter.Tar
 
 	var err error
 	bytesCounter := BytesCounterReaderWrap(resp.Body)
+	encoding := resp.Header.Get("Content-Encoding")
 	// Add gzip decoder if needed.
-	bodyReader, err := encodingAwareReaderWrap(bytesCounter, resp.Header.Get("Content-Encoding"))
+	bodyReader, err := encodingAwareReaderWrap(bytesCounter, encoding)
 	if err != nil {
 		logger.Error("Error decoding response body", logutil.SlogErr(err))
 		http.Error(w, "can't decode response body", http.StatusInternalServerError)
@@ -447,6 +448,14 @@ func (h *Handler) transformResponse(ctx context.Context, targetReq *rewriter.Tar
 		}
 
 		metrics.TargetResponseInvalidJSON(resp.StatusCode)
+
+		// Restore response body reader because it has been read earlier, and
+		// fix Content-* headers if response was decoded.
+		resp.Body = io.NopCloser(bytes.NewReader(origBodyBytes))
+		resp.Header.Set("Content-Length", strconv.Itoa(len(origBodyBytes)))
+		if encoding == "gzip" || encoding == "deflate" {
+			resp.Header.Del("Content-Encoding")
+		}
 
 		h.passResponse(ctx, targetReq, w, resp, logger)
 		return

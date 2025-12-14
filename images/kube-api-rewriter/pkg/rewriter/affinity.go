@@ -18,7 +18,6 @@ package rewriter
 
 import (
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // RewriteAffinity renames or restores labels in labelSelector of affinity structure.
@@ -100,12 +99,12 @@ func rewriteSelectorRequirement(rules *RewriteRules, obj []byte, action Action) 
 	}
 	rwrKey, rwrValues := rules.LabelsRewriter().RewriteNameValues(key, values, action)
 
-	obj, err := sjson.SetBytes(obj, "key", rwrKey)
+	obj, err := sjsonSetBytes(obj, "key", rwrKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return sjson.SetBytes(obj, "values", rwrValues)
+	return sjsonSetBytes(obj, "values", rwrValues)
 }
 
 // rewritePodAffinity rewrites PodAffinity and PodAntiAffinity structures.

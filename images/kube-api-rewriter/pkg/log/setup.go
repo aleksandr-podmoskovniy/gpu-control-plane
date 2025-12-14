@@ -67,15 +67,15 @@ func SetupHandler(opts Options) slog.Handler {
 	logFormat := detectLogFormat(opts.Format, logLevel)
 
 	logHandlerOpts := &slog.HandlerOptions{Level: logLevel}
-	switch logFormat {
-	case TextLog:
-		return slog.NewTextHandler(logOutput, logHandlerOpts)
-	case JSONLog:
-		return slog.NewJSONHandler(logOutput, logHandlerOpts)
-	case PrettyLog:
-		return NewPrettyHandler(logOutput, logHandlerOpts)
+
+	var handler slog.Handler = slog.NewJSONHandler(logOutput, logHandlerOpts)
+	if logFormat == TextLog {
+		handler = slog.NewTextHandler(logOutput, logHandlerOpts)
 	}
-	return nil
+	if logFormat == PrettyLog {
+		handler = NewPrettyHandler(logOutput, logHandlerOpts)
+	}
+	return handler
 }
 
 func detectLogLevel(level string) slog.Level {

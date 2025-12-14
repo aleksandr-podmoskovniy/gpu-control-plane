@@ -29,17 +29,20 @@ GOLANGCI_LINT_VERSION ?= 2.6.2
 MODULE_SDK_VERSION ?= 0.5.0
 DMT_VERSION ?= 0.1.55
 GOLANGCI_LINT_OPTS ?= --timeout=5m
+DEADCODE_VERSION ?= latest
+PRETTIER_VERSION ?= 3.2.5
 
 GOLANGCI_LINT ?= $(BIN_DIR)/golangci-lint
 MODULE_SDK ?= $(BIN_DIR)/module-sdk
 DMT ?= $(BIN_DIR)/dmt
+DEADCODE ?= $(BIN_DIR)/deadcode
 WERF ?= werf
 
 export GOMODCACHE
 
-.PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-tools \
+.PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-deadcode ensure-tools \
 	fmt tidy controller-build controller-test hooks-test rewriter-test gfd-extender-test lint-go lint-docs lint-dmt \
-	lint test verify clean cache docs werf-build kubeconform e2e
+	lint test verify clean cache docs werf-build kubeconform helm-template deadcode e2e
 
 ensure-bin-dir:
 	@mkdir -p $(BIN_DIR)
@@ -53,7 +56,11 @@ ensure-module-sdk: ensure-bin-dir
 ensure-dmt: ensure-bin-dir
 	@INSTALL_DIR=$(BIN_DIR) DMT_VERSION=$(DMT_VERSION) ./tools/install-dmt.sh
 
-ensure-tools: ensure-golangci-lint ensure-dmt
+ensure-deadcode: ensure-bin-dir cache
+	@echo "==> deadcode"
+	@GOBIN=$(BIN_DIR) $(GO) install golang.org/x/tools/cmd/deadcode@$(DEADCODE_VERSION)
+
+ensure-tools: ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-deadcode
 
 cache:
 	@mkdir -p $(GOMODCACHE)
@@ -92,9 +99,12 @@ gfd-extender-test: cache coverage-dir
 
 lint-docs:
 	@echo "==> prettier (markdown)"
-	@docker run --rm \
-		-v $(ROOT):/work ghcr.io/deckhouse/virtualization/prettier:3.2.5 \
-		sh -c 'cd /work && prettier -c "**/*.md"'
+	@if docker info >/dev/null 2>&1; then \
+		docker run --rm -v $(ROOT):/work ghcr.io/deckhouse/virtualization/prettier:$(PRETTIER_VERSION) sh -c 'cd /work && prettier -c "**/*.md"'; \
+	else \
+		echo "docker is unavailable; running prettier via npx"; \
+		cd $(ROOT) && npx --yes prettier@$(PRETTIER_VERSION) -c '**/*.md'; \
+	fi
 
 lint-go: cache ensure-golangci-lint
 	@echo "==> golangci-lint"
@@ -120,7 +130,7 @@ docs:
 
 werf-build: ensure-module-sdk
 	@echo "==> werf build"
-	@$(WERF) build $(if $(MODULES_MODULE_SOURCE),--repo "$(MODULES_MODULE_SOURCE)") $(if $(MODULES_MODULE_TAG),--tag "$(MODULES_MODULE_TAG)")
+	@$(WERF) build $(if $(MODULES_MODULE_SOURCE),--repo "$(MODULES_MODULE_SOURCE)") $(if $(MODULES_MODULE_TAG),--add-custom-tag "%image%-$(MODULES_MODULE_TAG)")
 
 kubeconform:
 	@echo "==> kubeconform"
@@ -129,6 +139,12 @@ kubeconform:
 helm-template:
 	@echo "==> helm template (bootstrap state fixtures)"
 	@cd tools/helm-tests && ./helm-template.sh
+
+deadcode: ensure-deadcode
+	@echo "==> deadcode (go.work modules)"
+	@$(DEADCODE) ./src/controller/... ./pkg/... ./images/hooks/... ./images/kube-api-rewriter/... ./images/pre-delete-hook/...
+	@echo "==> deadcode (linux-only modules)"
+	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(DEADCODE) ./src/gfd-extender/...
 
 e2e:
 	@echo "==> e2e (kind or target cluster)"

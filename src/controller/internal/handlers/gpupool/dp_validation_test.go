@@ -69,8 +69,8 @@ func TestDPValidationTransitions(t *testing.T) {
 	// attach nodeName
 	pod.Spec.NodeName = "node1"
 
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -108,8 +108,8 @@ func TestDPValidationBackToPendingWhenNotReady(t *testing.T) {
 		},
 	}
 	// No validator pods -> should fall back to PendingAssignment.
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -146,8 +146,8 @@ func TestDPValidationSkipsWhenNoCapacity(t *testing.T) {
 			NodeName:    "node1",
 		},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -180,8 +180,8 @@ func TestDPValidationSkipsWithoutNode(t *testing.T) {
 			State:       v1alpha1.GPUDeviceStatePendingAssignment,
 		},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -228,8 +228,8 @@ func TestDPValidationUsesNodeLabelFallback(t *testing.T) {
 		Spec:   corev1.PodSpec{NodeName: "node1"},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -265,8 +265,8 @@ func TestDPValidationPodListErrors(t *testing.T) {
 			NodeName:    "node1",
 		},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -360,8 +360,8 @@ func TestDPValidationNotFoundPods(t *testing.T) {
 			NodeName:    "node1",
 		},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -436,8 +436,8 @@ func TestDPValidationPodNotReady(t *testing.T) {
 		Spec:   corev1.PodSpec{NodeName: "node1"},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -484,8 +484,8 @@ func TestDPValidationPodWithoutNodeName(t *testing.T) {
 		// NodeName intentionally empty to hit continue branch.
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -532,8 +532,8 @@ func TestDPValidationAssignedReadyNoChange(t *testing.T) {
 		Spec:   corev1.PodSpec{NodeName: "node1"},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -549,6 +549,96 @@ func TestDPValidationAssignedReadyNoChange(t *testing.T) {
 	}
 	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
 		t.Fatalf("state should stay assigned, got %s", updated.Status.State)
+	}
+}
+
+func TestDPValidationUsesClusterAssignmentFieldForClusterPools(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{clusterAssignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "dev1",
+			State:       v1alpha1.GPUDeviceStatePendingAssignment,
+			NodeName:    "node1",
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "validator",
+			Namespace: "ns",
+			Labels: map[string]string{
+				"app":  "nvidia-operator-validator",
+				"pool": "pool",
+			},
+		},
+		Spec:   corev1.PodSpec{NodeName: "node1"},
+		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+	}
+
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(device, pod).
+		Build()
+	h := NewDPValidationHandler(testr.New(t), cl)
+	h.ns = "ns"
+
+	pool := &v1alpha1.GPUPool{
+		TypeMeta:   metav1.TypeMeta{Kind: "ClusterGPUPool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+	}
+	if _, err := h.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool: %v", err)
+	}
+	updated := &v1alpha1.GPUDevice{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
+		t.Fatalf("fetch device: %v", err)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStateAssigned {
+		t.Fatalf("expected state Assigned, got %s", updated.Status.State)
+	}
+}
+
+func TestDPValidationSkipsMismatchedDeviceAnnotations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev1",
+			Annotations: map[string]string{assignmentAnnotation: "other"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			State:    v1alpha1.GPUDeviceStatePendingAssignment,
+			NodeName: "node1",
+		},
+	}
+	base := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithObjects(device).
+		Build()
+	cl := &fixedGPUDeviceListClient{Client: base, devices: []v1alpha1.GPUDevice{*device}}
+	h := NewDPValidationHandler(testr.New(t), cl)
+	h.ns = "ns"
+
+	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}}
+	if _, err := h.HandlePool(context.Background(), pool); err != nil {
+		t.Fatalf("HandlePool: %v", err)
+	}
+	updated := &v1alpha1.GPUDevice{}
+	if err := base.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated); err != nil {
+		t.Fatalf("fetch device: %v", err)
+	}
+	if updated.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
+		t.Fatalf("expected state unchanged, got %s", updated.Status.State)
 	}
 }
 
@@ -580,8 +670,8 @@ func TestDPValidationPatchError(t *testing.T) {
 		Spec:   corev1.PodSpec{NodeName: "node1"},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 	}
-	base := fake.NewClientBuilder().
-		WithScheme(scheme).
+	base := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -622,8 +712,8 @@ func TestDPValidationIgnoresOtherStates(t *testing.T) {
 		Spec:   corev1.PodSpec{NodeName: "node1"},
 		Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device, pod).
 		Build()
@@ -658,8 +748,8 @@ func TestDPValidationSkipsDevicesFromOtherPool(t *testing.T) {
 			NodeName:    "node1",
 		},
 	}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}).
 		WithObjects(device).
 		Build()
@@ -696,6 +786,19 @@ type errorListClient struct {
 func (c *errorListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if c.err != nil {
 		return c.err
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
+type fixedGPUDeviceListClient struct {
+	client.Client
+	devices []v1alpha1.GPUDevice
+}
+
+func (c *fixedGPUDeviceListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if out, ok := list.(*v1alpha1.GPUDeviceList); ok {
+		out.Items = append([]v1alpha1.GPUDevice(nil), c.devices...)
+		return nil
 	}
 	return c.Client.List(ctx, list, opts...)
 }

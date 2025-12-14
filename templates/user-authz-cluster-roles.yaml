@@ -42,6 +42,6 @@ rules:
     resources: ["gpupools", "gpupools/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["gpu.deckhouse.io"]
-    resources: ["gpudevices", "gpudevices/status", "gpunodeinventories", "gpunodeinventories/status"]
+    resources: ["gpudevices", "gpudevices/status", "gpunodestates", "gpunodestates/status"]
     verbs: ["get", "list", "watch", "delete"]
 {{- end }}

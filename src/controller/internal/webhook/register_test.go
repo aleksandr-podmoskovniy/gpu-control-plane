@@ -30,6 +30,14 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
+type noopAdmissionHandler struct{}
+
+func (noopAdmissionHandler) Name() string { return "noop" }
+
+func (noopAdmissionHandler) SyncPool(context.Context, *v1alpha1.GPUPool) (contracts.Result, error) {
+	return contracts.Result{}, nil
+}
+
 type stubServer struct {
 	registered map[string]http.Handler
 }
@@ -71,9 +79,7 @@ func TestRegisterHooks(t *testing.T) {
 	mgr := &stubManager{server: server, scheme: scheme}
 
 	reg := contracts.NewAdmissionRegistry()
-	reg.Register(contracts.AdmissionHandlerFunc(func(ctx context.Context, pool *v1alpha1.GPUPool) (contracts.Result, error) {
-		return contracts.Result{}, nil
-	}))
+	reg.Register(noopAdmissionHandler{})
 
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
@@ -86,17 +92,23 @@ func TestRegisterHooks(t *testing.T) {
 		t.Fatalf("register returned error: %v", err)
 	}
 
-	if len(server.registered) != 5 {
-		t.Fatalf("expected 5 hooks registered, got %d", len(server.registered))
+	if len(server.registered) != 7 {
+		t.Fatalf("expected 7 hooks registered, got %d", len(server.registered))
 	}
 	if _, ok := server.registered["/validate-gpu-deckhouse-io-v1alpha1-gpupool"]; !ok {
 		t.Fatalf("validator not registered")
+	}
+	if _, ok := server.registered["/validate-gpu-deckhouse-io-v1alpha1-clustergpupool"]; !ok {
+		t.Fatalf("cluster pool validator not registered")
 	}
 	if _, ok := server.registered["/validate-gpu-deckhouse-io-v1alpha1-gpudevice"]; !ok {
 		t.Fatalf("device validator not registered")
 	}
 	if _, ok := server.registered["/mutate-gpu-deckhouse-io-v1alpha1-gpupool"]; !ok {
 		t.Fatalf("defaulter not registered")
+	}
+	if _, ok := server.registered["/mutate-gpu-deckhouse-io-v1alpha1-clustergpupool"]; !ok {
+		t.Fatalf("cluster pool defaulter not registered")
 	}
 	if _, ok := server.registered["/mutate-v1-pod-gpupool"]; !ok {
 		t.Fatalf("pod mutator not registered")

@@ -31,7 +31,7 @@ import (
 	bootstrapmeta "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 )
 
-func TestApplyDetectionPopulatesMetrics(t *testing.T) {
+func TestApplyDetectionPopulatesHardware(t *testing.T) {
 	device := &v1alpha1.GPUDevice{}
 	snapshot := deviceSnapshot{Index: "0", UUID: "GPU-AAA"}
 	detections := nodeDetection{
@@ -63,7 +63,6 @@ func TestApplyDetectionPopulatesMetrics(t *testing.T) {
 					Device:  "2203",
 					Class:   "0302",
 				},
-				PCIE:        detectGPUPCIELink{Generation: detectionPtrInt32(4), Width: detectionPtrInt32(16)},
 				Board:       "board-1",
 				Family:      "ampere",
 				Serial:      "serial-123",
@@ -77,33 +76,21 @@ func TestApplyDetectionPopulatesMetrics(t *testing.T) {
 
 	applyDetection(device, snapshot, detections)
 
-	if got := device.Status.Health.Metrics["detect.powerUsageMilliwatt"]; got != "120000" {
-		t.Fatalf("unexpected power usage: %s", got)
-	}
-	if got := device.Status.Health.Metrics["detect.memory.totalBytes"]; got != "85899345920" {
-		t.Fatalf("unexpected memory total: %s", got)
-	}
-	if got := device.Status.Health.Metrics["detect.utilization.gpuPercent"]; got != "75" {
-		t.Fatalf("unexpected gpu utilization: %s", got)
-	}
-	if device.Status.Health.LastUpdatedTime == nil || device.Status.Health.LastHealthyTime == nil {
-		t.Fatalf("expected timestamps populated, got %+v", device.Status.Health)
-	}
 	if device.Status.Hardware.Product != "A100" || device.Status.Hardware.PCI.Vendor != "10de" || device.Status.Hardware.PCI.Device != "2203" {
 		t.Fatalf("unexpected hardware update: %+v", device.Status.Hardware)
 	}
-	if !int32PtrEqual(device.Status.Hardware.NUMANode, detectionPtrInt32(1)) || device.Status.Hardware.PState != "P0" {
-		t.Fatalf("expected NUMA/PState updated, got %+v", device.Status.Hardware)
+	if !device.Status.Hardware.MIG.Capable || len(device.Status.Hardware.MIG.ProfilesSupported) != 1 || device.Status.Hardware.MIG.ProfilesSupported[0] != "1g.10gb" {
+		t.Fatalf("expected MIG profiles propagated, got %+v", device.Status.Hardware.MIG)
 	}
 }
 
-func TestApplyDetectionMissingEntriesKeepsHealthIntact(t *testing.T) {
+func TestApplyDetectionMissingEntriesDoesNothing(t *testing.T) {
 	device := &v1alpha1.GPUDevice{}
 	snapshot := deviceSnapshot{Index: "10", UUID: "GPU-ZZZ"}
-	before := device.Status.Health
+	before := device.Status.Hardware
 	applyDetection(device, snapshot, nodeDetection{})
-	if !reflect.DeepEqual(before, device.Status.Health) {
-		t.Fatalf("health should stay untouched without matching detection: before=%+v after=%+v", before, device.Status.Health)
+	if !reflect.DeepEqual(before, device.Status.Hardware) {
+		t.Fatalf("hardware should stay untouched without matching detection: before=%+v after=%+v", before, device.Status.Hardware)
 	}
 }
 

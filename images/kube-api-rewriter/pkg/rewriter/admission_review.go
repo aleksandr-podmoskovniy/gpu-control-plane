@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // RewriteAdmissionReview rewrites AdmissionReview request and response.
@@ -42,7 +41,7 @@ func RewriteAdmissionReview(rules *RewriteRules, obj []byte) ([]byte, error) {
 			return nil, err
 		}
 		if len(newRequest) > 0 {
-			obj, err = sjson.SetRawBytes(obj, "request", newRequest)
+			obj, err = sjsonSetRawBytes(obj, "request", newRequest)
 			if err != nil {
 				return nil, err
 			}
@@ -87,7 +86,7 @@ func RenameAdmissionReviewResponse(rules *RewriteRules, obj []byte) ([]byte, err
 	}
 
 	// Update patch field to base64 encoded rewritten patch.
-	return sjson.SetBytes(obj, "patch", base64.StdEncoding.EncodeToString(rwrPatch))
+	return sjsonSetBytes(obj, "patch", base64.StdEncoding.EncodeToString(rwrPatch))
 }
 
 // RestoreAdmissionReviewRequest restores apiVersion, kind and other fields in an AdmissionReview request.
@@ -126,12 +125,12 @@ func RestoreAdmissionReviewRequest(rules *RewriteRules, obj []byte) ([]byte, err
 			return nil, nil
 		}
 		restoredResourceType := rules.RestoreResource(resource.String())
-		obj, err = sjson.SetBytes(obj, "resource.resource", restoredResourceType)
+		obj, err = sjsonSetBytes(obj, "resource.resource", restoredResourceType)
 		if err != nil {
 			return nil, err
 		}
 		restoredGroup := rules.RestoreApiVersion(group.String())
-		obj, err = sjson.SetBytes(obj, "resource.group", restoredGroup)
+		obj, err = sjsonSetBytes(obj, "resource.group", restoredGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -147,12 +146,12 @@ func RestoreAdmissionReviewRequest(rules *RewriteRules, obj []byte) ([]byte, err
 			return nil, nil
 		}
 		restoredResourceType := rules.RestoreResource(resource.String())
-		obj, err = sjson.SetBytes(obj, "requestResource.resource", restoredResourceType)
+		obj, err = sjsonSetBytes(obj, "requestResource.resource", restoredResourceType)
 		if err != nil {
 			return nil, err
 		}
 		restoredGroup := rules.RestoreApiVersion(group.String())
-		obj, err = sjson.SetBytes(obj, "requestResource.group", restoredGroup)
+		obj, err = sjsonSetBytes(obj, "requestResource.group", restoredGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -171,13 +170,13 @@ func RestoreAdmissionReviewRequest(rules *RewriteRules, obj []byte) ([]byte, err
 		fieldObj := gjson.GetBytes(obj, "kind")
 		kind := fieldObj.Get("kind")
 		restoredKind := rules.RestoreKind(kind.String())
-		obj, err = sjson.SetBytes(obj, "kind.kind", restoredKind)
+		obj, err = sjsonSetBytes(obj, "kind.kind", restoredKind)
 		if err != nil {
 			return nil, err
 		}
 		group := fieldObj.Get("group")
 		restoredGroup := rules.RestoreApiVersion(group.String())
-		obj, err = sjson.SetBytes(obj, "kind.group", restoredGroup)
+		obj, err = sjsonSetBytes(obj, "kind.group", restoredGroup)
 		if err != nil {
 			return nil, err
 		}
@@ -188,13 +187,13 @@ func RestoreAdmissionReviewRequest(rules *RewriteRules, obj []byte) ([]byte, err
 		fieldObj := gjson.GetBytes(obj, "requestKind")
 		kind := fieldObj.Get("kind")
 		restoredKind := rules.RestoreKind(kind.String())
-		obj, err = sjson.SetBytes(obj, "requestKind.kind", restoredKind)
+		obj, err = sjsonSetBytes(obj, "requestKind.kind", restoredKind)
 		if err != nil {
 			return nil, err
 		}
 		group := fieldObj.Get("group")
 		restoredGroup := rules.RestoreApiVersion(group.String())
-		obj, err = sjson.SetBytes(obj, "requestKind.group", restoredGroup)
+		obj, err = sjsonSetBytes(obj, "requestKind.group", restoredGroup)
 		if err != nil {
 			return nil, err
 		}

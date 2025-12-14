@@ -59,23 +59,10 @@ affinity:
 {{- if hasKey $componentCfg "enabled" -}}
   {{- $cfgEnabled = index $componentCfg "enabled" -}}
 {{- end -}}
-{{- if not $cfgEnabled -}}
-false
-{{- else -}}
-  {{- $internal := (index $values "internal") | default dict -}}
-  {{- if not (kindIs "map" $internal) }}{{- $internal = dict }}{{- end }}
-  {{- $bootstrap := (index $internal "bootstrap") | default dict -}}
-  {{- if not (kindIs "map" $bootstrap) }}{{- $bootstrap = dict }}{{- end }}
-  {{- $components := (index $bootstrap "components") | default dict -}}
-  {{- if not (kindIs "map" $components) }}{{- $components = dict }}{{- end }}
-  {{- $componentData := index $components $component | default dict -}}
-  {{- if not (kindIs "map" $componentData) }}{{- $componentData = dict }}{{- end }}
-  {{- $nodes := (index $componentData "nodes") | default (list) -}}
-  {{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) -}}
+{{- if $cfgEnabled -}}
 true
-  {{- else -}}
+{{- else -}}
 false
-  {{- end -}}
 {{- end -}}
 {{- end -}}
 

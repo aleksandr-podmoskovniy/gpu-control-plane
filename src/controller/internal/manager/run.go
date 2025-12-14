@@ -37,6 +37,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/webhook"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
@@ -61,6 +62,8 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	if restCfg == nil {
 		restCfg = getConfigOrDie()
 	}
+
+	cpmetrics.Register()
 
 	metricsOpts, err := metricsOptionsFromEnv()
 	if err != nil {

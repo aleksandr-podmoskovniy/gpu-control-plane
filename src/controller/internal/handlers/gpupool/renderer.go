@@ -34,6 +34,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 // Embedded assets reused from MIG manager template to stay consistent with node-manager.
@@ -96,13 +97,11 @@ func NewRendererHandler(log logr.Logger, c client.Client, cfg RenderConfig) *Ren
 }
 
 func poolResourceName(pool *v1alpha1.GPUPool) string {
-	name, prefix := resolveResourceName(pool, pool.Name)
-	return fmt.Sprintf("%s/%s", prefix, name)
+	return fmt.Sprintf("%s/%s", poolResourcePrefixFor(pool), resolveResourceName(pool, pool.Name))
 }
 
-// resolveResourceName returns unqualified resource name and prefix chosen for the pool.
-func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string) {
-	prefix := poolPrefix(pool)
+// resolveResourceName returns unqualified resource name (prefix stripped).
+func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) string {
 	name := strings.TrimSpace(rawName)
 	if name == "" && pool != nil {
 		name = pool.Name
@@ -115,7 +114,7 @@ func resolveResourceName(pool *v1alpha1.GPUPool, rawName string) (string, string
 		}
 	}
 
-	return name, prefix
+	return name
 }
 
 func renderConfigFromEnv() RenderConfig {
@@ -159,7 +158,13 @@ func (h *RendererHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 		return contracts.Result{}, h.cleanupPoolResources(ctx, pool.Name)
 	}
 	if pool.Status.Capacity.Total == 0 {
-		return contracts.Result{}, h.cleanupPoolResources(ctx, pool.Name)
+		hasDevices, err := h.poolHasAssignedDevices(ctx, pool)
+		if err != nil {
+			return contracts.Result{}, err
+		}
+		if !hasDevices {
+			return contracts.Result{}, h.cleanupPoolResources(ctx, pool.Name)
+		}
 	}
 	if err := h.reconcileDevicePlugin(ctx, pool); err != nil {
 		return contracts.Result{}, err
@@ -234,40 +239,21 @@ func (h *RendererHandler) reconcileMIGManager(ctx context.Context, pool *v1alpha
 }
 
 func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alpha1.GPUPool) *corev1.ConfigMap {
-	resourceName, resourcePrefix := resolveResourceName(pool, pool.Name)
+	resourceName := resolveResourceName(pool, pool.Name)
 	replicas := h.timeSlicingReplicas(pool)
 	patterns := h.assignedDevicePatterns(ctx, pool)
 
-	resources := make([]map[string]any, 0, len(pool.Spec.Resource.TimeSlicingResources)+1)
-	for _, ts := range pool.Spec.Resource.TimeSlicingResources {
-		if ts.SlicesPerUnit < 1 {
-			continue
-		}
-		name, _ := resolveResourceName(pool, ts.Name)
-		resources = append(resources, map[string]any{
-			"name":     name,
-			"replicas": int(ts.SlicesPerUnit),
-		})
-	}
-	if len(resources) == 0 {
-		resources = append(resources, map[string]any{
-			"name":     resourceName,
-			"replicas": int(replicas),
-		})
-	}
-
-	hasSharing := false
-	for _, r := range resources {
-		if v, ok := r["replicas"].(int); ok && v > 1 {
-			hasSharing = true
-		}
-	}
+	hasSharing := replicas > 1
+	resources := []map[string]any{{
+		"name":     resourceName,
+		"replicas": int(replicas),
+	}}
 
 	cfg := map[string]any{
 		"version": "v1",
 		"flags": map[string]any{
 			"migStrategy":    h.cfg.DefaultMIGStrategy,
-			"resourcePrefix": resourcePrefix,
+			"resourcePrefix": poolResourcePrefixFor(pool),
 		},
 		"plugin": map[string]any{
 			"passDeviceSpecs":    true,
@@ -322,16 +308,6 @@ func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {
 	if pool.Spec.Resource.SlicesPerUnit > 0 {
 		replicas = pool.Spec.Resource.SlicesPerUnit
 	}
-	for _, layout := range pool.Spec.Resource.MIGLayout {
-		if layout.SlicesPerUnit != nil && *layout.SlicesPerUnit > 0 {
-			replicas = *layout.SlicesPerUnit
-		}
-		for _, p := range layout.Profiles {
-			if p.SlicesPerUnit != nil && *p.SlicesPerUnit > 0 {
-				replicas = *p.SlicesPerUnit
-			}
-		}
-	}
 	return replicas
 }
 
@@ -347,19 +323,17 @@ func (h *RendererHandler) assignedDevicePatterns(ctx context.Context, pool *v1al
 	}
 
 	var devices v1alpha1.GPUDeviceList
-	if err := h.client.List(ctx, &devices); err != nil {
+	if err := h.client.List(ctx, &devices, client.MatchingFields{indexer.GPUDevicePoolRefNameField: pool.Name}); err != nil {
 		h.log.Error(err, "list GPUDevices for pool patterns", "pool", pool.Name)
 		return nil
 	}
 
 	patterns := make(map[string]struct{})
 	for _, dev := range devices.Items {
-		if dev.Labels != nil {
-			if val, ok := dev.Labels["gpu.deckhouse.io/ignore"]; ok && strings.EqualFold(val, "true") {
-				continue
-			}
+		if isDeviceIgnored(&dev) {
+			continue
 		}
-		if dev.Status.PoolRef == nil || dev.Status.PoolRef.Name != pool.Name {
+		if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
 			continue
 		}
 		if _, ok := allowedStates[dev.Status.State]; !ok {
@@ -378,6 +352,30 @@ func (h *RendererHandler) assignedDevicePatterns(ctx context.Context, pool *v1al
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (h *RendererHandler) poolHasAssignedDevices(ctx context.Context, pool *v1alpha1.GPUPool) (bool, error) {
+	if h.client == nil || pool == nil {
+		return false, nil
+	}
+
+	var devices v1alpha1.GPUDeviceList
+	if err := h.client.List(ctx, &devices, client.MatchingFields{indexer.GPUDevicePoolRefNameField: pool.Name}); err != nil {
+		return false, err
+	}
+
+	for i := range devices.Items {
+		dev := &devices.Items[i]
+		if isDeviceIgnored(dev) {
+			continue
+		}
+		if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
+			continue
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alpha1.GPUPool) *appsv1.DaemonSet {
@@ -455,7 +453,7 @@ func (h *RendererHandler) devicePluginDaemonSet(ctx context.Context, pool *v1alp
 							Args: []string{"--config-file=/config/config.yaml", "--pass-device-specs=true", "--fail-on-init-error=false"},
 							Env: []corev1.EnvVar{
 								{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
-								{Name: "NVIDIA_RESOURCE_PREFIX", Value: poolPrefix(pool)},
+								{Name: "NVIDIA_RESOURCE_PREFIX", Value: poolResourcePrefixFor(pool)},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "device-plugin", MountPath: "/var/lib/kubelet/device-plugins"},
@@ -507,7 +505,7 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 			Effect:   corev1.TaintEffectNoSchedule,
 			Key:      poolKey,
 			Operator: corev1.TolerationOpEqual,
-			Value:    poolValueFromKey(poolKey),
+			Value:    pool.Name,
 		},
 	}, append(h.customTolerations, h.poolNodeTolerations(ctx, pool)...))
 	return &appsv1.DaemonSet{
@@ -612,21 +610,16 @@ func (h *RendererHandler) validatorDaemonSet(ctx context.Context, pool *v1alpha1
 }
 
 func (h *RendererHandler) migManagerConfigMap(pool *v1alpha1.GPUPool) *corev1.ConfigMap {
-	devices := h.buildMIGDevices(pool)
-	if len(devices) == 0 {
-		devices = []map[string]any{{
-			"pciBusId":   "all",
-			"migEnabled": true,
-			"migDevices": []map[string]any{{"profile": pool.Spec.Resource.MIGProfile}},
-		}}
-	}
-
 	cfg := map[string]any{
 		"version": 1,
 		"mig-configs": []map[string]any{
 			{
 				"name":    "default",
-				"devices": devices,
+				"devices": []map[string]any{{
+					"pciBusId":   "all",
+					"migEnabled": true,
+					"migDevices": []map[string]any{{"profile": pool.Spec.Resource.MIGProfile}},
+				}},
 			},
 		},
 	}
@@ -786,52 +779,6 @@ func (h *RendererHandler) migManagerDaemonSet(ctx context.Context, pool *v1alpha
 	}
 }
 
-func (h *RendererHandler) buildMIGDevices(pool *v1alpha1.GPUPool) []map[string]any {
-	var devices []map[string]any
-
-	for _, layout := range pool.Spec.Resource.MIGLayout {
-		profiles := layout.Profiles
-		if len(profiles) == 0 && pool.Spec.Resource.MIGProfile != "" {
-			profiles = []v1alpha1.GPUPoolMIGProfile{{Name: pool.Spec.Resource.MIGProfile}}
-		}
-		if len(profiles) == 0 {
-			continue
-		}
-
-		profileList := make([]map[string]any, 0, len(profiles))
-		for _, p := range profiles {
-			entry := map[string]any{"profile": p.Name}
-			if p.Count != nil && *p.Count > 0 {
-				entry["count"] = *p.Count
-			}
-			profileList = append(profileList, entry)
-		}
-
-		targets := 0
-		addDevice := func(dev map[string]any) {
-			dev["migEnabled"] = true
-			dev["migDevices"] = profileList
-			devices = append(devices, dev)
-			targets++
-		}
-
-		for _, uuid := range layout.UUIDs {
-			addDevice(map[string]any{"uuid": uuid})
-		}
-		for _, bus := range layout.PCIBusIDs {
-			addDevice(map[string]any{"pciBusId": bus})
-		}
-		if len(layout.DeviceFilter) > 0 {
-			addDevice(map[string]any{"deviceFilter": layout.DeviceFilter})
-		}
-		if targets == 0 {
-			addDevice(map[string]any{"pciBusId": "all"})
-		}
-	}
-
-	return devices
-}
-
 func buildCustomTolerations(keys []string) []corev1.Toleration {
 	if len(keys) == 0 {
 		return nil
@@ -977,11 +924,14 @@ func (h *RendererHandler) poolNodeTolerations(ctx context.Context, pool *v1alpha
 	}
 	tolerations := make([]corev1.Toleration, 0)
 	seen := make(map[string]struct{})
-	for _, n := range pool.Status.Nodes {
-		node := &corev1.Node{}
-		if err := h.client.Get(ctx, client.ObjectKey{Name: n.Name}, node); err != nil {
-			continue
-		}
+
+	poolKey := poolLabelKey(pool)
+	nodes := &corev1.NodeList{}
+	if err := h.client.List(ctx, nodes, client.MatchingLabels{poolKey: pool.Name}); err != nil {
+		return nil
+	}
+	for i := range nodes.Items {
+		node := &nodes.Items[i]
 		for _, t := range node.Spec.Taints {
 			key := t.Key + string(t.Effect)
 			if _, ok := seen[key]; ok {

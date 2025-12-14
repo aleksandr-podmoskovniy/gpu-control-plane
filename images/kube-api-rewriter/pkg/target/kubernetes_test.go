@@ -17,9 +17,14 @@ limitations under the License.
 package target
 
 import (
+	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"k8s.io/client-go/rest"
 )
 
 const kubeconfigContent = `
@@ -80,5 +85,91 @@ func TestLoadConfigError(t *testing.T) {
 
 	if _, err := loadConfig(); err == nil {
 		t.Fatalf("expected error when KUBECONFIG is empty")
+	}
+}
+
+func TestLoadConfigFromInCluster(t *testing.T) {
+	orig := inClusterConfig
+	inClusterConfig = func() (*rest.Config, error) {
+		return &rest.Config{Host: "https://in-cluster"}, nil
+	}
+	t.Cleanup(func() { inClusterConfig = orig })
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.Host != "https://in-cluster" {
+		t.Fatalf("unexpected host: %s", cfg.Host)
+	}
+}
+
+func TestLoadConfigFailsWhenHomeDirFails(t *testing.T) {
+	origCluster := inClusterConfig
+	origHome := userHomeDir
+	t.Cleanup(func() {
+		inClusterConfig = origCluster
+		userHomeDir = origHome
+	})
+
+	inClusterConfig = func() (*rest.Config, error) { return nil, errors.New("no cluster") }
+	userHomeDir = func() (string, error) { return "", errors.New("no home") }
+
+	t.Setenv("KUBECONFIG", "")
+
+	if _, err := loadConfig(); err == nil {
+		t.Fatalf("expected error when home dir and KUBECONFIG are unavailable")
+	}
+}
+
+func TestNewKubernetesTargetHTTPClientError(t *testing.T) {
+	origCluster := inClusterConfig
+	origClientFor := httpClientFor
+	t.Cleanup(func() {
+		inClusterConfig = origCluster
+		httpClientFor = origClientFor
+	})
+
+	inClusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://127.0.0.1"}, nil }
+	httpClientFor = func(*rest.Config) (*http.Client, error) { return nil, errors.New("boom") }
+
+	if _, err := NewKubernetesTarget(); err == nil {
+		t.Fatalf("expected HTTP client config error")
+	}
+}
+
+func TestNewKubernetesTargetURLParseError(t *testing.T) {
+	origCluster := inClusterConfig
+	origClientFor := httpClientFor
+	origParse := parseURL
+	t.Cleanup(func() {
+		inClusterConfig = origCluster
+		httpClientFor = origClientFor
+		parseURL = origParse
+	})
+
+	inClusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://127.0.0.1"}, nil }
+	httpClientFor = func(*rest.Config) (*http.Client, error) { return &http.Client{}, nil }
+	parseURL = func(string) (*url.URL, error) { return nil, errors.New("parse fail") }
+
+	if _, err := NewKubernetesTarget(); err == nil {
+		t.Fatalf("expected URL parse error")
+	}
+}
+
+func TestNewKubernetesTargetLoadConfigError(t *testing.T) {
+	origCluster := inClusterConfig
+	origHome := userHomeDir
+	t.Cleanup(func() {
+		inClusterConfig = origCluster
+		userHomeDir = origHome
+	})
+
+	inClusterConfig = func() (*rest.Config, error) { return nil, errors.New("no cluster") }
+	userHomeDir = func() (string, error) { return "", errors.New("no home") }
+	t.Setenv("KUBECONFIG", "")
+
+	if _, err := NewKubernetesTarget(); err == nil {
+		t.Fatalf("expected config load error")
 	}
 }

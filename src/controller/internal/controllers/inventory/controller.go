@@ -16,7 +16,6 @@ package inventory
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,11 +23,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,18 +36,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
+	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
 	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 
@@ -79,39 +78,9 @@ const (
 	defaultResyncPeriod time.Duration = 0
 
 	nodeFeatureNodeNameLabel = "nfd.node.kubernetes.io/node-name"
-	deviceIgnoreAnnotation   = "gpu.deckhouse.io/ignore"
-	deviceIgnoreLabel        = "gpu.deckhouse.io/ignore"
 )
 
 var (
-	inventoryDevicesGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "gpu",
-		Subsystem: "inventory",
-		Name:      "devices_total",
-		Help:      "Number of GPU devices discovered on a node.",
-	}, []string{"node"})
-
-	inventoryConditionGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "gpu",
-		Subsystem: "inventory",
-		Name:      "condition",
-		Help:      "Inventory condition status (0 or 1).",
-	}, []string{"node", "condition"})
-
-	inventoryDeviceStateGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Namespace: "gpu",
-		Subsystem: "inventory",
-		Name:      "devices_state",
-		Help:      "Number of GPU devices on a node grouped by state.",
-	}, []string{"node", "state"})
-
-	inventoryHandlerErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "gpu",
-		Subsystem: "inventory",
-		Name:      "handler_errors_total",
-		Help:      "Number of errors returned by inventory handlers.",
-	}, []string{"handler"})
-
 	knownDeviceStates = []v1alpha1.GPUDeviceState{
 		v1alpha1.GPUDeviceStateDiscovered,
 		v1alpha1.GPUDeviceStateValidating,
@@ -124,9 +93,7 @@ var (
 	}
 )
 
-var newControllerManagedBy = func(mgr ctrl.Manager) controllerRuntimeAdapter {
-	return &controllerRuntimeWrapper{builder: ctrl.NewControllerManagedBy(mgr)}
-}
+var defaultBuilderFactory = controllerbuilder.NewManagedBy
 
 var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
 	obj := &nfdv1alpha1.NodeFeature{}
@@ -136,100 +103,8 @@ var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
 		cache,
 		obj,
 		handler.TypedEnqueueRequestsFromMapFunc(mapNodeFeatureToNode),
+		nodeFeaturePredicates(),
 	)
-}
-
-func init() {
-	metrics.Registry.MustRegister(
-		inventoryDevicesGauge,
-		inventoryConditionGauge,
-		inventoryDeviceStateGauge,
-		inventoryHandlerErrors,
-	)
-}
-
-type controllerBuilder interface {
-	Named(string) controllerBuilder
-	For(client.Object, ...builder.ForOption) controllerBuilder
-	Owns(client.Object, ...builder.OwnsOption) controllerBuilder
-	WatchesRawSource(source.Source) controllerBuilder
-	WithOptions(controller.Options) controllerBuilder
-	Complete(reconcile.Reconciler) error
-}
-
-type runtimeControllerBuilder struct {
-	adapter controllerRuntimeAdapter
-}
-
-func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
-	b.adapter = b.adapter.Named(name)
-	return b
-}
-
-func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
-	b.adapter = b.adapter.For(obj, opts...)
-	return b
-}
-
-func (b *runtimeControllerBuilder) Owns(obj client.Object, opts ...builder.OwnsOption) controllerBuilder {
-	b.adapter = b.adapter.Owns(obj, opts...)
-	return b
-}
-
-func (b *runtimeControllerBuilder) WatchesRawSource(src source.Source) controllerBuilder {
-	b.adapter = b.adapter.WatchesRawSource(src)
-	return b
-}
-
-func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
-	b.adapter = b.adapter.WithOptions(opts)
-	return b
-}
-
-func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
-	return b.adapter.Complete(r)
-}
-
-type controllerRuntimeAdapter interface {
-	Named(string) controllerRuntimeAdapter
-	For(client.Object, ...builder.ForOption) controllerRuntimeAdapter
-	Owns(client.Object, ...builder.OwnsOption) controllerRuntimeAdapter
-	WatchesRawSource(source.Source) controllerRuntimeAdapter
-	WithOptions(controller.Options) controllerRuntimeAdapter
-	Complete(reconcile.Reconciler) error
-}
-
-type controllerRuntimeWrapper struct {
-	builder *builder.Builder
-}
-
-func (w *controllerRuntimeWrapper) Named(name string) controllerRuntimeAdapter {
-	w.builder = w.builder.Named(name)
-	return w
-}
-
-func (w *controllerRuntimeWrapper) For(obj client.Object, opts ...builder.ForOption) controllerRuntimeAdapter {
-	w.builder = w.builder.For(obj, opts...)
-	return w
-}
-
-func (w *controllerRuntimeWrapper) Owns(obj client.Object, opts ...builder.OwnsOption) controllerRuntimeAdapter {
-	w.builder = w.builder.Owns(obj, opts...)
-	return w
-}
-
-func (w *controllerRuntimeWrapper) WatchesRawSource(src source.Source) controllerRuntimeAdapter {
-	w.builder = w.builder.WatchesRawSource(src)
-	return w
-}
-
-func (w *controllerRuntimeWrapper) WithOptions(opts controller.Options) controllerRuntimeAdapter {
-	w.builder = w.builder.WithOptions(opts)
-	return w
-}
-
-func (w *controllerRuntimeWrapper) Complete(r reconcile.Reconciler) error {
-	return w.builder.Complete(r)
 }
 
 type setupDependencies struct {
@@ -239,11 +114,7 @@ type setupDependencies struct {
 	indexer           client.FieldIndexer
 	cache             cache.Cache
 	nodeFeatureSource source.SyncingSource
-	builder           controllerBuilder
-}
-
-func defaultControllerBuilder(mgr ctrl.Manager) controllerBuilder {
-	return &runtimeControllerBuilder{adapter: newControllerManagedBy(mgr)}
+	builder           controllerbuilder.Builder
 }
 
 func defaultNodeFeatureSource(cache cache.Cache) source.SyncingSource {
@@ -259,13 +130,50 @@ type Reconciler struct {
 	recorder                 record.EventRecorder
 	resyncPeriod             time.Duration
 	resyncMu                 sync.RWMutex
-	builderFactory           func(ctrl.Manager) controllerBuilder
+	builderFactory           func(ctrl.Manager) controllerbuilder.Builder
 	nodeFeatureSourceFactory func(cache.Cache) source.SyncingSource
-	moduleWatcherFactory     func(cache.Cache, controllerBuilder) controllerBuilder
+	moduleWatcherFactory     func(cache.Cache, controllerbuilder.Builder) controllerbuilder.Builder
 	store                    *config.ModuleConfigStore
 	fallbackManaged          ManagedNodesPolicy
 	fallbackApproval         DeviceApprovalPolicy
-	fallbackMonitoring       bool
+	detectionCollector       DetectionCollector
+	cleanupService           CleanupService
+	deviceService            DeviceService
+	inventoryService         InventoryService
+	detectionClient          client.Client
+}
+
+func (r *Reconciler) detectionSvc() DetectionCollector {
+	if r.detectionCollector == nil || r.detectionClient != r.client {
+		r.detectionCollector = newDetectionCollector(r.client)
+		r.detectionClient = r.client
+	}
+	return r.detectionCollector
+}
+
+func (r *Reconciler) cleanupSvc() CleanupService {
+	if r.cleanupService == nil {
+		r.cleanupService = newCleanupService(r.client, r.recorder)
+	}
+	return r.cleanupService
+}
+
+func (r *Reconciler) deviceSvc() DeviceService {
+	if r.deviceService == nil {
+		r.deviceService = newDeviceService(r.client, r.scheme, r.recorder, r.handlers)
+	}
+	return r.deviceService
+}
+
+func (r *Reconciler) inventorySvc() InventoryService {
+	if r.inventoryService == nil {
+		r.inventoryService = newInventoryService(r.client, r.scheme, r.recorder)
+	}
+	return r.inventoryService
+}
+
+func (r *Reconciler) collectNodeDetections(ctx context.Context, node string) (nodeDetection, error) {
+	return r.detectionSvc().Collect(ctx, node)
 }
 
 func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.InventoryHandler) (*Reconciler, error) {
@@ -290,17 +198,16 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 		log:                      log,
 		cfg:                      cfg,
 		handlers:                 handlers,
-		builderFactory:           defaultControllerBuilder,
+		builderFactory:           controllerbuilder.NewManagedBy,
 		nodeFeatureSourceFactory: defaultNodeFeatureSource,
 		store:                    store,
 		fallbackManaged:          managed,
 		fallbackApproval:         approval,
-		fallbackMonitoring:       state.Settings.Monitoring.ServiceMonitor,
 	}
 	rec.setResyncPeriod(cfg.ResyncPeriod)
 	rec.applyInventoryResync(state)
-	rec.moduleWatcherFactory = func(c cache.Cache, builder controllerBuilder) controllerBuilder {
-		return rec.attachModuleWatcher(builder, c)
+	rec.moduleWatcherFactory = func(c cache.Cache, b controllerbuilder.Builder) controllerbuilder.Builder {
+		return rec.attachModuleWatcher(b, c)
 	}
 
 	return rec, nil
@@ -308,7 +215,7 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 
 func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
 	if r.builderFactory == nil {
-		r.builderFactory = defaultControllerBuilder
+		r.builderFactory = defaultBuilderFactory
 	}
 	if r.nodeFeatureSourceFactory == nil {
 		r.nodeFeatureSourceFactory = defaultNodeFeatureSource
@@ -330,19 +237,22 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 	r.client = deps.client
 	r.scheme = deps.scheme
 	r.recorder = deps.recorder
+	if r.detectionCollector == nil {
+		r.detectionCollector = newDetectionCollector(r.client)
+	}
+	if r.cleanupService == nil {
+		r.cleanupService = newCleanupService(r.client, r.recorder)
+	}
+	if r.deviceService == nil {
+		r.deviceService = newDeviceService(r.client, r.scheme, r.recorder, r.handlers)
+	}
+	if r.inventoryService == nil {
+		r.inventoryService = newInventoryService(r.client, r.scheme, r.recorder)
+	}
 
 	predicates := r.nodePredicates()
 
-	if err := deps.indexer.IndexField(ctx, &v1alpha1.GPUDevice{}, deviceNodeIndexKey, func(obj client.Object) []string {
-		device, ok := obj.(*v1alpha1.GPUDevice)
-		if !ok {
-			return nil
-		}
-		if device.Status.NodeName == "" {
-			return nil
-		}
-		return []string{device.Status.NodeName}
-	}); err != nil {
+	if err := indexer.IndexGPUDeviceByNode(ctx, deps.indexer); err != nil {
 		return err
 	}
 
@@ -351,21 +261,22 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		RecoverPanic:            ptr.To(true),
 		LogConstructor:          logger.NewConstructor(r.log),
 		CacheSyncTimeout:        cacheSyncTimeoutDuration,
+		NewQueue:                reconciler.NewNamedQueue(reconciler.UsePriorityQueue()),
 	}
 
-	builder := deps.builder.
+	ctrlBuilder := deps.builder.
 		Named(controllerName).
 		For(&corev1.Node{}, builder.WithPredicates(predicates)).
 		Owns(&v1alpha1.GPUDevice{}).
-		Owns(&v1alpha1.GPUNodeInventory{}).
+		Owns(&v1alpha1.GPUNodeState{}).
 		WatchesRawSource(deps.nodeFeatureSource).
 		WithOptions(options)
 
 	if deps.cache != nil && r.moduleWatcherFactory != nil {
-		builder = r.moduleWatcherFactory(deps.cache, builder)
+		ctrlBuilder = r.moduleWatcherFactory(deps.cache, ctrlBuilder)
 	}
 
-	return builder.Complete(r)
+	return ctrlBuilder.Complete(r)
 }
 
 func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
@@ -394,11 +305,11 @@ func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
 	return requests
 }
 
-func (r *Reconciler) attachModuleWatcher(builder controllerBuilder, cache cache.Cache) controllerBuilder {
+func (r *Reconciler) attachModuleWatcher(b controllerbuilder.Builder, cache cache.Cache) controllerbuilder.Builder {
 	moduleConfig := &unstructured.Unstructured{}
 	moduleConfig.SetGroupVersionKind(moduleconfigctrl.ModuleConfigGVK)
 	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(r.mapModuleConfig)
-	return builder.WatchesRawSource(source.Kind(cache, moduleConfig, handlerFunc))
+	return b.WatchesRawSource(source.Kind(cache, moduleConfig, handlerFunc))
 }
 
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
@@ -453,7 +364,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if apierrors.IsNotFound(err) {
 			// Rely on ownerReferences GC; avoid aggressive cleanup that may fire on transient cache misses.
 			log.V(1).Info("node removed, skipping reconciliation")
-			r.clearInventoryMetrics(req.Name)
+			r.cleanupSvc().ClearMetrics(req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -464,52 +375,41 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return ctrl.Result{}, err
 	}
 
-	nodeSnapshot := buildNodeSnapshot(node, nodeFeature, managedPolicy)
+	state := newInventoryState(node, nodeFeature, managedPolicy)
+	nodeSnapshot := state.Snapshot()
 	snapshotList := nodeSnapshot.Devices
 	managed := nodeSnapshot.Managed
 
 	// If NodeFeature data has not arrived yet and we have no device snapshots,
-	// avoid deleting existing GPUDevice/GPUNodeInventory. We'll be requeued by the
+	// avoid deleting existing GPUDevice/GPUNodeState. We'll be requeued by the
 	// NodeFeature watch once it appears.
 	if !nodeSnapshot.FeatureDetected && len(snapshotList) == 0 {
 		log.V(1).Info("node feature not detected yet, skip reconcile")
 		return ctrl.Result{}, nil
 	}
 
-	allowCleanup := nodeSnapshot.FeatureDetected || len(snapshotList) > 0
+	allowCleanup := state.AllowCleanup()
 	var orphanDevices map[string]struct{}
 	if allowCleanup {
-		existingDevices := &v1alpha1.GPUDeviceList{}
-		if err := r.client.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: node.Name}); err != nil {
+		if orphanDevices, err = state.OrphanDevices(ctx, r.client); err != nil {
 			return ctrl.Result{}, err
-		}
-		orphanDevices = make(map[string]struct{}, len(existingDevices.Items))
-		for i := range existingDevices.Items {
-			orphanDevices[existingDevices.Items[i].Name] = struct{}{}
 		}
 	}
 
 	reconciledDevices := make([]*v1alpha1.GPUDevice, 0, len(snapshotList))
 	aggregate := contracts.Result{}
 
-	var telemetry nodeTelemetry
 	var detections nodeDetection
-	if len(snapshotList) > 0 {
-		if t, err := r.collectNodeTelemetry(ctx, node.Name); err == nil {
-			telemetry = t
-		} else {
-			log.V(1).Info("dcgm telemetry unavailable", "node", node.Name, "error", err)
-		}
-		if d, err := r.collectNodeDetections(ctx, node.Name); err == nil {
-			detections = d
-		} else {
-			log.V(1).Info("gfd-extender telemetry unavailable", "node", node.Name, "error", err)
-			r.recorder.Eventf(node, corev1.EventTypeWarning, eventDetectUnavailable, "gfd-extender unavailable for node %s: %v", node.Name, err)
-		}
+	if d, err := state.CollectDetections(ctx, r.collectNodeDetections); err == nil {
+		detections = d
+	} else {
+		log.V(1).Info("gfd-extender telemetry unavailable", "node", node.Name, "error", err)
+		r.recorder.Eventf(node, corev1.EventTypeWarning, eventDetectUnavailable, "gfd-extender unavailable for node %s: %v", node.Name, err)
 	}
 
+	invPlaceholder := r.ensureInventoryPlaceholder(node)
 	for _, snapshot := range snapshotList {
-		device, res, err := r.reconcileDevice(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, telemetry, detections)
+		device, res, err := r.deviceSvc().Reconcile(ctx, invPlaceholder, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, detections)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -520,20 +420,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		aggregate = contracts.MergeResult(aggregate, res)
 	}
 
-	for name := range orphanDevices {
-		if err := r.client.Delete(ctx, &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: name}}); err != nil && !apierrors.IsNotFound(err) {
+	if node.GetDeletionTimestamp() != nil {
+		if err := r.cleanupSvc().RemoveOrphans(ctx, node, orphanDevices); err != nil {
 			return ctrl.Result{}, err
 		}
-		log.V(1).Info("removed orphan GPUDevice", "device", name)
-		r.recorder.Eventf(node, corev1.EventTypeNormal, eventDeviceRemoved, "GPU device %s removed from inventory", name)
 	}
 
 	ctrlResult := ctrl.Result{}
-	if err := r.reconcileNodeInventory(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy, detections); err != nil {
+	if err := r.inventorySvc().Reconcile(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
 		return ctrl.Result{}, err
 	}
-	updateDeviceStateMetrics(node.Name, reconciledDevices)
-	inventoryDevicesGauge.WithLabelValues(node.Name).Set(float64(len(reconciledDevices)))
+	r.inventorySvc().UpdateDeviceMetrics(node.Name, reconciledDevices)
 
 	hasDevices := len(reconciledDevices) > 0
 	if hasDevices && aggregate.Requeue {
@@ -579,27 +476,6 @@ func (r *Reconciler) setResyncPeriod(period time.Duration) {
 	r.resyncMu.Unlock()
 }
 
-func (r *Reconciler) getResyncPeriod() time.Duration {
-	r.resyncMu.RLock()
-	defer r.resyncMu.RUnlock()
-	return r.resyncPeriod
-}
-
-func (r *Reconciler) cleanupAllInventories(ctx context.Context) error {
-	return nil
-}
-
-func (r *Reconciler) monitoringEnabled() bool {
-	if r.store != nil {
-		state := r.store.Current()
-		return state.Settings.Monitoring.ServiceMonitor
-	}
-	if r.fallbackMonitoring {
-		return true
-	}
-	return moduleconfigpkg.DefaultMonitoringService
-}
-
 func (r *Reconciler) findNodeFeature(ctx context.Context, nodeName string) (*nfdv1alpha1.NodeFeature, error) {
 	feature := &nfdv1alpha1.NodeFeature{}
 	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, feature); err == nil {
@@ -633,449 +509,6 @@ func chooseNodeFeature(items []nfdv1alpha1.NodeFeature, nodeName string) *nfdv1a
 		}
 	}
 	return selected
-}
-
-func (r *Reconciler) reconcileDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, telemetry nodeTelemetry, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
-	deviceName := buildDeviceName(node.Name, snapshot)
-	device := &v1alpha1.GPUDevice{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
-	if apierrors.IsNotFound(err) {
-		return r.createDevice(ctx, node, snapshot, nodeLabels, managed, approval)
-	}
-	if err != nil {
-		return nil, contracts.Result{}, err
-	}
-
-	metaUpdated, err := r.ensureDeviceMetadata(ctx, node, device, snapshot)
-	if err != nil {
-		return nil, contracts.Result{}, err
-	}
-	if metaUpdated {
-		if err := r.client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
-			return nil, contracts.Result{}, err
-		}
-	}
-
-	statusBefore := device.DeepCopy()
-	desiredInventoryID := buildInventoryID(node.Name, snapshot)
-
-	if device.Status.NodeName != node.Name {
-		device.Status.NodeName = node.Name
-	}
-	if device.Status.InventoryID != desiredInventoryID {
-		device.Status.InventoryID = desiredInventoryID
-	}
-	if device.Status.Managed != managed {
-		device.Status.Managed = managed
-	}
-	if device.Status.Hardware.PCI.Vendor != snapshot.Vendor ||
-		device.Status.Hardware.PCI.Device != snapshot.Device ||
-		device.Status.Hardware.PCI.Class != snapshot.Class ||
-		device.Status.Hardware.PCI.Address != snapshot.PCIAddress {
-		device.Status.Hardware.PCI.Vendor = snapshot.Vendor
-		device.Status.Hardware.PCI.Device = snapshot.Device
-		device.Status.Hardware.PCI.Class = snapshot.Class
-		device.Status.Hardware.PCI.Address = snapshot.PCIAddress
-	}
-	if !int32PtrEqual(device.Status.Hardware.NUMANode, snapshot.NUMANode) {
-		device.Status.Hardware.NUMANode = snapshot.NUMANode
-	}
-	if !int32PtrEqual(device.Status.Hardware.PowerLimitMilliWatt, snapshot.PowerLimitMW) {
-		device.Status.Hardware.PowerLimitMilliWatt = snapshot.PowerLimitMW
-	}
-	if !int32PtrEqual(device.Status.Hardware.SMCount, snapshot.SMCount) {
-		device.Status.Hardware.SMCount = snapshot.SMCount
-	}
-	if !int32PtrEqual(device.Status.Hardware.MemoryBandwidthMiB, snapshot.MemBandwidth) {
-		device.Status.Hardware.MemoryBandwidthMiB = snapshot.MemBandwidth
-	}
-	desiredPCIE := v1alpha1.PCIELink{Generation: snapshot.PCIEGen, Width: snapshot.PCIELinkWid}
-	if !pcieEqual(device.Status.Hardware.PCIE, desiredPCIE) {
-		device.Status.Hardware.PCIE = desiredPCIE
-	}
-	if device.Status.Hardware.Board != snapshot.Board {
-		device.Status.Hardware.Board = snapshot.Board
-	}
-	if device.Status.Hardware.Family != snapshot.Family {
-		device.Status.Hardware.Family = snapshot.Family
-	}
-	if device.Status.Hardware.Serial != snapshot.Serial {
-		device.Status.Hardware.Serial = snapshot.Serial
-	}
-	if device.Status.Hardware.PState != snapshot.PState {
-		device.Status.Hardware.PState = snapshot.PState
-	}
-	if device.Status.Hardware.DisplayMode != snapshot.DisplayMode {
-		device.Status.Hardware.DisplayMode = snapshot.DisplayMode
-	}
-	if device.Status.Hardware.Product != snapshot.Product {
-		device.Status.Hardware.Product = snapshot.Product
-	}
-	if device.Status.Hardware.MemoryMiB != snapshot.MemoryMiB {
-		device.Status.Hardware.MemoryMiB = snapshot.MemoryMiB
-	}
-	desiredCapability := capabilityFromSnapshot(snapshot)
-	if !computeCapabilityEqual(device.Status.Hardware.ComputeCapability, desiredCapability) {
-		device.Status.Hardware.ComputeCapability = desiredCapability
-	}
-	if !equality.Semantic.DeepEqual(device.Status.Hardware.MIG, snapshot.MIG) {
-		device.Status.Hardware.MIG = snapshot.MIG
-	}
-	if !stringSlicesEqual(device.Status.Hardware.Precision.Supported, snapshot.Precision) {
-		device.Status.Hardware.Precision.Supported = append([]string(nil), snapshot.Precision...)
-	}
-	autoAttach := approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
-	if device.Status.AutoAttach != autoAttach {
-		device.Status.AutoAttach = autoAttach
-	}
-
-	applyTelemetry(device, snapshot, telemetry)
-	applyDetection(device, snapshot, detections)
-
-	result, err := r.invokeHandlers(ctx, device)
-	if err != nil {
-		return nil, result, err
-	}
-
-	if !equality.Semantic.DeepEqual(statusBefore.Status, device.Status) {
-		if err := r.client.Status().Patch(ctx, device, client.MergeFrom(statusBefore)); err != nil {
-			if apierrors.IsConflict(err) {
-				return device, contracts.MergeResult(result, contracts.Result{Requeue: true}), nil
-			}
-			return nil, result, err
-		}
-	}
-
-	return device, result, nil
-}
-
-func (r *Reconciler) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy) (*v1alpha1.GPUDevice, contracts.Result, error) {
-	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: buildDeviceName(node.Name, snapshot),
-			Labels: map[string]string{
-				deviceNodeLabelKey:  node.Name,
-				deviceIndexLabelKey: snapshot.Index,
-			},
-		},
-	}
-	if err := controllerutil.SetOwnerReference(node, device, r.scheme); err != nil {
-		return nil, contracts.Result{}, err
-	}
-
-	if err := r.client.Create(ctx, device); err != nil {
-		return nil, contracts.Result{}, err
-	}
-	r.recorder.Eventf(device, corev1.EventTypeNormal, eventDeviceDetected, "Discovered GPU device index=%s vendor=%s device=%s on node %s", snapshot.Index, snapshot.Vendor, snapshot.Device, node.Name)
-
-	device.Status.NodeName = node.Name
-	device.Status.InventoryID = buildInventoryID(node.Name, snapshot)
-	device.Status.Managed = managed
-	device.Status.Hardware.PCI.Vendor = snapshot.Vendor
-	device.Status.Hardware.PCI.Device = snapshot.Device
-	device.Status.Hardware.PCI.Class = snapshot.Class
-	device.Status.Hardware.PCI.Address = snapshot.PCIAddress
-	device.Status.Hardware.NUMANode = snapshot.NUMANode
-	device.Status.Hardware.PowerLimitMilliWatt = snapshot.PowerLimitMW
-	device.Status.Hardware.SMCount = snapshot.SMCount
-	device.Status.Hardware.MemoryBandwidthMiB = snapshot.MemBandwidth
-	device.Status.Hardware.PCIE = v1alpha1.PCIELink{Generation: snapshot.PCIEGen, Width: snapshot.PCIELinkWid}
-	device.Status.Hardware.Board = snapshot.Board
-	device.Status.Hardware.Family = snapshot.Family
-	device.Status.Hardware.Serial = snapshot.Serial
-	device.Status.Hardware.PState = snapshot.PState
-	device.Status.Hardware.DisplayMode = snapshot.DisplayMode
-	device.Status.Hardware.Product = snapshot.Product
-	device.Status.Hardware.MemoryMiB = snapshot.MemoryMiB
-	device.Status.Hardware.ComputeCapability = capabilityFromSnapshot(snapshot)
-	device.Status.Hardware.MIG = snapshot.MIG
-	device.Status.Hardware.Precision.Supported = append([]string(nil), snapshot.Precision...)
-	device.Status.State = v1alpha1.GPUDeviceStateDiscovered
-	device.Status.AutoAttach = approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
-
-	result, err := r.invokeHandlers(ctx, device)
-	if err != nil {
-		return nil, result, err
-	}
-
-	if err := r.client.Status().Update(ctx, device); err != nil {
-		if apierrors.IsConflict(err) {
-			return device, contracts.MergeResult(result, contracts.Result{Requeue: true}), nil
-		}
-		return nil, result, err
-	}
-
-	return device, result, nil
-}
-
-func (r *Reconciler) ensureDeviceMetadata(ctx context.Context, node *corev1.Node, device *v1alpha1.GPUDevice, snapshot deviceSnapshot) (bool, error) {
-	desired := device.DeepCopy()
-	changed := false
-
-	if desired.Labels == nil {
-		desired.Labels = make(map[string]string)
-	}
-	if desired.Labels[deviceNodeLabelKey] != node.Name {
-		desired.Labels[deviceNodeLabelKey] = node.Name
-		changed = true
-	}
-	if desired.Labels[deviceIndexLabelKey] != snapshot.Index {
-		desired.Labels[deviceIndexLabelKey] = snapshot.Index
-		changed = true
-	}
-	if err := controllerutil.SetOwnerReference(node, desired, r.scheme); err != nil {
-		return false, err
-	}
-	if !equality.Semantic.DeepEqual(device.GetOwnerReferences(), desired.GetOwnerReferences()) {
-		changed = true
-	}
-
-	if !changed {
-		return false, nil
-	}
-
-	if err := r.client.Patch(ctx, desired, client.MergeFrom(device)); err != nil {
-		return false, err
-	}
-	*device = *desired
-
-	return true, nil
-}
-
-func (r *Reconciler) invokeHandlers(ctx context.Context, device *v1alpha1.GPUDevice) (contracts.Result, error) {
-	log := crlog.FromContext(ctx).WithValues("device", device.Name)
-	ctx = logr.NewContext(ctx, log)
-
-	rec := reconciler.NewBase(r.handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.InventoryHandler) (contracts.Result, error) {
-		result, err := handler.HandleDevice(ctx, device)
-		if err != nil {
-			inventoryHandlerErrors.WithLabelValues(handler.Name()).Inc()
-		}
-		return result, err
-	})
-	rec.SetResourceUpdater(func(context.Context) error { return nil })
-
-	return rec.Reconcile(ctx)
-}
-
-func (r *Reconciler) reconcileNodeInventory(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy, detections nodeDetection) error {
-	inventory := &v1alpha1.GPUNodeInventory{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
-	if apierrors.IsNotFound(err) {
-		if len(devices) == 0 {
-			return nil
-		}
-		inventory = &v1alpha1.GPUNodeInventory{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: node.Name,
-			},
-			Spec: v1alpha1.GPUNodeInventorySpec{
-				NodeName: node.Name,
-			},
-		}
-		if err := controllerutil.SetOwnerReference(node, inventory, r.scheme); err != nil {
-			return err
-		}
-		if err := r.client.Create(ctx, inventory); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-
-	specBefore := inventory.DeepCopy()
-	changed := false
-
-	if inventory.Spec.NodeName != node.Name {
-		inventory.Spec.NodeName = node.Name
-		changed = true
-	}
-	if err := controllerutil.SetOwnerReference(node, inventory, r.scheme); err != nil {
-		return err
-	}
-	if !equality.Semantic.DeepEqual(specBefore.OwnerReferences, inventory.OwnerReferences) {
-		changed = true
-	}
-
-	if changed {
-		if err := r.client.Patch(ctx, inventory, client.MergeFrom(specBefore)); err != nil {
-			return err
-		}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
-			return err
-		}
-	}
-
-	nodeDevices := make([]v1alpha1.GPUNodeDevice, 0, len(devices))
-	snapshotByIndex := make(map[string]deviceSnapshot, len(snapshot.Devices))
-	for _, snap := range snapshot.Devices {
-		snapshotByIndex[snap.Index] = snap
-	}
-	for _, device := range devices {
-		index := device.Labels[deviceIndexLabelKey]
-		snap, ok := snapshotByIndex[index]
-
-		nodeDevice := v1alpha1.GPUNodeDevice{
-			InventoryID:     device.Status.InventoryID,
-			UUID:            device.Status.Hardware.UUID,
-			Product:         device.Status.Hardware.Product,
-			Family:          device.Status.Hardware.Family,
-			PCI:             device.Status.Hardware.PCI,
-			NUMANode:        device.Status.Hardware.NUMANode,
-			MemoryMiB:       device.Status.Hardware.MemoryMiB,
-			MIG:             device.Status.Hardware.MIG,
-			ComputeCap:      device.Status.Hardware.ComputeCapability,
-			State:           normalizeDeviceState(device.Status.State),
-			LastError:       device.Status.Health.LastError,
-			LastErrorReason: device.Status.Health.LastErrorReason,
-			LastUpdatedTime: device.Status.Health.LastUpdatedTime,
-		}
-		if ok {
-			if nodeDevice.Product == "" {
-				nodeDevice.Product = snap.Product
-			}
-			if nodeDevice.NUMANode == nil {
-				nodeDevice.NUMANode = snap.NUMANode
-			}
-			if nodeDevice.Family == "" {
-				nodeDevice.Family = snap.Family
-			}
-			if nodeDevice.MemoryMiB == 0 {
-				nodeDevice.MemoryMiB = snap.MemoryMiB
-			}
-			if nodeDevice.ComputeCap == nil {
-				nodeDevice.ComputeCap = capabilityFromSnapshot(snap)
-			}
-			if snap.UUID != "" {
-				nodeDevice.UUID = snap.UUID
-			} else if entry, ok := detections.find(snap); ok && entry.UUID != "" {
-				nodeDevice.UUID = entry.UUID
-			}
-			if nodeDevice.PCI.Address == "" {
-				if entry, ok := detections.find(snap); ok && entry.PCI.Address != "" {
-					nodeDevice.PCI.Address = strings.ToLower(entry.PCI.Address)
-				}
-			}
-		}
-
-		nodeDevices = append(nodeDevices, nodeDevice)
-	}
-	sort.Slice(nodeDevices, func(i, j int) bool {
-		return nodeDevices[i].InventoryID < nodeDevices[j].InventoryID
-	})
-
-	statusBefore := inventory.DeepCopy()
-	inventory.Status.Hardware.Present = len(nodeDevices) > 0
-	inventory.Status.Devices = nodeDevices
-	inventory.Status.Driver.Version = snapshot.Driver.Version
-	inventory.Status.Driver.CUDAVersion = snapshot.Driver.CUDAVersion
-	inventory.Status.Driver.ToolkitReady = snapshot.Driver.ToolkitInstalled || snapshot.Driver.ToolkitReady
-
-	conditions := inventory.Status.Conditions
-	labelKey := managedPolicy.LabelKey
-	if labelKey == "" {
-		labelKey = defaultManagedNodeLabelKey
-	}
-	managedMessage := "node managed by module"
-	managedReason := reasonNodeManagedEnabled
-	if !snapshot.Managed {
-		managedMessage = fmt.Sprintf("node is marked with %s=false", labelKey)
-		managedReason = reasonNodeManagedDisabled
-	}
-	managedCond := metav1.Condition{
-		Type:               conditionManagedDisabled,
-		Status:             boolToConditionStatus(!snapshot.Managed),
-		Reason:             managedReason,
-		Message:            managedMessage,
-		ObservedGeneration: inventory.Generation,
-	}
-	managedChanged := setStatusCondition(&conditions, managedCond)
-	inventoryConditionGauge.WithLabelValues(node.Name, conditionManagedDisabled).Set(boolToFloat(!snapshot.Managed))
-
-	inventoryComplete := snapshot.FeatureDetected && len(snapshot.Devices) > 0
-	inventoryReason := reasonInventorySynced
-	inventoryMessage := "inventory data collected"
-	switch {
-	case !snapshot.FeatureDetected:
-		inventoryReason = reasonNodeFeatureMissing
-		inventoryMessage = "NodeFeature resource not discovered yet"
-	case len(snapshot.Devices) == 0:
-		inventoryReason = reasonNoDevicesDiscovered
-		inventoryMessage = "no NVIDIA devices detected on the node"
-	}
-	completeCond := metav1.Condition{
-		Type:               conditionInventoryComplete,
-		Status:             boolToConditionStatus(inventoryComplete),
-		Reason:             inventoryReason,
-		Message:            inventoryMessage,
-		ObservedGeneration: inventory.Generation,
-	}
-	inventoryChanged := setStatusCondition(&conditions, completeCond)
-	inventoryConditionGauge.WithLabelValues(node.Name, conditionInventoryComplete).Set(boolToFloat(inventoryComplete))
-
-	inventory.Status.Conditions = conditions
-	if managedChanged {
-		r.recorder.Eventf(node, corev1.EventTypeNormal, eventInventoryChanged, "Condition %s changed to %t (%s)", conditionManagedDisabled, !snapshot.Managed, managedReason)
-	}
-	if inventoryChanged {
-		eventType := corev1.EventTypeNormal
-		if !inventoryComplete {
-			eventType = corev1.EventTypeWarning
-		}
-		r.recorder.Eventf(node, eventType, eventInventoryChanged, "Condition %s changed to %t (%s)", conditionInventoryComplete, inventoryComplete, inventoryReason)
-	}
-
-	if !equality.Semantic.DeepEqual(statusBefore.Status, inventory.Status) {
-		if err := r.client.Status().Patch(ctx, inventory, client.MergeFrom(statusBefore)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *Reconciler) deleteInventory(ctx context.Context, nodeName string) error {
-	inventory := &v1alpha1.GPUNodeInventory{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: nodeName}, inventory); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-	if err := r.client.Delete(ctx, inventory); err != nil && !apierrors.IsNotFound(err) {
-		return err
-	}
-	return nil
-}
-
-func (r *Reconciler) clearInventoryMetrics(nodeName string) {
-	inventoryDevicesGauge.DeleteLabelValues(nodeName)
-	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionManagedDisabled)
-	inventoryConditionGauge.DeleteLabelValues(nodeName, conditionInventoryComplete)
-	for _, state := range knownDeviceStates {
-		inventoryDeviceStateGauge.DeleteLabelValues(nodeName, string(state))
-	}
-}
-
-func (r *Reconciler) cleanupNode(ctx context.Context, nodeName string) error {
-	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := r.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
-		return err
-	}
-	for i := range deviceList.Items {
-		device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: deviceList.Items[i].Name}}
-		if err := r.client.Delete(ctx, device); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-	}
-
-	if err := r.deleteInventory(ctx, nodeName); err != nil {
-		return err
-	}
-	r.clearInventoryMetrics(nodeName)
-
-	return nil
 }
 
 func resourceVersionNewer(candidate, current string) bool {
@@ -1128,43 +561,55 @@ func boolToConditionStatus(value bool) metav1.ConditionStatus {
 	return metav1.ConditionFalse
 }
 
-func boolToFloat(value bool) float64 {
-	if value {
-		return 1
+func nodeFeaturePredicates() predicate.TypedPredicate[*nfdv1alpha1.NodeFeature] {
+	return predicate.TypedFuncs[*nfdv1alpha1.NodeFeature]{
+		CreateFunc: func(e event.TypedCreateEvent[*nfdv1alpha1.NodeFeature]) bool {
+			return hasGPUDeviceLabels(e.Object.Spec.Labels)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*nfdv1alpha1.NodeFeature]) bool {
+			oldLabels := nodeFeatureLabels(e.ObjectOld)
+			newLabels := nodeFeatureLabels(e.ObjectNew)
+			oldHas := hasGPUDeviceLabels(oldLabels)
+			newHas := hasGPUDeviceLabels(newLabels)
+			if !oldHas && !newHas {
+				return false
+			}
+			if oldHas != newHas {
+				return true
+			}
+			return gpuLabelsDiffer(oldLabels, newLabels)
+		},
+		DeleteFunc: func(e event.TypedDeleteEvent[*nfdv1alpha1.NodeFeature]) bool {
+			return hasGPUDeviceLabels(nodeFeatureLabels(e.Object))
+		},
+		GenericFunc: func(event.TypedGenericEvent[*nfdv1alpha1.NodeFeature]) bool { return false },
 	}
-	return 0
+}
+
+func nodeFeatureLabels(feature *nfdv1alpha1.NodeFeature) map[string]string {
+	if feature == nil {
+		return nil
+	}
+	return feature.Spec.Labels
 }
 
 func updateDeviceStateMetrics(nodeName string, devices []*v1alpha1.GPUDevice) {
-	counts := make(map[string]float64, len(devices))
+	counts := make(map[string]int, len(devices))
 	for _, device := range devices {
 		stateKey := string(normalizeDeviceState(device.Status.State))
 		counts[stateKey]++
 	}
 	seen := make(map[string]struct{}, len(counts))
 	for state, count := range counts {
-		inventoryDeviceStateGauge.WithLabelValues(nodeName, state).Set(count)
+		cpmetrics.InventoryDeviceStateSet(nodeName, state, count)
 		seen[state] = struct{}{}
 	}
 	for _, state := range knownDeviceStates {
 		key := string(state)
 		if _, ok := seen[key]; !ok {
-			inventoryDeviceStateGauge.DeleteLabelValues(nodeName, key)
+			cpmetrics.InventoryDeviceStateDelete(nodeName, key)
 		}
 	}
-}
-
-func isDeviceIgnored(device *v1alpha1.GPUDevice) bool {
-	if device == nil {
-		return false
-	}
-	if value := device.Annotations[deviceIgnoreAnnotation]; value == "true" {
-		return true
-	}
-	if value := device.Labels[deviceIgnoreLabel]; value == "true" {
-		return true
-	}
-	return false
 }
 
 func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState {
@@ -1172,13 +617,6 @@ func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState
 		return v1alpha1.GPUDeviceStateDiscovered
 	}
 	return state
-}
-
-func capabilityFromSnapshot(snapshot deviceSnapshot) *v1alpha1.GPUComputeCapability {
-	if snapshot.ComputeMajor == 0 && snapshot.ComputeMinor == 0 {
-		return nil
-	}
-	return &v1alpha1.GPUComputeCapability{Major: snapshot.ComputeMajor, Minor: snapshot.ComputeMinor}
 }
 
 func nodeLabels(node *corev1.Node) map[string]string {
@@ -1190,6 +628,23 @@ func nodeLabels(node *corev1.Node) map[string]string {
 
 func nodeHasGPUHardwareLabels(labels map[string]string) bool {
 	return hasGPUDeviceLabels(labels)
+}
+
+func gpuNodeLabelsChanged(oldNode, newNode *corev1.Node) bool {
+	oldLabels := nodeLabels(oldNode)
+	newLabels := nodeLabels(newNode)
+
+	oldHas := nodeHasGPUHardwareLabels(oldLabels)
+	newHas := nodeHasGPUHardwareLabels(newLabels)
+	if oldHas != newHas {
+		return true
+	}
+
+	if gpuLabelsDiffer(oldLabels, newLabels) {
+		return true
+	}
+
+	return false
 }
 
 func hasGPUDeviceLabels(labels map[string]string) bool {
@@ -1212,28 +667,54 @@ func hasGPUDeviceLabels(labels map[string]string) bool {
 	return false
 }
 
-func computeCapabilityEqual(left, right *v1alpha1.GPUComputeCapability) bool {
-	if left == nil && right == nil {
-		return true
+func gpuLabelsDiffer(oldLabels, newLabels map[string]string) bool {
+	relevantKey := func(key string) bool {
+		if strings.HasPrefix(key, deviceLabelPrefix) || strings.HasPrefix(key, migProfileLabelPrefix) {
+			return true
+		}
+		switch key {
+		case gfdProductLabel,
+			gfdMemoryLabel,
+			gfdComputeMajorLabel,
+			gfdComputeMinorLabel,
+			gfdDriverVersionLabel,
+			gfdCudaRuntimeVersionLabel,
+			gfdCudaDriverMajorLabel,
+			gfdCudaDriverMinorLabel,
+			gfdMigCapableLabel,
+			gfdMigStrategyLabel,
+			gfdMigAltCapableLabel,
+			gfdMigAltStrategy:
+			return true
+		default:
+			return false
+		}
 	}
-	if left == nil || right == nil {
-		return false
-	}
-	return left.Major == right.Major && left.Minor == right.Minor
-}
 
-func int32PtrEqual(left, right *int32) bool {
-	if left == nil && right == nil {
-		return true
+	get := func(labels map[string]string, key string) string {
+		if labels == nil {
+			return ""
+		}
+		return labels[key]
 	}
-	if left == nil || right == nil {
-		return false
-	}
-	return *left == *right
-}
 
-func pcieEqual(left, right v1alpha1.PCIELink) bool {
-	return int32PtrEqual(left.Generation, right.Generation) && int32PtrEqual(left.Width, right.Width)
+	for key, val := range oldLabels {
+		if !relevantKey(key) {
+			continue
+		}
+		if val != get(newLabels, key) {
+			return true
+		}
+	}
+	for key, val := range newLabels {
+		if !relevantKey(key) {
+			continue
+		}
+		if val != get(oldLabels, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func stringSlicesEqual(a, b []string) bool {
@@ -1246,19 +727,4 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func setStatusCondition(conditions *[]metav1.Condition, condition metav1.Condition) bool {
-	prev := apimeta.FindStatusCondition(*conditions, condition.Type)
-	var prevCopy *metav1.Condition
-	if prev != nil {
-		cpy := *prev
-		prevCopy = &cpy
-	}
-	apimeta.SetStatusCondition(conditions, condition)
-	next := apimeta.FindStatusCondition(*conditions, condition.Type)
-	if prevCopy == nil {
-		return next != nil
-	}
-	return prevCopy.Status != next.Status || prevCopy.Reason != next.Reason || prevCopy.Message != next.Message
 }

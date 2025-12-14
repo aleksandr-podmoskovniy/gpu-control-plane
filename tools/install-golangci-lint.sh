@@ -28,5 +28,19 @@ if [[ -x "${BINARY}" ]]; then
   fi
 fi
 
-curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
-  | sh -s -- -b "${INSTALL_DIR}" "v${VERSION}"
+if [[ "${GOLANGCI_LINT_USE_GO_INSTALL:-}" == "1" ]]; then
+  MODULE="github.com/golangci/golangci-lint/cmd/golangci-lint"
+  if [[ "${VERSION}" == 2.* ]]; then
+    MODULE="github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
+  fi
+
+  if [[ -n "${GOLANGCI_LINT_TOOLCHAIN:-}" ]]; then
+    GOTOOLCHAIN="${GOLANGCI_LINT_TOOLCHAIN}" GOBIN="${INSTALL_DIR}" go install "${MODULE}@v${VERSION}"
+    exit 0
+  fi
+
+  GOBIN="${INSTALL_DIR}" go install "${MODULE}@v${VERSION}"
+  exit 0
+fi
+
+curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "${INSTALL_DIR}" "v${VERSION}"

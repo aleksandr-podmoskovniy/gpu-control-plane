@@ -18,12 +18,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/go-logr/logr"
 	admv1 "k8s.io/api/admission/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
@@ -31,7 +31,10 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/gpupool"
 )
 
-const assignmentAnnotation = "gpu.deckhouse.io/assignment"
+const (
+	namespacedAssignmentAnnotation = "gpu.deckhouse.io/assignment"
+	clusterAssignmentAnnotation    = "cluster.gpu.deckhouse.io/assignment"
+)
 
 type gpuDeviceAssignmentValidator struct {
 	log     logr.Logger
@@ -61,59 +64,86 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 		return cradmission.Denied(fmt.Sprintf("device state must be Ready, got %s", device.Status.State))
 	}
 
-	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") ||
-		strings.EqualFold(device.Annotations["gpu.deckhouse.io/ignore"], "true") {
+	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") {
 		return cradmission.Denied("device is marked as ignored")
 	}
 
-	poolName := strings.TrimSpace(device.Annotations[assignmentAnnotation])
-	if poolName == "" {
+	namespacedPool := strings.TrimSpace(device.Annotations[namespacedAssignmentAnnotation])
+	clusterPool := strings.TrimSpace(device.Annotations[clusterAssignmentAnnotation])
+
+	if namespacedPool != "" && clusterPool != "" {
+		return cradmission.Denied("only one assignment annotation is allowed (namespaced or cluster)")
+	}
+	if namespacedPool == "" && clusterPool == "" {
 		return cradmission.Allowed("")
 	}
 
-	pool := &v1alpha1.GPUPool{}
-	if err := h.client.Get(ctx, types.NamespacedName{Name: poolName}, pool); err != nil {
-		if apierrors.IsNotFound(err) {
-			return cradmission.Denied(fmt.Sprintf("assigned pool %q not found", poolName))
+	if clusterPool != "" {
+		pool := &v1alpha1.ClusterGPUPool{}
+		if err := h.client.Get(ctx, client.ObjectKey{Name: clusterPool}, pool); err != nil {
+			if apierrors.IsNotFound(err) {
+				return cradmission.Denied(fmt.Sprintf("assigned ClusterGPUPool %q not found", clusterPool))
+			}
+			return cradmission.Errored(http.StatusInternalServerError, err)
 		}
-		return cradmission.Errored(http.StatusInternalServerError, err)
+		if matchesDeviceSelector(device, pool.Spec.DeviceSelector) {
+			return cradmission.Allowed("")
+		}
+		return cradmission.Denied(fmt.Sprintf("device does not match selector of ClusterGPUPool %q", pool.Name))
 	}
 
-	if matchesPool(device, pool) {
+	pool, err := resolveNamespacedPoolByName(ctx, h.client, namespacedPool)
+	if err != nil {
+		return cradmission.Denied(err.Error())
+	}
+
+	if matchesDeviceSelector(device, pool.Spec.DeviceSelector) {
 		return cradmission.Allowed("")
 	}
 
 	return cradmission.Denied(fmt.Sprintf("device does not match selector of pool %q", pool.Name))
 }
 
-func matchesPool(dev *v1alpha1.GPUDevice, pool *v1alpha1.GPUPool) bool {
-	nodeDev := v1alpha1.GPUNodeDevice{
-		InventoryID: dev.Status.InventoryID,
-		Product:     dev.Status.Hardware.Product,
-		PCI: v1alpha1.PCIAddress{
-			Vendor: dev.Status.Hardware.PCI.Vendor,
-			Device: dev.Status.Hardware.PCI.Device,
-			Class:  dev.Status.Hardware.PCI.Class,
-		},
-		MIG: v1alpha1.GPUMIGConfig{
-			Capable:           dev.Status.Hardware.MIG.Capable,
-			ProfilesSupported: migProfiles(dev.Status.Hardware.MIG),
-		},
+func matchesDeviceSelector(dev *v1alpha1.GPUDevice, sel *v1alpha1.GPUPoolDeviceSelector) bool {
+	if dev == nil {
+		return false
 	}
-
-	candidates := gpupool.FilterDevices([]v1alpha1.GPUNodeDevice{nodeDev}, pool.Spec.DeviceSelector)
+	candidates := gpupool.FilterDevices([]v1alpha1.GPUDevice{*dev}, sel)
 	return len(candidates) == 1
 }
 
-func migProfiles(m v1alpha1.GPUMIGConfig) []string {
-	if len(m.ProfilesSupported) > 0 {
-		return m.ProfilesSupported
+func resolveNamespacedPoolByName(ctx context.Context, c client.Client, name string) (*v1alpha1.GPUPool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("assigned pool name is empty")
 	}
-	profiles := make([]string, 0, len(m.Types))
-	for _, t := range m.Types {
-		if t.Name != "" {
-			profiles = append(profiles, t.Name)
+	if c == nil {
+		return nil, fmt.Errorf("GPUPool %q: webhook client is not configured", name)
+	}
+
+	list := &v1alpha1.GPUPoolList{}
+	if err := c.List(ctx, list); err != nil {
+		return nil, fmt.Errorf("list GPUPools: %w", err)
+	}
+
+	var matches []v1alpha1.GPUPool
+	for _, pool := range list.Items {
+		if pool.Name == name {
+			matches = append(matches, pool)
 		}
 	}
-	return profiles
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("assigned pool %q not found", name)
+	}
+	if len(matches) > 1 {
+		namespaces := make([]string, 0, len(matches))
+		for _, pool := range matches {
+			if pool.Namespace != "" {
+				namespaces = append(namespaces, pool.Namespace)
+			}
+		}
+		sort.Strings(namespaces)
+		return nil, fmt.Errorf("assigned pool %q is ambiguous (found in namespaces: %s)", name, strings.Join(namespaces, ", "))
+	}
+	return &matches[0], nil
 }

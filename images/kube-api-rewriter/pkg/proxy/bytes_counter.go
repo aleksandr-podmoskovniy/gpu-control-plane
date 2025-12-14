@@ -25,27 +25,15 @@ func BytesCounterReaderWrap(r io.Reader) io.ReadCloser {
 	return &bytesCounter{origReader: r}
 }
 
-func BytesCounterWriterWrap(w io.Writer) io.Writer {
-	return &bytesCounter{origWriter: w}
-}
-
 var _ io.ReadCloser = &bytesCounter{}
-var _ io.Writer = &bytesCounter{}
 
 type bytesCounter struct {
 	origReader io.Reader
-	origWriter io.Writer
 	counter    atomic.Int64
 }
 
 func (r *bytesCounter) Read(p []byte) (n int, err error) {
 	l, err := r.origReader.Read(p)
-	r.counter.Add(int64(l))
-	return l, err
-}
-
-func (r *bytesCounter) Write(p []byte) (n int, err error) {
-	l, err := r.origWriter.Write(p)
 	r.counter.Add(int64(l))
 	return l, err
 }

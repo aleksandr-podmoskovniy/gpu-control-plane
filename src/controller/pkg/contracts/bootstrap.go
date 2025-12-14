@@ -20,10 +20,10 @@ import (
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
-// BootstrapHandler reconciles GPUNodeInventory resources, preparing nodes for pooling.
+// BootstrapHandler reconciles GPUNodeState resources, preparing nodes for pooling.
 type BootstrapHandler interface {
 	Named
-	HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeInventory) (Result, error)
+	HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (Result, error)
 }
 
 // BootstrapRegistry keeps bootstrap handlers.

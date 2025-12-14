@@ -59,3 +59,41 @@ func TestParseCertsPEMInvalid(t *testing.T) {
 		t.Fatalf("expected failure for invalid PEM")
 	}
 }
+
+func TestParseCertsPEMSkipsNonCertificateBlocks(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject: pkix.Name{
+			CommonName: "test",
+		},
+		NotBefore: time.Now().Add(-time.Minute),
+		NotAfter:  time.Now().Add(time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+
+	ignored := pem.EncodeToMemory(&pem.Block{Type: "NOT-A-CERT", Bytes: []byte("ignored")})
+	withHeaders := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER, Headers: map[string]string{"x": "y"}})
+	valid := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	certs, err := ParseCertsPEM(append(append(ignored, withHeaders...), valid...))
+	if err != nil {
+		t.Fatalf("parse certs: %v", err)
+	}
+	if len(certs) != 1 || certs[0].Subject.CommonName != "test" {
+		t.Fatalf("unexpected certs: %+v", certs)
+	}
+}
+
+func TestParseCertsPEMInvalidCertificateBlockReturnsError(t *testing.T) {
+	invalid := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not-der")})
+	if _, err := ParseCertsPEM(invalid); err == nil {
+		t.Fatalf("expected certificate parse error")
+	}
+}

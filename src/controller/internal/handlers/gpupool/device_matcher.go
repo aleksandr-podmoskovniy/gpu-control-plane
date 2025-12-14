@@ -15,18 +15,20 @@
 package gpupool
 
 import (
+	"strings"
+
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
 
 // FilterDevices applies include/exclude selectors to the provided device list.
-func FilterDevices(devices []v1alpha1.GPUNodeDevice, sel *v1alpha1.GPUPoolDeviceSelector) []v1alpha1.GPUNodeDevice {
+func FilterDevices(devices []v1alpha1.GPUDevice, sel *v1alpha1.GPUPoolDeviceSelector) []v1alpha1.GPUDevice {
 	if sel == nil {
-		out := make([]v1alpha1.GPUNodeDevice, len(devices))
+		out := make([]v1alpha1.GPUDevice, len(devices))
 		copy(out, devices)
 		return out
 	}
 
-	out := make([]v1alpha1.GPUNodeDevice, 0, len(devices))
+	out := make([]v1alpha1.GPUDevice, 0, len(devices))
 	for _, dev := range devices {
 		if matchesExclude(sel.Exclude, dev) {
 			continue
@@ -38,7 +40,7 @@ func FilterDevices(devices []v1alpha1.GPUNodeDevice, sel *v1alpha1.GPUPoolDevice
 	return out
 }
 
-func matchesInclude(include v1alpha1.GPUPoolSelectorRules, dev v1alpha1.GPUNodeDevice) bool {
+func matchesInclude(include v1alpha1.GPUPoolSelectorRules, dev v1alpha1.GPUDevice) bool {
 	if len(include.InventoryIDs) == 0 &&
 		len(include.Products) == 0 &&
 		len(include.PCIVendors) == 0 &&
@@ -48,44 +50,54 @@ func matchesInclude(include v1alpha1.GPUPoolSelectorRules, dev v1alpha1.GPUNodeD
 		return true
 	}
 
-	if len(include.InventoryIDs) > 0 && !contains(include.InventoryIDs, dev.InventoryID) {
+	inventoryID := strings.TrimSpace(dev.Status.InventoryID)
+	if inventoryID == "" {
+		inventoryID = dev.Name
+	}
+
+	if len(include.InventoryIDs) > 0 && !contains(include.InventoryIDs, inventoryID) {
 		return false
 	}
-	if len(include.Products) > 0 && !contains(include.Products, dev.Product) {
+	if len(include.Products) > 0 && !contains(include.Products, dev.Status.Hardware.Product) {
 		return false
 	}
-	if len(include.PCIVendors) > 0 && !contains(include.PCIVendors, dev.PCI.Vendor) {
+	if len(include.PCIVendors) > 0 && !contains(include.PCIVendors, dev.Status.Hardware.PCI.Vendor) {
 		return false
 	}
-	if len(include.PCIDevices) > 0 && !contains(include.PCIDevices, dev.PCI.Device) {
+	if len(include.PCIDevices) > 0 && !contains(include.PCIDevices, dev.Status.Hardware.PCI.Device) {
 		return false
 	}
-	if include.MIGCapable != nil && dev.MIG.Capable != *include.MIGCapable {
+	if include.MIGCapable != nil && dev.Status.Hardware.MIG.Capable != *include.MIGCapable {
 		return false
 	}
-	if len(include.MIGProfiles) > 0 && !anyMIGProfile(include.MIGProfiles, dev.MIG.ProfilesSupported) {
+	if len(include.MIGProfiles) > 0 && !anyMIGProfile(include.MIGProfiles, migProfiles(dev.Status.Hardware.MIG)) {
 		return false
 	}
 	return true
 }
 
-func matchesExclude(exclude v1alpha1.GPUPoolSelectorRules, dev v1alpha1.GPUNodeDevice) bool {
-	if len(exclude.InventoryIDs) > 0 && contains(exclude.InventoryIDs, dev.InventoryID) {
+func matchesExclude(exclude v1alpha1.GPUPoolSelectorRules, dev v1alpha1.GPUDevice) bool {
+	inventoryID := strings.TrimSpace(dev.Status.InventoryID)
+	if inventoryID == "" {
+		inventoryID = dev.Name
+	}
+
+	if len(exclude.InventoryIDs) > 0 && contains(exclude.InventoryIDs, inventoryID) {
 		return true
 	}
-	if len(exclude.Products) > 0 && contains(exclude.Products, dev.Product) {
+	if len(exclude.Products) > 0 && contains(exclude.Products, dev.Status.Hardware.Product) {
 		return true
 	}
-	if len(exclude.PCIVendors) > 0 && contains(exclude.PCIVendors, dev.PCI.Vendor) {
+	if len(exclude.PCIVendors) > 0 && contains(exclude.PCIVendors, dev.Status.Hardware.PCI.Vendor) {
 		return true
 	}
-	if len(exclude.PCIDevices) > 0 && contains(exclude.PCIDevices, dev.PCI.Device) {
+	if len(exclude.PCIDevices) > 0 && contains(exclude.PCIDevices, dev.Status.Hardware.PCI.Device) {
 		return true
 	}
-	if exclude.MIGCapable != nil && dev.MIG.Capable == *exclude.MIGCapable {
+	if exclude.MIGCapable != nil && dev.Status.Hardware.MIG.Capable == *exclude.MIGCapable {
 		return true
 	}
-	if len(exclude.MIGProfiles) > 0 && anyMIGProfile(exclude.MIGProfiles, dev.MIG.ProfilesSupported) {
+	if len(exclude.MIGProfiles) > 0 && anyMIGProfile(exclude.MIGProfiles, migProfiles(dev.Status.Hardware.MIG)) {
 		return true
 	}
 	return false
@@ -107,4 +119,18 @@ func contains(list []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func migProfiles(m v1alpha1.GPUMIGConfig) []string {
+	if len(m.ProfilesSupported) > 0 {
+		return m.ProfilesSupported
+	}
+	profiles := make([]string, 0, len(m.Types))
+	for _, t := range m.Types {
+		name := strings.TrimSpace(t.Name)
+		if name != "" {
+			profiles = append(profiles, name)
+		}
+	}
+	return profiles
 }

@@ -17,40 +17,28 @@ package components
 import (
 	"testing"
 
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 )
 
-func TestNamesReturnsComponentsCopy(t *testing.T) {
-	names := Names()
-	if len(names) != len(definitions) {
-		t.Fatalf("expected %d components, got %d", len(definitions), len(names))
-	}
-	names[0] = meta.Component("modified")
-	if Names()[0] == meta.Component("modified") {
-		t.Fatal("expected Names() to return a copy")
-	}
-}
-
 func TestEnabledComponentsByPhase(t *testing.T) {
 	testCases := []struct {
-		phase    v1alpha1.GPUNodeBootstrapPhase
+		phase    Phase
 		expected []meta.Component
 	}{
-		{phase: v1alpha1.GPUNodeBootstrapPhaseDisabled, expected: nil},
-		{phase: v1alpha1.GPUNodeBootstrapPhaseValidating, expected: []meta.Component{
+		{phase: PhaseDisabled, expected: nil},
+		{phase: PhaseValidating, expected: []meta.Component{
 			meta.ComponentValidator,
 		}},
-		{phase: v1alpha1.GPUNodeBootstrapPhaseGFD, expected: []meta.Component{
+		{phase: PhaseGFD, expected: []meta.Component{
 			meta.ComponentValidator,
 		}},
-		{phase: v1alpha1.GPUNodeBootstrapPhaseMonitoring, expected: []meta.Component{
+		{phase: PhaseMonitoring, expected: []meta.Component{
 			meta.ComponentValidator,
 			meta.ComponentGPUFeatureDiscovery,
 			meta.ComponentDCGM,
 			meta.ComponentDCGMExporter,
 		}},
-		{phase: v1alpha1.GPUNodeBootstrapPhaseReady, expected: []meta.Component{
+		{phase: PhaseReady, expected: []meta.Component{
 			meta.ComponentValidator,
 			meta.ComponentGPUFeatureDiscovery,
 			meta.ComponentDCGM,
@@ -81,7 +69,7 @@ func TestEnabledComponentsDefaultsToValidating(t *testing.T) {
 }
 
 func TestEnabledComponentsDisablesGPUWorkloadsWhenNoDevices(t *testing.T) {
-	set := EnabledComponents(v1alpha1.GPUNodeBootstrapPhaseReady, false)
+	set := EnabledComponents(PhaseReady, false)
 	for _, component := range []meta.Component{
 		meta.ComponentGPUFeatureDiscovery,
 		meta.ComponentDCGM,

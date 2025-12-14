@@ -9,7 +9,7 @@ powered by `deckhouse_lib_helm`, and a `werf` build pipeline.
 ## Features (current stage)
 
 - Inventory controller that watches `Node` + `NodeFeature`, creates
-  `GPUDevice`/`GPUNodeInventory` resources, emits Prometheus metrics and
+  `GPUDevice`/`GPUNodeState` resources, emits Prometheus metrics and
   Kubernetes events.
 - Hooks that normalise module settings, deliver a mandatory
   `NodeFeatureRule`, and expose module status conditions.
@@ -35,11 +35,11 @@ powered by `deckhouse_lib_helm`, and a `werf` build pipeline.
 # Prepare build-time tools (golangci-lint, module-sdk wrapper, etc.)
 make ensure-tools
 
-# Build all module images (hooks, controller, bundle)
+# Build all module images (hooks, controller, bundle) locally
 werf build
 
-# Assemble a bundle file that can be applied to the cluster
-werf bundle assemble --save-bundle-to=./bundle
+# Build and push images into a registry (adds readable tags like <image>-dev)
+MODULES_MODULE_SOURCE=127.0.0.1:5001/gpu-control-plane MODULES_MODULE_TAG=dev make werf-build
 ```
 
 The `werf-giterminism.yaml` file locks down the build context; fuzziness is
@@ -85,7 +85,7 @@ When the module is enabled, the hook ensures that NFD is present and creates
 the `NodeFeatureRule` required for GPU discovery.
 
 4. Verify that the controller is running in the `d8-gpu-control-plane`
- namespace and that `GPUDevice`/`GPUNodeInventory` objects appear for GPU
+ namespace and that `GPUDevice`/`GPUNodeState` objects appear for GPU
  nodes.
 
 > ℹ️ The module currently focuses on inventory/diagnostics. Bootstrap

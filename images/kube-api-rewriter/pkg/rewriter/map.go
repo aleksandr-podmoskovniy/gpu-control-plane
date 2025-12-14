@@ -18,7 +18,6 @@ package rewriter
 
 import (
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // TODO merge this file into transformers.go
@@ -35,5 +34,5 @@ func RewriteMapStringString(obj []byte, mapPath string, transformFn func(k, v st
 		newMap[newK] = newV
 	}
 
-	return sjson.SetBytes(obj, mapPath, newMap)
+	return sjsonSetBytes(obj, mapPath, newMap)
 }

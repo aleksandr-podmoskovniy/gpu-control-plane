@@ -25,12 +25,23 @@ import (
 	admv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/admission"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
+
+type errorAdmissionHandler struct {
+	err error
+}
+
+func (h errorAdmissionHandler) Name() string { return "error-admission" }
+
+func (h errorAdmissionHandler) SyncPool(context.Context, *v1alpha1.GPUPool) (contracts.Result, error) {
+	return contracts.Result{}, h.err
+}
 
 func TestGPUPoolDefaulterAddsDefaults(t *testing.T) {
 	scheme := runtime.NewScheme()
@@ -74,7 +85,7 @@ func TestGPUPoolValidatorRejectsImmutableChanges(t *testing.T) {
 	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
 
 	oldPool := v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Provider: "Nvidia",
 			Backend:  "DevicePlugin",
@@ -95,10 +106,67 @@ func TestGPUPoolValidatorRejectsImmutableChanges(t *testing.T) {
 		},
 	}
 
-	validator := newGPUPoolValidator(testr.New(t), decoder, handlers)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
 	resp := validator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected immutable change to be denied")
+	}
+}
+
+func TestGPUPoolValidatorRejectsDuplicateNameAcrossNamespaces(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	decoder := cradmission.NewDecoder(scheme)
+	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
+
+	existing := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "other"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+
+	pool := v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	raw, _ := json.Marshal(pool)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Create,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
+	if resp := validator.Handle(context.Background(), req); resp.Allowed {
+		t.Fatalf("expected denial due to duplicate pool name")
+	}
+}
+
+func TestGPUPoolValidatorRejectsNameConflictWithClusterPool(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+	decoder := cradmission.NewDecoder(scheme)
+	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
+
+	cluster := &v1alpha1.ClusterGPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+
+	pool := v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
+		Spec:       v1alpha1.GPUPoolSpec{Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"}},
+	}
+	raw, _ := json.Marshal(pool)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Create,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
+	if resp := validator.Handle(context.Background(), req); resp.Allowed {
+		t.Fatalf("expected denial due to name conflict with ClusterGPUPool")
 	}
 }
 
@@ -106,7 +174,7 @@ func TestGPUPoolValidatorDecodeError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 	decoder := cradmission.NewDecoder(scheme)
-	validator := newGPUPoolValidator(testr.New(t), decoder, nil)
+	validator := newGPUPoolValidator(testr.New(t), decoder, nil, nil)
 
 	req := cradmission.Request{
 		AdmissionRequest: admv1.AdmissionRequest{
@@ -128,7 +196,7 @@ func TestGPUPoolValidatorDecodeOldError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 	decoder := cradmission.NewDecoder(scheme)
-	validator := newGPUPoolValidator(testr.New(t), decoder, nil)
+	validator := newGPUPoolValidator(testr.New(t), decoder, nil, nil)
 
 	req := cradmission.Request{
 		AdmissionRequest: admv1.AdmissionRequest{
@@ -150,7 +218,7 @@ func TestGPUPoolValidatorAllowsCreate(t *testing.T) {
 	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
 
 	pool := v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
 		},
@@ -161,7 +229,8 @@ func TestGPUPoolValidatorAllowsCreate(t *testing.T) {
 		Object:    runtime.RawExtension{Raw: raw},
 	}}
 
-	validator := newGPUPoolValidator(testr.New(t), decoder, handlers)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
 	if resp := validator.Handle(context.Background(), req); !resp.Allowed {
 		t.Fatalf("expected create to be allowed, got %v", resp.Result)
 	}
@@ -172,17 +241,16 @@ func TestGPUPoolValidatorHandlerError(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 	decoder := cradmission.NewDecoder(scheme)
 
-	errHandler := contracts.AdmissionHandlerFunc(func(context.Context, *v1alpha1.GPUPool) (contracts.Result, error) {
-		return contracts.Result{}, fmt.Errorf("fail")
-	})
-	raw, _ := json.Marshal(v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool"}, Spec: v1alpha1.GPUPoolSpec{
+	errHandler := errorAdmissionHandler{err: fmt.Errorf("fail")}
+	raw, _ := json.Marshal(v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"}, Spec: v1alpha1.GPUPoolSpec{
 		Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
 	}})
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Create,
 		Object:    runtime.RawExtension{Raw: raw},
 	}}
-	validator := newGPUPoolValidator(testr.New(t), decoder, []contracts.AdmissionHandler{errHandler})
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := newGPUPoolValidator(testr.New(t), decoder, []contracts.AdmissionHandler{errHandler}, cl)
 	if resp := validator.Handle(context.Background(), req); resp.Allowed {
 		t.Fatalf("expected handler error to deny")
 	}
@@ -195,7 +263,7 @@ func TestGPUPoolValidatorUpdateWithoutOldObject(t *testing.T) {
 	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
 
 	pool := v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card"},
 		},
@@ -206,7 +274,8 @@ func TestGPUPoolValidatorUpdateWithoutOldObject(t *testing.T) {
 		Object:    runtime.RawExtension{Raw: raw},
 	}}
 
-	validator := newGPUPoolValidator(testr.New(t), decoder, handlers)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
 	if resp := validator.Handle(context.Background(), req); !resp.Allowed {
 		t.Fatalf("expected update without old object to be allowed, got %v", resp.Result)
 	}
@@ -219,7 +288,7 @@ func TestGPUPoolValidatorAllowsUnchangedUpdate(t *testing.T) {
 	handlers := []contracts.AdmissionHandler{admission.NewPoolValidationHandler(testr.New(t))}
 
 	pool := v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", Namespace: "gpu-team"},
 		Spec: v1alpha1.GPUPoolSpec{
 			Provider: "Nvidia",
 			Backend:  "DevicePlugin",
@@ -236,7 +305,8 @@ func TestGPUPoolValidatorAllowsUnchangedUpdate(t *testing.T) {
 		},
 	}
 
-	validator := newGPUPoolValidator(testr.New(t), decoder, handlers)
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	validator := newGPUPoolValidator(testr.New(t), decoder, handlers, cl)
 	resp := validator.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected unchanged update to be allowed, got %v", resp.Result)
@@ -263,9 +333,7 @@ func TestGPUPoolDefaulterHandlerError(t *testing.T) {
 		},
 	}
 
-	errHandler := contracts.AdmissionHandlerFunc(func(context.Context, *v1alpha1.GPUPool) (contracts.Result, error) {
-		return contracts.Result{}, fmt.Errorf("boom")
-	})
+	errHandler := errorAdmissionHandler{err: fmt.Errorf("boom")}
 	defaulter := newGPUPoolDefaulter(testr.New(t), decoder, []contracts.AdmissionHandler{errHandler})
 	resp := defaulter.Handle(context.Background(), req)
 	if resp.Allowed {
@@ -326,7 +394,7 @@ func TestGVKHelpers(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 	decoder := cradmission.NewDecoder(scheme)
-	validator := newGPUPoolValidator(testr.New(t), decoder, nil)
+	validator := newGPUPoolValidator(testr.New(t), decoder, nil, nil)
 	defaulter := newGPUPoolDefaulter(testr.New(t), decoder, nil)
 	if validator.GVK().Kind != "GPUPool" || defaulter.GVK().Kind != "GPUPool" {
 		t.Fatalf("expected GVK kind GPUPool")

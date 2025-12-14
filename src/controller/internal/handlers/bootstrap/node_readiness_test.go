@@ -33,7 +33,7 @@ func TestNodeReadinessRequeuesUntilReady(t *testing.T) {
 		t.Fatal("expected non-empty handler name")
 	}
 
-	node := &v1alpha1.GPUNodeInventory{Status: v1alpha1.GPUNodeInventoryStatus{}}
+	node := &v1alpha1.GPUNodeState{Status: v1alpha1.GPUNodeStateStatus{}}
 
 	res, err := h.HandleNode(context.Background(), node)
 	if err != nil {

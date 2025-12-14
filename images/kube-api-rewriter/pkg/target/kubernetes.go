@@ -43,12 +43,12 @@ func NewKubernetesTarget() (*Kubernetes, error) {
 	}
 
 	// Configure HTTP client to Kubernetes API server.
-	k.Client, err = rest.HTTPClientFor(k.Config)
+	k.Client, err = httpClientFor(k.Config)
 	if err != nil {
 		return nil, fmt.Errorf("setup Kubernetes API http client: %w", err)
 	}
 
-	k.APIServerURL, err = url.Parse(k.Config.Host)
+	k.APIServerURL, err = parseURL(k.Config.Host)
 	if err != nil {
 		return nil, fmt.Errorf("parse API server URL: %w", err)
 	}
@@ -57,13 +57,13 @@ func NewKubernetesTarget() (*Kubernetes, error) {
 }
 
 func loadConfig() (*rest.Config, error) {
-	if cfg, err := rest.InClusterConfig(); err == nil {
+	if cfg, err := inClusterConfig(); err == nil {
 		return cfg, nil
 	}
 
 	kubeconfig := os.Getenv("KUBECONFIG")
 	if kubeconfig == "" {
-		if home, err := os.UserHomeDir(); err == nil {
+		if home, err := userHomeDir(); err == nil {
 			kubeconfig = filepath.Join(home, ".kube", "config")
 		}
 	}
@@ -72,10 +72,18 @@ func loadConfig() (*rest.Config, error) {
 		return nil, fmt.Errorf("cannot locate Kubernetes config: set KUBECONFIG or run inside cluster")
 	}
 
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	cfg, err := buildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("load Kubernetes client config: %w", err)
 	}
 
 	return cfg, nil
 }
+
+var (
+	inClusterConfig      = rest.InClusterConfig
+	httpClientFor        = rest.HTTPClientFor
+	parseURL             = url.Parse
+	userHomeDir          = os.UserHomeDir
+	buildConfigFromFlags = clientcmd.BuildConfigFromFlags
+)

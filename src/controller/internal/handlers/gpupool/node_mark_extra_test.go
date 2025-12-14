@@ -112,14 +112,21 @@ func TestSyncNodeNoExecuteWhenDevicesGone(t *testing.T) {
 func TestHandlePoolTaintsDisabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-1"},
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName: "node1",
+			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
 	enabled := false
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
 		Spec:       v1alpha1.GPUPoolSpec{Scheduling: v1alpha1.GPUPoolSchedulingSpec{TaintsEnabled: &enabled}},
-		Status:     v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1", TotalDevices: 1}}},
 	}
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("HandlePool: %v", err)
@@ -128,6 +135,9 @@ func TestHandlePoolTaintsDisabled(t *testing.T) {
 	_ = cl.Get(context.Background(), types.NamespacedName{Name: "node1"}, out)
 	if len(out.Spec.Taints) != 0 {
 		t.Fatalf("expected no taints when disabled, got %+v", out.Spec.Taints)
+	}
+	if out.Labels["gpu.deckhouse.io/pool"] != "pool" {
+		t.Fatalf("expected pool label set, got %+v", out.Labels)
 	}
 }
 
@@ -153,12 +163,19 @@ func TestSyncNodeNoChangeShortCircuit(t *testing.T) {
 func TestHandlePoolPropagatesSyncError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
-	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-1"},
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName: "node1",
+			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+	base := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), &failingUpdateClient{Client: base})
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
-		Status:     v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1", TotalDevices: 1}}},
 	}
 	if _, err := h.HandlePool(context.Background(), pool); err == nil {
 		t.Fatalf("expected error propagated from syncNode")
@@ -204,20 +221,40 @@ func TestSyncNodeNoChangesEarlyReturn(t *testing.T) {
 	}
 }
 
-func TestHandlePoolWithStatuses(t *testing.T) {
+func TestHandlePoolListError(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 
+	base := fake.NewClientBuilder().WithScheme(scheme).Build()
+	cl := &failingListClient{Client: base}
+	h := NewNodeMarkHandler(testr.New(t), cl)
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+	}
+	if _, err := h.HandlePool(context.Background(), pool); err == nil {
+		t.Fatalf("expected list error")
+	}
+}
+
+func TestHandlePoolWithStatuses(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-1"},
+		Status: v1alpha1.GPUDeviceStatus{
+			NodeName: "node1",
+			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
 		Spec:       v1alpha1.GPUPoolSpec{Scheduling: v1alpha1.GPUPoolSchedulingSpec{TaintsEnabled: ptrTo(true)}},
-		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1", TotalDevices: 1}},
-		},
 	}
 	if _, err := h.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("HandlePool: %v", err)
@@ -436,8 +473,20 @@ func (f *failingUpdateClient) Patch(ctx context.Context, obj client.Object, patc
 
 type failingGetClient struct {
 	client.Client
+	notFound bool
 }
 
 func (f *failingGetClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if f.notFound {
+		return apierrors.NewNotFound(v1alpha1.GroupVersion.WithResource("gpudevices").GroupResource(), key.Name)
+	}
 	return apierrors.NewBadRequest("boom")
+}
+
+type failingListClient struct {
+	client.Client
+}
+
+func (f *failingListClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	return apierrors.NewBadRequest("list failure")
 }

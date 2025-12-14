@@ -98,11 +98,8 @@ func TestBuildNodeSnapshotMergesNodeAndFeatureLabels(t *testing.T) {
 		t.Fatalf("expected one MIG type, got %d", len(device.MIG.Types))
 	}
 	typeInfo := device.MIG.Types[0]
-	if typeInfo.Name != "mig-1g.10gb" || typeInfo.Count != 1 {
+	if typeInfo.Name != "1g.10gb" || typeInfo.Count != 1 {
 		t.Fatalf("unexpected MIG type: %+v", typeInfo)
-	}
-	if typeInfo.Engines.Copy != 3 {
-		t.Fatalf("unexpected MIG copy engines: %d", typeInfo.Engines.Copy)
 	}
 	if !snapshot.FeatureDetected {
 		t.Fatal("expected feature detected flag set")
@@ -258,6 +255,38 @@ func TestExtractDeviceSnapshotsSkipsMalformedEntries(t *testing.T) {
 	}
 }
 
+func TestScoreDevice(t *testing.T) {
+	if scoreDevice(deviceSnapshot{}) != 0 {
+		t.Fatalf("expected score 0 for empty device")
+	}
+	if scoreDevice(deviceSnapshot{UUID: "GPU-UUID"}) != 2 {
+		t.Fatalf("expected score 2 when uuid present")
+	}
+	if scoreDevice(deviceSnapshot{PCIAddress: "0000:00:01.0"}) != 1 {
+		t.Fatalf("expected score 1 when pciAddress present")
+	}
+	if scoreDevice(deviceSnapshot{UUID: "GPU-UUID", PCIAddress: "0000:00:01.0"}) != 3 {
+		t.Fatalf("expected score 3 when uuid and pciAddress present")
+	}
+}
+
+func TestParseHardwareDefaultsSetsCapableWhenProfilesWithoutTypes(t *testing.T) {
+	labels := map[string]string{
+		// Unsupported metric -> profiles supported, but types remain empty.
+		"nvidia.com/mig-1g.10gb.unknown": "1",
+	}
+	defaults := parseHardwareDefaults(labels)
+	if !defaults.MIG.Capable {
+		t.Fatalf("expected MIG to become capable when profiles are present")
+	}
+	if len(defaults.MIG.ProfilesSupported) != 1 || defaults.MIG.ProfilesSupported[0] != "1g.10gb" {
+		t.Fatalf("unexpected profilesSupported: %+v", defaults.MIG.ProfilesSupported)
+	}
+	if len(defaults.MIG.Types) != 0 {
+		t.Fatalf("expected no types for unknown metric, got %+v", defaults.MIG.Types)
+	}
+}
+
 func TestEnrichDevicesFromFeatureCreatesMissingDevices(t *testing.T) {
 	devices := []deviceSnapshot{
 		{Index: "0", Vendor: "10de", Device: "1db6", Class: "0302"},
@@ -398,18 +427,15 @@ func TestParseMIGConfigCollectsMetrics(t *testing.T) {
 	if !cfg.Capable || cfg.Strategy != v1alpha1.GPUMIGStrategyMixed {
 		t.Fatalf("unexpected MIG config: %+v", cfg)
 	}
-	if len(cfg.ProfilesSupported) != 1 || cfg.ProfilesSupported[0] != "mig-1g.10gb" {
+	if len(cfg.ProfilesSupported) != 1 || cfg.ProfilesSupported[0] != "1g.10gb" {
 		t.Fatalf("unexpected profiles: %+v", cfg.ProfilesSupported)
 	}
 	if len(cfg.Types) != 1 {
 		t.Fatalf("expected single MIG type, got %+v", cfg.Types)
 	}
 	migType := cfg.Types[0]
-	if migType.Count != 2 || migType.MemoryMiB != 10240 || migType.Multiprocessors != 14 {
+	if migType.Count != 2 || migType.Name != "1g.10gb" {
 		t.Fatalf("unexpected MIG type capacity: %+v", migType)
-	}
-	if migType.Engines.Copy != 4 || migType.Engines.Encoder != 1 || migType.Engines.Decoder != 1 || migType.Engines.OFAs != 1 {
-		t.Fatalf("unexpected MIG engines: %+v", migType.Engines)
 	}
 }
 
@@ -682,7 +708,7 @@ func TestParseMIGConfigVariants(t *testing.T) {
 	if cfg.Strategy != v1alpha1.GPUMIGStrategyMixed {
 		t.Fatalf("unexpected strategy: %s", cfg.Strategy)
 	}
-	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-1g.10gb" || cfg.Types[0].Count != 2 {
+	if len(cfg.Types) != 1 || cfg.Types[0].Name != "1g.10gb" || cfg.Types[0].Count != 2 {
 		t.Fatalf("unexpected MIG types: %+v", cfg.Types)
 	}
 
@@ -730,7 +756,7 @@ func TestParseMIGConfigSortsMultipleTypes(t *testing.T) {
 	if len(cfg.Types) != 2 {
 		t.Fatalf("expected two types, got %+v", cfg.Types)
 	}
-	if cfg.Types[0].Name != "mig-1g.10gb" || cfg.Types[1].Name != "mig-2g.20gb" {
+	if cfg.Types[0].Name != "1g.10gb" || cfg.Types[1].Name != "2g.20gb" {
 		t.Fatalf("expected sorted types, got %+v", cfg.Types)
 	}
 }
@@ -746,7 +772,7 @@ func TestParseMIGConfigAlternativeLabels(t *testing.T) {
 	if !cfg.Capable || cfg.Strategy != v1alpha1.GPUMIGStrategySingle {
 		t.Fatalf("expected capability and strategy from alternative labels, got %+v", cfg)
 	}
-	if len(cfg.Types) != 1 || cfg.Types[0].Name != "mig-2g.20gb" {
+	if len(cfg.Types) != 1 || cfg.Types[0].Name != "2g.20gb" {
 		t.Fatalf("expected alt label to produce type, got %+v", cfg.Types)
 	}
 }

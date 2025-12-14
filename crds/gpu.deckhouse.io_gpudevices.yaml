@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   labels:
     module: gpu-control-plane
   name: gpudevices.gpu.deckhouse.io
@@ -74,16 +74,8 @@ spec:
                 description: Conditions list high-level conditions maintained by controllers
                   (ReadyForPooling, ManagedDisabled, etc.).
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -124,12 +116,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -145,37 +132,6 @@ spec:
                 description: Hardware stores static hardware characteristics exported
                   by inventory.
                 properties:
-                  board:
-                    description: Board is the board identifier/model.
-                    type: string
-                  computeCapability:
-                    description: ComputeCapability holds CUDA compute capability reported
-                      for the device.
-                    properties:
-                      major:
-                        description: Major is the major version of CUDA compute capability.
-                        format: int32
-                        type: integer
-                      minor:
-                        description: Minor is the minor version of CUDA compute capability.
-                        format: int32
-                        type: integer
-                    type: object
-                  displayMode:
-                    description: DisplayMode indicates whether display is enabled.
-                    type: string
-                  family:
-                    description: Family is the GPU family name.
-                    type: string
-                  memoryBandwidthMiB:
-                    description: MemoryBandwidthMiB is the memory bandwidth in MiB/s.
-                    format: int32
-                    type: integer
-                  memoryMiB:
-                    description: MemoryMiB is the total memory size of the device
-                      in MiB.
-                    format: int32
-                    type: integer
                   mig:
                     description: MIG describes Multi-Instance GPU capabilities and
                       available profiles.
@@ -208,68 +164,13 @@ spec:
                                 of this type currently configured.
                               format: int32
                               type: integer
-                            engines:
-                              description: Engines lists the number of acceleration
-                                engines exposed to the partition (copy/encoder/decoder/ofa).
-                              properties:
-                                copy:
-                                  description: Copy is the number of copy engines
-                                    assigned to the partition.
-                                  format: int32
-                                  type: integer
-                                decoder:
-                                  description: Decoder is the number of NVDEC engines
-                                    assigned to the partition.
-                                  format: int32
-                                  type: integer
-                                encoder:
-                                  description: Encoder is the number of NVENC engines
-                                    assigned to the partition.
-                                  format: int32
-                                  type: integer
-                                ofa:
-                                  description: OFAs is the number of Optical Flow
-                                    Accelerators available in the partition.
-                                  format: int32
-                                  type: integer
-                              type: object
-                            memoryMiB:
-                              description: MemoryMiB is the per-partition memory size
-                                in MiB.
-                              format: int32
-                              type: integer
-                            multiprocessors:
-                              description: Multiprocessors indicates the number of
-                                SMs allocated to this partition.
-                              format: int32
-                              type: integer
                             name:
                               description: Name is the MIG profile name (for example,
                                 1g.10gb).
                               type: string
-                            partition:
-                              description: Partition details the GPU and Compute instance
-                                identifiers associated with the profile.
-                              properties:
-                                computeInstance:
-                                  description: ComputeInstance is the identifier of
-                                    the compute instance allocated for the partition.
-                                  format: int32
-                                  type: integer
-                                gpuInstance:
-                                  description: GPUInstance is the identifier of the
-                                    GPU instance allocated for the partition.
-                                  format: int32
-                                  type: integer
-                              type: object
                           type: object
                         type: array
                     type: object
-                  numaNode:
-                    description: NUMANode is the NUMA node id associated with the
-                      device, if any.
-                    format: int32
-                    type: integer
                   pci:
                     description: PCI contains vendor/device/class identifiers describing
                       the PCI function.
@@ -288,96 +189,13 @@ spec:
                           10de).
                         type: string
                     type: object
-                  pcie:
-                    description: PCIE reflects PCIe generation and link width.
-                    properties:
-                      generation:
-                        description: Generation is the PCIe generation (e.g. 3,4,5).
-                        format: int32
-                        type: integer
-                      width:
-                        description: Width is the negotiated link width (e.g. 16).
-                        format: int32
-                        type: integer
-                    type: object
-                  powerLimitMilliWatt:
-                    description: PowerLimitMilliWatt is the enforced power limit.
-                    format: int32
-                    type: integer
-                  precision:
-                    description: Precision enumerates supported math precisions (fp32/fp16/bf16/etc.).
-                    properties:
-                      supported:
-                        description: Supported lists all math precisions supported
-                          by the device (e.g. fp32, fp16, bf16).
-                        items:
-                          type: string
-                        type: array
-                    type: object
                   product:
                     description: Product is a human readable GPU model as reported
                       by the driver (e.g. NVIDIA A100-PCIE-40GB).
                     type: string
-                  pstate:
-                    description: PState is the current performance state.
-                    type: string
-                  serial:
-                    description: Serial is the GPU serial number if reported.
-                    type: string
-                  smCount:
-                    description: SMCount is the number of streaming multiprocessors.
-                    format: int32
-                    type: integer
                   uuid:
                     description: UUID is the GPU UUID reported by NVML/DCGM.
                     type: string
-                type: object
-              health:
-                description: Health aggregates latest telemetry (temperatures, ECC
-                  counters, vendor metrics).
-                properties:
-                  consecutiveHealthy:
-                    description: ConsecutiveHealthy reports the number of sequential
-                      healthy heartbeats.
-                    format: int32
-                    type: integer
-                  eccErrorsTotal:
-                    description: ECCErrorsTotal is the cumulative count of ECC errors
-                      reported by DCGM.
-                    format: int64
-                    type: integer
-                  lastError:
-                    description: LastError contains the latest fault message detected
-                      for the device.
-                    type: string
-                  lastErrorReason:
-                    description: LastErrorReason categorises the latest fault (XID,
-                      ECC, etc.).
-                    type: string
-                  lastErrorTime:
-                    description: LastErrorTime records when the latest fault was observed.
-                    format: date-time
-                    type: string
-                  lastHealthyTime:
-                    description: LastHealthyTime stores the timestamp of the last
-                      heartbeat without faults.
-                    format: date-time
-                    type: string
-                  lastUpdated:
-                    description: LastUpdatedTime is when telemetry was last refreshed.
-                    format: date-time
-                    type: string
-                  metrics:
-                    additionalProperties:
-                      type: string
-                    description: Metrics contains vendor specific telemetry key/value
-                      pairs exported by controllers.
-                    type: object
-                  temperatureC:
-                    description: TemperatureC is the latest reported temperature in
-                      Celsius.
-                    format: int32
-                    type: integer
                 type: object
               inventoryID:
                 description: InventoryID is a stable identifier for the device (node
@@ -398,9 +216,10 @@ spec:
                   name:
                     description: Name is the GPUPool name referencing this device.
                     type: string
-                  resource:
-                    description: Resource is the fully qualified resource name exposed
-                      via device-plugin for this pool.
+                  namespace:
+                    description: |-
+                      Namespace is the namespace of the referenced GPUPool.
+                      Empty for ClusterGPUPool.
                     type: string
                 type: object
               state:

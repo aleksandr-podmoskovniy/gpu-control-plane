@@ -84,7 +84,6 @@ func TestRegisterDefaultsUsesModuleConfigStore(t *testing.T) {
 			},
 		},
 		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node-1", TotalDevices: 1}},
 			Capacity: v1alpha1.GPUPoolCapacityStatus{
 				Total: 1,
 			},

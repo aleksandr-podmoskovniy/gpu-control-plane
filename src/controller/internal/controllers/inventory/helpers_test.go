@@ -16,29 +16,7 @@ package inventory
 
 import (
 	"testing"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 )
-
-func TestComputeCapabilityEqual(t *testing.T) {
-	if !computeCapabilityEqual(nil, nil) {
-		t.Fatal("expected nil capabilities to be equal")
-	}
-	left := &v1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
-	if computeCapabilityEqual(left, nil) {
-		t.Fatal("expected mismatch when one capability is nil")
-	}
-	right := &v1alpha1.GPUComputeCapability{Major: 8, Minor: 6}
-	if !computeCapabilityEqual(left, right) {
-		t.Fatal("expected capabilities with same values to be equal")
-	}
-	right.Minor = 5
-	if computeCapabilityEqual(left, right) {
-		t.Fatal("expected capabilities with different minor to be different")
-	}
-}
 
 func TestStringSlicesEqual(t *testing.T) {
 	if !stringSlicesEqual(nil, nil) {
@@ -52,41 +30,5 @@ func TestStringSlicesEqual(t *testing.T) {
 	}
 	if !stringSlicesEqual([]string{"a", "b"}, []string{"a", "b"}) {
 		t.Fatal("expected same content slices to be equal")
-	}
-}
-
-func TestSetStatusCondition(t *testing.T) {
-	var conditions []metav1.Condition
-	changed := setStatusCondition(&conditions, metav1.Condition{
-		Type:               conditionManagedDisabled,
-		Status:             metav1.ConditionFalse,
-		Reason:             reasonNodeManagedEnabled,
-		Message:            "initial",
-		ObservedGeneration: 1,
-	})
-	if !changed {
-		t.Fatal("expected condition set to report change when newly added")
-	}
-
-	changed = setStatusCondition(&conditions, metav1.Condition{
-		Type:               conditionManagedDisabled,
-		Status:             metav1.ConditionFalse,
-		Reason:             reasonNodeManagedEnabled,
-		Message:            "initial",
-		ObservedGeneration: 2,
-	})
-	if changed {
-		t.Fatal("expected condition update with same state to be no-op")
-	}
-
-	changed = setStatusCondition(&conditions, metav1.Condition{
-		Type:               conditionManagedDisabled,
-		Status:             metav1.ConditionTrue,
-		Reason:             reasonNodeManagedDisabled,
-		Message:            "updated",
-		ObservedGeneration: 3,
-	})
-	if !changed {
-		t.Fatal("expected condition update with new status to report change")
 	}
 }

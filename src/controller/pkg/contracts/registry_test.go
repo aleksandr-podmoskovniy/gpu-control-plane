@@ -54,7 +54,7 @@ func (stubInventory) HandleDevice(context.Context, *v1alpha1.GPUDevice) (Result,
 
 type stubBootstrap struct{ stubNamed }
 
-func (stubBootstrap) HandleNode(context.Context, *v1alpha1.GPUNodeInventory) (Result, error) {
+func (stubBootstrap) HandleNode(context.Context, *v1alpha1.GPUNodeState) (Result, error) {
 	return Result{}, nil
 }
 

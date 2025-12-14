@@ -18,7 +18,6 @@ package proxy
 
 import (
 	"bytes"
-	"io"
 	"testing"
 )
 
@@ -41,28 +40,9 @@ func TestBytesCounterReader(t *testing.T) {
 	}
 }
 
-func TestBytesCounterWriter(t *testing.T) {
-	var dst bytes.Buffer
-	writer := BytesCounterWriterWrap(&dst)
-	if _, err := writer.Write([]byte("hello")); err != nil {
-		t.Fatalf("write failed: %v", err)
-	}
-	if CounterValue(writer) != 5 {
-		t.Fatalf("unexpected counter value: %d", CounterValue(writer))
-	}
-
-	if _, err := io.WriteString(writer, "world"); err != nil {
-		t.Fatalf("write string failed: %v", err)
-	}
-	if CounterValue(writer) != 10 {
-		t.Fatalf("expected cumulative counter, got: %d", CounterValue(writer))
-	}
-
-	CounterReset(writer)
-	if CounterValue(writer) != 0 {
-		t.Fatalf("expected reset writer counter")
-	}
-	if dst.String() != "helloworld" {
-		t.Fatalf("unexpected dst content: %s", dst.String())
+func TestBytesCounterHelpers_NonCounterNoop(t *testing.T) {
+	CounterReset(struct{}{})
+	if CounterValue(struct{}{}) != 0 {
+		t.Fatalf("expected CounterValue to return 0 for non-counter")
 	}
 }

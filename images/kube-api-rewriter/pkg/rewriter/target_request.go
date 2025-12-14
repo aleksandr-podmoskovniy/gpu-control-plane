@@ -42,9 +42,6 @@ func NewTargetRequest(rwr *RuleBasedRewriter, req *http.Request) *TargetRequest 
 	}
 
 	apiEndpoint := ParseAPIEndpoint(req.URL)
-	if apiEndpoint == nil {
-		return nil
-	}
 
 	// rewrite path if needed
 	targetEndpoint := rwr.RewriteAPIEndpoint(apiEndpoint)

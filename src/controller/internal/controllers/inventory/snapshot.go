@@ -23,13 +23,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	nvidiacatalog "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/hardware/nvidia"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 const (
-	deviceNodeIndexKey  = "status.nodeName"
+	deviceNodeIndexKey  = indexer.GPUDeviceNodeField
 	deviceLabelPrefix   = "gpu.deckhouse.io/device."
 	deviceNodeLabelKey  = "gpu.deckhouse.io/node"
 	deviceIndexLabelKey = "gpu.deckhouse.io/device-index"
@@ -205,10 +206,7 @@ func extractDeviceSnapshots(labels map[string]string) []deviceSnapshot {
 		devices[index] = info
 	}
 
-	// Deduplicate by vendor/device/class only when we have a richer entry (UUID/PCI).
 	result := make([]deviceSnapshot, 0, len(devices))
-	byUUID := make(map[string]deviceSnapshot)
-	byPCI := make(map[string]deviceSnapshot)
 	for _, device := range devices {
 		if device.Vendor == "" || device.Device == "" || device.Class == "" {
 			continue
@@ -216,27 +214,6 @@ func extractDeviceSnapshots(labels map[string]string) []deviceSnapshot {
 		if device.Vendor != vendorNvidia {
 			continue
 		}
-		if device.UUID != "" {
-			current, ok := byUUID[device.UUID]
-			if !ok || scoreDevice(device) > scoreDevice(current) {
-				byUUID[device.UUID] = device
-			}
-			continue
-		}
-		if device.PCIAddress != "" {
-			current, ok := byPCI[device.PCIAddress]
-			if !ok || scoreDevice(device) > scoreDevice(current) {
-				byPCI[device.PCIAddress] = device
-			}
-			continue
-		}
-		result = append(result, device)
-	}
-
-	for _, device := range byUUID {
-		result = append(result, device)
-	}
-	for _, device := range byPCI {
 		result = append(result, device)
 	}
 
@@ -287,6 +264,9 @@ func parseHardwareDefaults(labels map[string]string) deviceSnapshot {
 	}
 
 	if !snapshot.MIG.Capable && len(snapshot.MIG.Types) > 0 {
+		snapshot.MIG.Capable = true
+	}
+	if !snapshot.MIG.Capable && len(snapshot.MIG.ProfilesSupported) > 0 {
 		snapshot.MIG.Capable = true
 	}
 
@@ -604,7 +584,12 @@ func parseMIGConfig(labels map[string]string) v1alpha1.GPUMIGConfig {
 		}
 	}
 
-	typeAccumulator := map[string]*v1alpha1.GPUMIGTypeCapacity{}
+	type migCountAccumulator struct {
+		capability v1alpha1.GPUMIGTypeCapacity
+		priority   int
+	}
+
+	typeAccumulator := map[string]*migCountAccumulator{}
 	profiles := map[string]struct{}{}
 
 	for key, value := range labels {
@@ -629,37 +614,37 @@ func parseMIGConfig(labels map[string]string) v1alpha1.GPUMIGConfig {
 			continue
 		}
 
-		profileName := "mig-" + profileCore
+		profileName := strings.ToLower(profileCore)
 
 		count := parseInt32(value)
 		if count == 0 && value == "" {
 			continue
 		}
 
+		profiles[profileName] = struct{}{}
+
+		priority := 0
+		switch metric {
+		case "count":
+			priority = 3
+		case "ready":
+			priority = 2
+		case "available":
+			priority = 1
+		default:
+			continue
+		}
+
 		entry := typeAccumulator[profileName]
 		if entry == nil {
-			entry = &v1alpha1.GPUMIGTypeCapacity{Name: profileName}
+			entry = &migCountAccumulator{capability: v1alpha1.GPUMIGTypeCapacity{Name: profileName}}
 			typeAccumulator[profileName] = entry
 		}
-
-		switch metric {
-		case "count", "available", "ready":
-			entry.Count = count
-		case "memory":
-			entry.MemoryMiB = count
-		case "multiprocessors":
-			entry.Multiprocessors = count
-		case "engines.copy":
-			entry.Engines.Copy = count
-		case "engines.encoder":
-			entry.Engines.Encoder = count
-		case "engines.decoder":
-			entry.Engines.Decoder = count
-		case "engines.ofa":
-			entry.Engines.OFAs = count
+		if priority > entry.priority {
+			entry.priority = priority
+			entry.capability.Count = count
 		}
 
-		profiles[profileName] = struct{}{}
 	}
 
 	if len(profiles) > 0 {
@@ -673,7 +658,7 @@ func parseMIGConfig(labels map[string]string) v1alpha1.GPUMIGConfig {
 	if len(typeAccumulator) > 0 {
 		cfg.Types = make([]v1alpha1.GPUMIGTypeCapacity, 0, len(typeAccumulator))
 		for _, entry := range typeAccumulator {
-			cfg.Types = append(cfg.Types, *entry)
+			cfg.Types = append(cfg.Types, entry.capability)
 		}
 		sort.Slice(cfg.Types, func(i, j int) bool {
 			return cfg.Types[i].Name < cfg.Types[j].Name

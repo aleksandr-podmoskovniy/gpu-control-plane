@@ -42,8 +42,8 @@ weight: 10
 - Ведёт учёт каждого устройства в объектах `GPUDevice`: PCI-идентификаторы,
   профили MIG, объём памяти, compute capability, поддерживаемая точность,
   флаги управляемости.
-- Агрегирует состояние узла в `GPUNodeInventory`: сведения о драйвере, готовности
-  CUDA Toolkit, список устройств и условия управляемости.
+- Агрегирует состояние узла в `GPUNodeState`: сведения о драйвере, готовности
+  CUDA Toolkit, статус bootstrap и условия готовности.
 - Публикует события Kubernetes (`GPUDeviceDetected`, `GPUInventoryConditionChanged`)
   и метрики Prometheus (`gpu_inventory_devices_total`,
   `gpu_inventory_condition`).
@@ -58,8 +58,8 @@ weight: 10
 - **GPUDevice** — отдельное устройство на узле. Контроллер поддерживает
   статус с аппаратными характеристиками, флагами управляемости и вызывает
   обработчики для применения контрактов (авто-привязка, здоровье, пулы).
-- **GPUNodeInventory** — агрегированное состояние узла, включающее драйвер,
-  набор устройств, условия `ManagedDisabled`/`InventoryComplete` и другую
+- **GPUNodeState** — агрегированное состояние узла, включающее драйвер,
+  статус bootstrap, условия `ManagedDisabled`/`InventoryComplete` и другую
   информацию для высокоуровневых контроллеров и admission webhook'ов.
 
 ## Работа контроллера
@@ -72,7 +72,7 @@ weight: 10
    ownerReference, и поддерживает актуальные метки и статус.
 4. Удаляет осиротевшие устройства при исчезновении данных из NodeFeature и
    генерирует соответствующие события.
-5. Синхронизирует `GPUNodeInventory`, обновляет условия,
+5. Синхронизирует `GPUNodeState`, обновляет условия,
    публикует метрики и гарантирует консистентность данных.
 
 ## Hook'и и bootstrap
@@ -117,8 +117,10 @@ weight: 10
 1. Сборка и публикация образов (при работе с исходным кодом — через werf):
 
    ```bash
-   werf build             # собирает образы контроллера, хуков и bundle
-   werf bundle assemble   # формирует артефакт для modules-оператора
+   werf build  # собирает образы контроллера, хуков и bundle локально
+
+   # публикация в реестр с читаемыми тегами вида <image>-dev
+   MODULES_MODULE_SOURCE=127.0.0.1:5001/gpu-control-plane MODULES_MODULE_TAG=dev make werf-build
    ```
 
 2. Загрузка образов/бандла в реестр, используемый Deckhouse.
@@ -156,7 +158,7 @@ weight: 10
 
 5. Проверка работы: Deployment `gpu-control-plane-controller` в
 пространстве имён `d8-gpu-control-plane`, появление объектов
-`GPUDevice`/`GPUNodeInventory` для GPU-узлов.
+`GPUDevice`/`GPUNodeState` для GPU-узлов.
 
 Интервал повторного опроса можно задать через
 `.spec.settings.inventory.resyncPeriod` (по умолчанию `30s`).

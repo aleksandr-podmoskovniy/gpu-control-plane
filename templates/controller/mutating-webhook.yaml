@@ -26,6 +26,25 @@ webhooks:
         port: 443
       caBundle: |
         {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
+  - name: clustergpupool.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    reinvocationPolicy: IfNeeded
+    rules:
+      - apiGroups:   ["gpu.deckhouse.io"]
+        apiVersions: ["v1alpha1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["clustergpupools"]
+        scope:       "Cluster"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.controllerName" . }}
+        path: /mutate-gpu-deckhouse-io-v1alpha1-clustergpupool
+        port: 443
+      caBundle: |
+        {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
   - name: pod.gpu-control-plane.deckhouse.io
     admissionReviewVersions: ["v1"]
     sideEffects: None

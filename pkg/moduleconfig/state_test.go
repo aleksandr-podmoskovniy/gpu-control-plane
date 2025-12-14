@@ -252,6 +252,23 @@ func TestCloneDeepCopy(t *testing.T) {
 	}
 }
 
+func TestParsePlacement(t *testing.T) {
+	settings := parsePlacement(nil)
+	if settings.CustomTolerationKeys == nil || len(settings.CustomTolerationKeys) != 0 {
+		t.Fatalf("expected default empty slice, got %#v", settings.CustomTolerationKeys)
+	}
+
+	settings = parsePlacement(json.RawMessage(`"oops"`))
+	if settings.CustomTolerationKeys == nil || len(settings.CustomTolerationKeys) != 0 {
+		t.Fatalf("expected defaults for invalid JSON, got %#v", settings.CustomTolerationKeys)
+	}
+
+	settings = parsePlacement(json.RawMessage(`{"customTolerationKeys":[" a ","b","b",""," a "],"extra":"ignored"}`))
+	if got, want := settings.CustomTolerationKeys, []string{"a", "b"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("unexpected toleration keys: %#v", got)
+	}
+}
+
 func TestParseSelector(t *testing.T) {
 	cases := []struct {
 		name    string

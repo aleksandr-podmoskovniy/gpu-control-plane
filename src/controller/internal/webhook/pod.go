@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -34,95 +35,59 @@ import (
 const (
 	localPoolResourcePrefix   = "gpu.deckhouse.io/"
 	clusterPoolResourcePrefix = "cluster.gpu.deckhouse.io/"
-	poolAnnotation            = "gpu.deckhouse.io/pool"
 )
 
 type poolRequest struct {
 	name      string
 	keyPrefix string
-	isCluster bool
 }
 
 var jsonMarshal = json.Marshal
 
 type podMutator struct {
-	log     logr.Logger
-	decoder cradmission.Decoder
-	store   *config.ModuleConfigStore
-	client  client.Client
+	log    logr.Logger
+	store  *config.ModuleConfigStore
+	client client.Client
 }
 
-func newPodMutator(log logr.Logger, decoder cradmission.Decoder, store *config.ModuleConfigStore, c client.Client) *podMutator {
+func newPodMutator(log logr.Logger, store *config.ModuleConfigStore, c client.Client) *podMutator {
 	return &podMutator{
-		log:     log.WithName("pod-mutator"),
-		decoder: decoder,
-		store:   store,
-		client:  c,
+		log:    log.WithName("pod-mutator"),
+		store:  store,
+		client: c,
 	}
 }
 
 func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmission.Response {
-	pod := &corev1.Pod{}
-	switch {
-	case len(req.Object.Raw) > 0:
-		if err := json.Unmarshal(req.Object.Raw, pod); err != nil {
-			return cradmission.Errored(422, err)
+	pod, original, err := decodePodRequest(req)
+	if err != nil {
+		if err == errEmptyPodAdmissionRequest {
+			return cradmission.Denied(err.Error())
 		}
-	case req.Object.Object != nil:
-		if p, ok := req.Object.Object.(*corev1.Pod); ok {
-			pod = p
-		} else {
-			return cradmission.Errored(422, fmt.Errorf("request object is not a Pod"))
-		}
-	default:
-		return cradmission.Denied("empty pod admission request")
+		return cradmission.Errored(http.StatusUnprocessableEntity, err)
 	}
 
-	pools := collectPools(pod)
-	if len(pools) == 0 {
-		return cradmission.Allowed("no gpu pool requested")
-	}
-
-	if m.client != nil {
-		ns := &corev1.Namespace{}
-		if err := m.client.Get(ctx, client.ObjectKey{Name: pod.Namespace}, ns); err != nil {
-			return cradmission.Denied(fmt.Sprintf("namespace %q not found: %v", pod.Namespace, err))
-		}
-		if strings.ToLower(ns.Labels["gpu.deckhouse.io/enabled"]) != "true" {
-			return cradmission.Denied(fmt.Sprintf("namespace %q is not enabled for GPU (label gpu.deckhouse.io/enabled=true is required)", pod.Namespace))
-		}
-	}
-
-	if len(pools) > 1 {
-		names := make([]string, 0, len(pools))
-		for _, p := range pools {
-			names = append(names, p.keyPrefix+p.name)
-		}
-		return cradmission.Denied(fmt.Sprintf("multiple GPU pools requested: %v", names))
-	}
-
-	original := req.Object.Raw
-	if len(original) == 0 {
-		// fallback to current pod snapshot when raw body is missing
-		if raw, err := json.Marshal(pod); err == nil {
-			original = raw
-		}
-	}
-
-	var poolRef poolRequest
-	for _, p := range pools {
-		poolRef = p
-	}
-	poolKey := poolLabelKey(poolRef)
-	poolObj, err := m.resolvePool(ctx, poolRef, pod.Namespace)
+	poolRef, ok, err := selectSinglePool(pod)
 	if err != nil {
 		return cradmission.Denied(err.Error())
 	}
-
-	if pod.Annotations == nil {
-		pod.Annotations = map[string]string{}
+	if !ok {
+		return cradmission.Allowed("no gpu pool requested")
 	}
-	pod.Annotations[poolAnnotation] = poolRef.keyPrefix + poolRef.name
+
+	if err := requireGPUEnabledNamespace(ctx, m.client, pod.Namespace); err != nil {
+		return cradmission.Denied(err.Error())
+	}
+
+	poolKey := poolLabelKey(poolRef)
+	var poolObj *v1alpha1.GPUPool
+	if m.client != nil {
+		var err error
+		poolObj, err = resolvePoolByRequest(ctx, m.client, poolRef, pod.Namespace)
+		if err != nil {
+			return cradmission.Denied(err.Error())
+		}
+	}
 
 	if err := ensurePoolNodeSelector(pod, poolKey, poolRef.name); err != nil {
 		return cradmission.Denied(err.Error())
@@ -163,7 +128,7 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 
 	mutated, err := jsonMarshal(pod)
 	if err != nil {
-		return cradmission.Errored(500, fmt.Errorf("marshal mutated pod: %w", err))
+		return cradmission.Errored(http.StatusInternalServerError, fmt.Errorf("marshal mutated pod: %w", err))
 	}
 	return cradmission.PatchResponseFromRaw(original, mutated)
 }
@@ -330,7 +295,6 @@ func (m *podMutator) ensureNodeTolerations(ctx context.Context, pod *corev1.Pod,
 }
 
 // collectPoolNodeTaints returns taints from nodes participating in the pool.
-// Primary source is pool.Status.Nodes; fallback — nodes labeled with the pool key.
 func (m *podMutator) collectPoolNodeTaints(ctx context.Context, pool *v1alpha1.GPUPool) ([]corev1.Taint, error) {
 	seen := make(map[string]corev1.Taint)
 
@@ -341,21 +305,11 @@ func (m *podMutator) collectPoolNodeTaints(ctx context.Context, pool *v1alpha1.G
 		}
 	}
 
-	for _, n := range pool.Status.Nodes {
-		node := &corev1.Node{}
-		if err := m.client.Get(ctx, client.ObjectKey{Name: n.Name}, node); err != nil {
-			m.log.Error(err, "failed to fetch node for tolerations", "node", n.Name, "pool", pool.Name)
-			return nil, fmt.Errorf("fetch node %q for tolerations: %w", n.Name, err)
-		}
-		add(node)
+	prefix := localPoolResourcePrefix
+	if pool.Namespace == "" {
+		prefix = clusterPoolResourcePrefix
 	}
-
-	// Fallback: include nodes already labeled for this pool, in case Status.Nodes пустой.
-	prefix := "gpu.deckhouse.io"
-	if pool.Namespace == "" || pool.Kind == "ClusterGPUPool" {
-		prefix = "cluster.gpu.deckhouse.io"
-	}
-	poolKey := fmt.Sprintf("%s/%s", prefix, pool.Name)
+	poolKey := prefix + pool.Name
 	nodes := &corev1.NodeList{}
 	if err := m.client.List(ctx, nodes, client.MatchingLabels{poolKey: pool.Name}); err != nil {
 		return nil, fmt.Errorf("list pool nodes for tolerations: %w", err)
@@ -459,12 +413,12 @@ func collectPools(pod *corev1.Pod) map[string]poolRequest {
 			case strings.HasPrefix(name, localPoolResourcePrefix):
 				pool := strings.TrimPrefix(name, localPoolResourcePrefix)
 				if pool != "" {
-					pools["local:"+pool] = poolRequest{name: pool, keyPrefix: localPoolResourcePrefix, isCluster: false}
+					pools[localPoolResourcePrefix+pool] = poolRequest{name: pool, keyPrefix: localPoolResourcePrefix}
 				}
 			case strings.HasPrefix(name, clusterPoolResourcePrefix):
 				pool := strings.TrimPrefix(name, clusterPoolResourcePrefix)
 				if pool != "" {
-					pools["cluster:"+pool] = poolRequest{name: pool, keyPrefix: clusterPoolResourcePrefix, isCluster: true}
+					pools[clusterPoolResourcePrefix+pool] = poolRequest{name: pool, keyPrefix: clusterPoolResourcePrefix}
 				}
 			}
 		}
@@ -502,29 +456,4 @@ func (m *podMutator) poolScheduling(pool *v1alpha1.GPUPool) (string, string) {
 		topologyKey = state.Settings.Scheduling.TopologyKey
 	}
 	return strategy, topologyKey
-}
-
-func (m *podMutator) resolvePool(ctx context.Context, req poolRequest, ns string) (*v1alpha1.GPUPool, error) {
-	if m.client == nil {
-		return nil, fmt.Errorf("GPUPool %q: webhook client is not configured", req.name)
-	}
-	if ns == "" && !req.isCluster {
-		return nil, fmt.Errorf("GPUPool %q: pod namespace is empty", req.name)
-	}
-	if req.isCluster {
-		cluster := &v1alpha1.ClusterGPUPool{}
-		if err := m.client.Get(ctx, client.ObjectKey{Name: req.name}, cluster); err == nil {
-			return &v1alpha1.GPUPool{
-				ObjectMeta: metav1.ObjectMeta{Name: cluster.Name},
-				Spec:       cluster.Spec,
-			}, nil
-		}
-		return nil, fmt.Errorf("ClusterGPUPool %q not found", req.name)
-	}
-
-	pool := &v1alpha1.GPUPool{}
-	if err := m.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: req.name}, pool); err == nil {
-		return pool, nil
-	}
-	return nil, fmt.Errorf("GPUPool %q not found in namespace %q", req.name, ns)
 }

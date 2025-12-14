@@ -14,43 +14,51 @@
 
 package components
 
-import (
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
+import "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
+
+type Phase string
+
+const (
+	PhaseDisabled         Phase = "Disabled"
+	PhaseValidating       Phase = "Validating"
+	PhaseValidatingFailed Phase = "ValidatingFailed"
+	PhaseGFD              Phase = "GFD"
+	PhaseMonitoring       Phase = "Monitoring"
+	PhaseReady            Phase = "Ready"
 )
 
 // Definition describes a bootstrap workload and the phase when it must be enabled.
 type Definition struct {
 	Name           meta.Component
-	ActivationFrom v1alpha1.GPUNodeBootstrapPhase
+	ActivationFrom Phase
 }
 
 var definitions = []Definition{
-	{Name: meta.ComponentValidator, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseValidating},
-	{Name: meta.ComponentGPUFeatureDiscovery, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
-	{Name: meta.ComponentDCGM, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
-	{Name: meta.ComponentDCGMExporter, ActivationFrom: v1alpha1.GPUNodeBootstrapPhaseMonitoring},
+	{Name: meta.ComponentValidator, ActivationFrom: PhaseValidating},
+	{Name: meta.ComponentGPUFeatureDiscovery, ActivationFrom: PhaseMonitoring},
+	{Name: meta.ComponentDCGM, ActivationFrom: PhaseMonitoring},
+	{Name: meta.ComponentDCGMExporter, ActivationFrom: PhaseMonitoring},
 }
 
-var phaseRank = map[v1alpha1.GPUNodeBootstrapPhase]int{
-	v1alpha1.GPUNodeBootstrapPhaseDisabled:         0,
-	v1alpha1.GPUNodeBootstrapPhaseValidating:       1,
-	v1alpha1.GPUNodeBootstrapPhaseValidatingFailed: 1,
-	v1alpha1.GPUNodeBootstrapPhaseGFD:              2,
-	v1alpha1.GPUNodeBootstrapPhaseMonitoring:       3,
-	v1alpha1.GPUNodeBootstrapPhaseReady:            4,
+var phaseRank = map[Phase]int{
+	PhaseDisabled:         0,
+	PhaseValidating:       1,
+	PhaseValidatingFailed: 1,
+	PhaseGFD:              2,
+	PhaseMonitoring:       3,
+	PhaseReady:            4,
 }
 
 // EnabledComponents returns the map of components that must be active for the phase.
 // Only validator is enabled during Validating/ValidatingFailed; GPU workloads appear
 // starting from their activation phase and require that hardware is present.
 func EnabledComponents(
-	phase v1alpha1.GPUNodeBootstrapPhase,
+	phase Phase,
 	devicesPresent bool,
 ) map[meta.Component]bool {
 	rank, ok := phaseRank[phase]
 	if !ok {
-		rank = phaseRank[v1alpha1.GPUNodeBootstrapPhaseValidating]
+		rank = phaseRank[PhaseValidating]
 	}
 
 	result := make(map[meta.Component]bool, len(definitions))
@@ -71,13 +79,4 @@ func EnabledComponents(
 	}
 
 	return result
-}
-
-// Names returns the list of component identifiers.
-func Names() []meta.Component {
-	names := make([]meta.Component, len(definitions))
-	for i, def := range definitions {
-		names[i] = def.Name
-	}
-	return names
 }

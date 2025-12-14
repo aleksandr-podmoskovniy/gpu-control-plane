@@ -31,20 +31,25 @@ import (
 func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
+		WithObjects(
+			&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}},
+			&v1alpha1.GPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "dev-1"},
+				Status: v1alpha1.GPUDeviceStatus{
+					NodeName: "node1",
+					PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool-a"},
+				},
+			},
+		).
 		Build()
 
 	handler := NewNodeMarkHandler(testr.New(t), cl)
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a"},
-		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{
-				{Name: "node1", TotalDevices: 2},
-			},
-		},
 	}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
@@ -67,21 +72,17 @@ func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 
 	key := poolLabelKey(&v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}})
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
 		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{key: "pool-a"}}}).
 		Build()
 
 	handler := NewNodeMarkHandler(testr.New(t), cl)
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a"},
-		Status: v1alpha1.GPUPoolStatus{
-			Nodes: []v1alpha1.GPUPoolNodeStatus{
-				{Name: "node1", TotalDevices: 0},
-			},
-		},
 	}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
@@ -104,18 +105,27 @@ func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
 func TestNodeMarkRemovesTaintWhenDisabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
 
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
 	existingTaint := corev1.Taint{Key: poolLabelKey(pool), Value: "pool-a", Effect: corev1.TaintEffectNoSchedule}
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey(pool): "pool-a"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{existingTaint}}}).
+	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme)).
+		WithObjects(
+			&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey(pool): "pool-a"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{existingTaint}}},
+			&v1alpha1.GPUDevice{
+				ObjectMeta: metav1.ObjectMeta{Name: "dev-1"},
+				Status: v1alpha1.GPUDeviceStatus{
+					NodeName: "node1",
+					PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool-a"},
+				},
+			},
+		).
 		Build()
 
 	handler := NewNodeMarkHandler(testr.New(t), cl)
 	taintsEnabled := false
 	pool.Spec.Scheduling = v1alpha1.GPUPoolSchedulingSpec{TaintsEnabled: &taintsEnabled}
-	pool.Status = v1alpha1.GPUPoolStatus{Nodes: []v1alpha1.GPUPoolNodeStatus{{Name: "node1", TotalDevices: 2}}}
 
 	if _, err := handler.HandlePool(context.Background(), pool); err != nil {
 		t.Fatalf("HandlePool: %v", err)

@@ -82,18 +82,12 @@ func (h *PoolValidationHandler) validateResource(spec *v1alpha1.GPUPoolSpec) err
 		if spec.Resource.MIGProfile != "" {
 			return fmt.Errorf("resource.migProfile is not allowed when unit=Card")
 		}
-		if len(spec.Resource.MIGLayout) > 0 {
-			return fmt.Errorf("resource.migLayout is not allowed when unit=Card")
-		}
 	case "MIG":
-		if spec.Resource.MIGProfile == "" && len(spec.Resource.MIGLayout) == 0 {
-			return fmt.Errorf("resource.migProfile or resource.migLayout is required when unit=MIG")
+		if spec.Resource.MIGProfile == "" {
+			return fmt.Errorf("resource.migProfile is required when unit=MIG")
 		}
-		if spec.Resource.MIGProfile != "" && !isValidMIGProfile(spec.Resource.MIGProfile) {
+		if !isValidMIGProfile(spec.Resource.MIGProfile) {
 			return fmt.Errorf("resource.migProfile %q has invalid format", spec.Resource.MIGProfile)
-		}
-		if err := h.validateMIGLayout(spec); err != nil {
-			return err
 		}
 	default:
 		return fmt.Errorf("unsupported resource.unit %q", spec.Resource.Unit)
@@ -105,11 +99,6 @@ func (h *PoolValidationHandler) validateResource(spec *v1alpha1.GPUPoolSpec) err
 	if spec.Resource.SlicesPerUnit > 64 {
 		return fmt.Errorf("resource.slicesPerUnit must be <= 64")
 	}
-	for i, ts := range spec.Resource.TimeSlicingResources {
-		if ts.SlicesPerUnit < 1 {
-			return fmt.Errorf("timeSlicingResources[%d].slicesPerUnit must be >= 1", i)
-		}
-	}
 
 	if spec.Backend == "DRA" {
 		if spec.Resource.Unit != "Card" {
@@ -118,40 +107,6 @@ func (h *PoolValidationHandler) validateResource(spec *v1alpha1.GPUPoolSpec) err
 		if spec.Resource.SlicesPerUnit > 1 {
 			return fmt.Errorf("backend=DRA does not support slicesPerUnit>1")
 		}
-	}
-	return nil
-}
-
-func (h *PoolValidationHandler) validateMIGLayout(spec *v1alpha1.GPUPoolSpec) error {
-	var layoutSlices *int32
-	for i, l := range spec.Resource.MIGLayout {
-		if len(l.Profiles) == 0 && spec.Resource.MIGProfile == "" {
-			return fmt.Errorf("resource.migLayout[%d] must define profiles when migProfile is empty", i)
-		}
-		for j, p := range l.Profiles {
-			if p.Name == "" {
-				return fmt.Errorf("resource.migLayout[%d].profiles[%d].name must be set", i, j)
-			}
-			if !isValidMIGProfile(p.Name) {
-				return fmt.Errorf("resource.migLayout[%d].profiles[%d].name %q has invalid format", i, j, p.Name)
-			}
-			if p.Count != nil && *p.Count < 1 {
-				return fmt.Errorf("resource.migLayout[%d].profiles[%d].count must be >=1", i, j)
-			}
-			if p.SlicesPerUnit != nil {
-				if *p.SlicesPerUnit < 1 || *p.SlicesPerUnit > 64 {
-					return fmt.Errorf("resource.migLayout[%d].profiles[%d].slicesPerUnit must be between 1 and 64", i, j)
-				}
-				if layoutSlices == nil {
-					layoutSlices = p.SlicesPerUnit
-				} else if *layoutSlices != *p.SlicesPerUnit {
-					return fmt.Errorf("resource.migLayout[%d].profiles[%d].slicesPerUnit must match other profiles in layout", i, j)
-				}
-			}
-		}
-	}
-	if layoutSlices != nil && spec.Resource.SlicesPerUnit > 1 && spec.Resource.SlicesPerUnit != *layoutSlices {
-		return fmt.Errorf("resource.slicesPerUnit conflicts with migLayout profile slicesPerUnit")
 	}
 	return nil
 }

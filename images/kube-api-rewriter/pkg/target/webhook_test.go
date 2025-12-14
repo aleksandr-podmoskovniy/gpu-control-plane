@@ -87,3 +87,14 @@ func TestNewWebhookTargetWithTLS(t *testing.T) {
 		t.Fatalf("unexpected timeout: %s", target.Client.Timeout)
 	}
 }
+
+func TestNewWebhookTargetInvalidAddress(t *testing.T) {
+	t.Setenv(WebhookAddressVar, "http://[::1")
+	t.Setenv(WebhookServerNameVar, "")
+	t.Setenv(WebhookCertFileVar, "")
+	t.Setenv(WebhookKeyFileVar, "")
+
+	if _, err := NewWebhookTarget(); err == nil {
+		t.Fatalf("expected invalid address error")
+	}
+}

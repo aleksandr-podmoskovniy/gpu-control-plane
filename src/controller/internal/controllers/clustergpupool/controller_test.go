@@ -36,6 +36,7 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -45,6 +46,8 @@ import (
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
 type fakePoolHandler struct {
@@ -67,12 +70,13 @@ type fakeBuilder struct {
 	watched        bool
 }
 
-func (f *fakeBuilder) Named(string) controllerBuilder { return f }
-func (f *fakeBuilder) For(client.Object, ...builder.ForOption) controllerBuilder {
+func (f *fakeBuilder) Named(string) controllerbuilder.Builder { return f }
+func (f *fakeBuilder) For(client.Object, ...builder.ForOption) controllerbuilder.Builder {
 	return f
 }
-func (f *fakeBuilder) WithOptions(controller.Options) controllerBuilder { return f }
-func (f *fakeBuilder) WatchesRawSource(source.Source) controllerBuilder {
+func (f *fakeBuilder) Owns(client.Object, ...builder.OwnsOption) controllerbuilder.Builder { return f }
+func (f *fakeBuilder) WithOptions(controller.Options) controllerbuilder.Builder            { return f }
+func (f *fakeBuilder) WatchesRawSource(source.Source) controllerbuilder.Builder {
 	f.watched = true
 	return f
 }
@@ -119,8 +123,8 @@ func TestSetupWithManager(t *testing.T) {
 
 	fb := &fakeBuilder{}
 	rec := New(testr.New(t), config.ControllerConfig{Workers: 1}, nil, nil)
-	rec.builders = func(ctrl.Manager) controllerBuilder { return fb }
-	rec.moduleWatcherFactory = func(c cache.Cache, b controllerBuilder) controllerBuilder {
+	rec.builders = func(ctrl.Manager) controllerbuilder.Builder { return fb }
+	rec.moduleWatcherFactory = func(c cache.Cache, b controllerbuilder.Builder) controllerbuilder.Builder {
 		return b.WatchesRawSource(source.Kind(c, &unstructured.Unstructured{}, nil))
 	}
 
@@ -176,6 +180,97 @@ func TestReconcileClusterPool(t *testing.T) {
 	}
 }
 
+func TestMapDeviceTargetsClusterPoolsByAnnotationAndPoolRef(t *testing.T) {
+	rec := &Reconciler{}
+
+	if got := rec.mapDevice(context.Background(), nil); got != nil {
+		t.Fatalf("expected nil for nil device, got %#v", got)
+	}
+
+	dev := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+
+	reqs := rec.mapDevice(context.Background(), dev)
+	if len(reqs) != 1 || reqs[0].NamespacedName != (types.NamespacedName{Name: "pool"}) {
+		t.Fatalf("unexpected requests: %#v", reqs)
+	}
+
+	// Namespaced poolRef must be ignored by cluster controller.
+	dev.Status.PoolRef.Namespace = "ns"
+	reqs = rec.mapDevice(context.Background(), dev)
+	if len(reqs) != 1 || reqs[0].NamespacedName != (types.NamespacedName{Name: "pool"}) {
+		t.Fatalf("expected only annotation target when poolRef has namespace, got %#v", reqs)
+	}
+
+	dev.Annotations[assignmentAnnotation] = ""
+	reqs = rec.mapDevice(context.Background(), dev)
+	if len(reqs) != 0 {
+		t.Fatalf("expected no requests when both annotation and cluster poolRef are absent, got %#v", reqs)
+	}
+}
+
+func TestDeviceChangedDetectsRelevantFields(t *testing.T) {
+	base := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev",
+			Annotations: map[string]string{assignmentAnnotation: "pool"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{
+			State:    v1alpha1.GPUDeviceStateAssigned,
+			NodeName: "node",
+			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
+		},
+	}
+
+	same := base.DeepCopy()
+	if deviceChanged(base, same) {
+		t.Fatalf("expected no change for identical device")
+	}
+
+	changed := base.DeepCopy()
+	changed.Annotations[assignmentAnnotation] = "other"
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected annotation change to be detected")
+	}
+
+	changed = base.DeepCopy()
+	changed.Status.State = v1alpha1.GPUDeviceStateReady
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected state change to be detected")
+	}
+
+	changed = base.DeepCopy()
+	changed.Status.NodeName = "node-2"
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected nodeName change to be detected")
+	}
+
+	changed = base.DeepCopy()
+	changed.Status.PoolRef = nil
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected poolRef removal to be detected")
+	}
+
+	changed = base.DeepCopy()
+	changed.Status.PoolRef.Name = "pool-2"
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected poolRef name change to be detected")
+	}
+
+	changed = base.DeepCopy()
+	changed.Status.PoolRef.Namespace = "ns"
+	if !deviceChanged(base, changed) {
+		t.Fatalf("expected poolRef namespace change to be detected")
+	}
+}
+
 func TestReconcileNotFound(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
@@ -223,6 +318,54 @@ func TestRequeueAllPoolsAndMapModuleConfig(t *testing.T) {
 	}
 }
 
+func TestMapModuleConfigSkipsWhenModuleDisabled(t *testing.T) {
+	store := config.NewModuleConfigStore(moduleconfig.State{Enabled: false, Settings: moduleconfig.DefaultState().Settings})
+	rec := New(testr.New(t), config.ControllerConfig{}, store, nil)
+
+	if reqs := rec.mapModuleConfig(context.Background(), &unstructured.Unstructured{}); len(reqs) != 0 {
+		t.Fatalf("expected no requests when module is disabled, got %#v", reqs)
+	}
+}
+
+func TestDevicePredicates(t *testing.T) {
+	p := devicePredicates()
+
+	if p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: nil}) {
+		t.Fatalf("expected create predicate to ignore nil device")
+	}
+	if !p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{assignmentAnnotation: "pool"}}}}) {
+		t.Fatalf("expected create predicate to trigger on assignment")
+	}
+	if !p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}}) {
+		t.Fatalf("expected create predicate to trigger on poolRef")
+	}
+
+	if !p.Update(event.TypedUpdateEvent[*v1alpha1.GPUDevice]{ObjectOld: nil, ObjectNew: &v1alpha1.GPUDevice{}}) {
+		t.Fatalf("expected update predicate to pass through nil old")
+	}
+	if !p.Update(event.TypedUpdateEvent[*v1alpha1.GPUDevice]{ObjectOld: &v1alpha1.GPUDevice{}, ObjectNew: nil}) {
+		t.Fatalf("expected update predicate to pass through nil new")
+	}
+
+	base := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{assignmentAnnotation: "pool"}}}
+	same := base.DeepCopy()
+	if p.Update(event.TypedUpdateEvent[*v1alpha1.GPUDevice]{ObjectOld: base, ObjectNew: same}) {
+		t.Fatalf("expected no reconcile when device is unchanged")
+	}
+	changed := base.DeepCopy()
+	changed.Annotations[assignmentAnnotation] = "other"
+	if !p.Update(event.TypedUpdateEvent[*v1alpha1.GPUDevice]{ObjectOld: base, ObjectNew: changed}) {
+		t.Fatalf("expected reconcile when device assignment changes")
+	}
+
+	if !p.Delete(event.TypedDeleteEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{}}) {
+		t.Fatalf("expected delete predicate to trigger")
+	}
+	if p.Generic(event.TypedGenericEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{}}) {
+		t.Fatalf("expected generic predicate to be ignored")
+	}
+}
+
 func TestAttachModuleWatcher(t *testing.T) {
 	rec := &Reconciler{log: logr.Discard()}
 	fb := &fakeBuilder{}
@@ -244,90 +387,6 @@ func TestNewSetsDefaultWorkers(t *testing.T) {
 	rec.moduleWatcherFactory(&fakeCache{}, fb)
 	if !fb.watched {
 		t.Fatalf("moduleWatcherFactory should set watch")
-	}
-}
-
-func TestNewControllerManagedBy(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = v1alpha1.AddToScheme(scheme)
-	mgr := &fakeManager{scheme: scheme, client: clientfake.NewClientBuilder().WithScheme(scheme).Build(), cache: &fakeCache{}, log: logr.Discard()}
-	b := newControllerManagedBy(mgr)
-	if b == nil {
-		t.Fatalf("expected builder")
-	}
-}
-
-type fakeRuntimeAdapter struct {
-	named, forCalled, opts, watch, complete bool
-}
-
-func (f *fakeRuntimeAdapter) Named(string) controllerRuntimeAdapter { f.named = true; return f }
-func (f *fakeRuntimeAdapter) For(client.Object, ...builder.ForOption) controllerRuntimeAdapter {
-	f.forCalled = true
-	return f
-}
-func (f *fakeRuntimeAdapter) WithOptions(controller.Options) controllerRuntimeAdapter {
-	f.opts = true
-	return f
-}
-func (f *fakeRuntimeAdapter) WatchesRawSource(source.Source) controllerRuntimeAdapter {
-	f.watch = true
-	return f
-}
-func (f *fakeRuntimeAdapter) Complete(reconcile.Reconciler) error { f.complete = true; return nil }
-
-func TestRuntimeControllerBuilderDelegates(t *testing.T) {
-	adapter := &fakeRuntimeAdapter{}
-	rcb := &runtimeControllerBuilder{adapter: adapter}
-	if err := rcb.Named("x").
-		For(&v1alpha1.ClusterGPUPool{}).
-		WithOptions(controller.Options{}).
-		WatchesRawSource(source.Kind(&fakeCache{}, &unstructured.Unstructured{}, nil)).
-		Complete(nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !adapter.named || !adapter.forCalled || !adapter.opts || !adapter.watch || !adapter.complete {
-		t.Fatalf("runtimeControllerBuilder did not delegate all calls")
-	}
-}
-
-type fakeDelegate struct {
-	named, forCalled, opts, watch, complete bool
-}
-
-func (f *fakeDelegate) Named(string) *builder.Builder { f.named = true; return &builder.Builder{} }
-func (f *fakeDelegate) For(client.Object, ...builder.ForOption) *builder.Builder {
-	f.forCalled = true
-	return &builder.Builder{}
-}
-func (f *fakeDelegate) WithOptions(controller.Options) *builder.Builder {
-	f.opts = true
-	return &builder.Builder{}
-}
-func (f *fakeDelegate) WatchesRawSource(source.Source) *builder.Builder {
-	f.watch = true
-	return &builder.Builder{}
-}
-func (f *fakeDelegate) Complete(reconcile.Reconciler) error { f.complete = true; return nil }
-
-type nopReconciler struct{}
-
-func (nopReconciler) Reconcile(context.Context, ctrl.Request) (ctrl.Result, error) {
-	return ctrl.Result{}, nil
-}
-
-func TestBuilderControllerAdapterDelegates(t *testing.T) {
-	delegate := &fakeDelegate{}
-	adapter := &builderControllerAdapter{delegate: delegate}
-	adapter.Named("x")
-	adapter.For(&v1alpha1.ClusterGPUPool{})
-	adapter.WithOptions(controller.Options{})
-	adapter.WatchesRawSource(source.Kind(&fakeCache{}, &unstructured.Unstructured{}, nil))
-	if err := adapter.Complete(nopReconciler{}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !delegate.named || !delegate.forCalled || !delegate.opts || !delegate.watch || !delegate.complete {
-		t.Fatalf("builderControllerAdapter did not delegate all calls")
 	}
 }
 

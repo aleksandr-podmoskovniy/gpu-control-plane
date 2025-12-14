@@ -211,9 +211,13 @@ func (s *streamRewriter) DoneChan() chan struct{} {
 // k8s.io/client-go@v0.26.1/rest/request.go:765 newStreamWatcher
 // k8s.io/apimachinery@v0.26.1/pkg/runtime/negotiate.go:70 StreamDecoder
 func createWatchDecoder(r io.Reader, contentType string) (streaming.Decoder, error) {
-	mediaType, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return nil, fmt.Errorf("unexpected media type from the server: %q: %w", contentType, err)
+	mediaType := ""
+	if contentType != "" {
+		var err error
+		mediaType, _, err = mime.ParseMediaType(contentType)
+		if err != nil {
+			return nil, fmt.Errorf("unexpected media type from the server: %q: %w", contentType, err)
+		}
 	}
 
 	negotiatedSerializer := scheme.Codecs.WithoutConversion()

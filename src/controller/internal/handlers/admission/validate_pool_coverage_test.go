@@ -176,28 +176,6 @@ func TestValidateResourceErrors(t *testing.T) {
 	}
 
 	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:     "Card",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb"}}}},
-		},
-	}
-	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected error for migLayout with unit=Card")
-	}
-
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "Card",
-			TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
-				{Name: "custom", SlicesPerUnit: 0},
-			},
-		},
-	}
-	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected error for timeSlicingResources slicesPerUnit <1")
-	}
-
-	spec = &v1alpha1.GPUPoolSpec{
 		Backend: "DRA",
 		Resource: v1alpha1.GPUPoolResourceSpec{
 			Unit: "MIG",
@@ -245,7 +223,7 @@ func TestValidateResourceErrors(t *testing.T) {
 		Resource: v1alpha1.GPUPoolResourceSpec{Unit: "MIG"},
 	}
 	if err := h.validateResource(spec); err == nil {
-		t.Fatalf("expected error when MIG profile/layout not specified")
+		t.Fatalf("expected error when MIG profile not specified")
 	}
 
 	spec = &v1alpha1.GPUPoolSpec{}
@@ -268,13 +246,7 @@ func TestValidateResourceErrors(t *testing.T) {
 	}
 
 	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:          "Card",
-			SlicesPerUnit: 1,
-			TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
-				{Name: "custom", SlicesPerUnit: 2},
-			},
-		},
+		Resource: v1alpha1.GPUPoolResourceSpec{Unit: "Card", SlicesPerUnit: 2},
 	}
 	if err := h.validateResource(spec); err != nil {
 		t.Fatalf("expected valid Card config, got %v", err)
@@ -285,9 +257,6 @@ func TestValidateResourceErrors(t *testing.T) {
 			Unit:          "MIG",
 			MIGProfile:    "1g.10gb",
 			SlicesPerUnit: 2,
-			TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
-				{Name: "gpu.deckhouse.io/pool", SlicesPerUnit: 2},
-			},
 		},
 	}
 	if err := h.validateResource(spec); err != nil {

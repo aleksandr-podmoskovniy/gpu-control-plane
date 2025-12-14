@@ -27,8 +27,6 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
-const deviceNodeIndexKey = "status.nodeName"
-
 // DeviceStateSyncHandler keeps GPUDevice.state in sync with bootstrap readiness.
 type DeviceStateSyncHandler struct {
 	log    logr.Logger
@@ -49,7 +47,7 @@ func (h *DeviceStateSyncHandler) Name() string {
 	return "device-state-sync"
 }
 
-func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeInventory) (contracts.Result, error) {
+func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
 	if h.client == nil {
 		return contracts.Result{}, fmt.Errorf("device-state-sync handler: client is not configured")
 	}
@@ -60,27 +58,19 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	if nodeName == "" {
 		return contracts.Result{}, nil
 	}
-
-	phase := inventory.Status.Bootstrap.Phase
-	if phase == "" {
-		phase = v1alpha1.GPUNodeBootstrapPhaseValidating
-	}
 	driverReady := !isConditionTrue(inventory, conditionDriverMissing)
 	toolkitReady := !isConditionTrue(inventory, conditionToolkitMissing)
 	componentReady := isConditionTrue(inventory, conditionGFDReady)
 	monitoringMissing := isConditionTrue(inventory, conditionMonitoringMissing)
 
-	monitoringInitialized := !inventory.Status.Monitoring.LastHeartbeat.IsZero()
-	monitoringHealthy := inventory.Status.Monitoring.ConsecutiveHeartbeats >= infraReadyHeartbeatThreshold && !monitoringMissing && monitoringInitialized
+	infraReady := driverReady && toolkitReady && componentReady && !monitoringMissing
 
-	infraReady := driverReady && toolkitReady && componentReady && monitoringHealthy
-
-	canFaultByInfra := phase == v1alpha1.GPUNodeBootstrapPhaseMonitoring || phase == v1alpha1.GPUNodeBootstrapPhaseReady
+	canFaultByInfra := isConditionTrue(inventory, conditionInventoryComplete)
 	degradedHard := canFaultByInfra && (!driverReady || !toolkitReady)
-	degradedMonitoring := canFaultByInfra && monitoringMissing && monitoringInitialized
+	degradedMonitoring := canFaultByInfra && monitoringMissing
 
 	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := h.client.List(ctx, deviceList, client.MatchingFields{deviceNodeIndexKey: nodeName}); err != nil {
+	if err := h.client.List(ctx, deviceList, client.MatchingLabels{gpuDeviceNodeLabelKey: nodeName}); err != nil {
 		return contracts.Result{}, fmt.Errorf("list devices on node %s: %w", nodeName, err)
 	}
 
@@ -91,7 +81,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	var errs []error
 	for i := range deviceList.Items {
 		device := &deviceList.Items[i]
-		target, mutate := desiredDeviceState(device, phase, infraReady, degradedHard, degradedMonitoring)
+		target, mutate := desiredDeviceState(device, infraReady, degradedHard, degradedMonitoring)
 		if !mutate || device.Status.State == target {
 			continue
 		}
@@ -108,7 +98,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	return contracts.Result{}, utilerrors.NewAggregate(errs)
 }
 
-func isConditionTrue(inventory *v1alpha1.GPUNodeInventory, condType string) bool {
+func isConditionTrue(inventory *v1alpha1.GPUNodeState, condType string) bool {
 	for _, cond := range inventory.Status.Conditions {
 		if cond.Type == condType {
 			return cond.Status == metav1.ConditionTrue
@@ -117,10 +107,9 @@ func isConditionTrue(inventory *v1alpha1.GPUNodeInventory, condType string) bool
 	return false
 }
 
-func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootstrapPhase, infraReady, degradedHard, degradedMonitoring bool) (v1alpha1.GPUDeviceState, bool) {
+func desiredDeviceState(device *v1alpha1.GPUDevice, infraReady, degradedHard, degradedMonitoring bool) (v1alpha1.GPUDeviceState, bool) {
 	state := normalizeDeviceState(device.Status.State)
 	current := device.Status.State
-	healthFault := deviceHasHealthFault(device)
 	degraded := degradedHard || degradedMonitoring
 
 	switch state {
@@ -130,17 +119,17 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		// Pool controllers own these transitions.
 		return state, state != current
 	case v1alpha1.GPUDeviceStatePendingAssignment:
-		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degradedHard {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateReady:
-		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degradedHard {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateFaulted:
-		if degraded || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degraded {
 			return state, state != current
 		}
 		if infraReady {
@@ -148,7 +137,7 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateValidating:
-		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degradedHard {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
 		if infraReady {
@@ -156,7 +145,7 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		}
 		return state, state != current
 	default:
-		if degradedHard || phase == v1alpha1.GPUNodeBootstrapPhaseValidatingFailed || healthFault {
+		if degradedHard {
 			return v1alpha1.GPUDeviceStateDiscovered, state != current
 		}
 		if infraReady {
@@ -164,13 +153,6 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, phase v1alpha1.GPUNodeBootst
 		}
 		return state, state != current
 	}
-}
-
-func deviceHasHealthFault(device *v1alpha1.GPUDevice) bool {
-	if device == nil {
-		return false
-	}
-	return device.Status.Health.LastError != ""
 }
 
 func normalizeDeviceState(state v1alpha1.GPUDeviceState) v1alpha1.GPUDeviceState {

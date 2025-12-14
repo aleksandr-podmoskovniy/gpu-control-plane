@@ -9,7 +9,7 @@ module-sdk, Helm-шаблоны через `deckhouse_lib_helm` и пайпла�
 ## Текущее состояние
 
 - Контроллер инвентаризации следит за `Node` и `NodeFeature`, создаёт ресурсы
-  `GPUDevice` / `GPUNodeInventory`, экспортирует метрики Prometheus и события
+  `GPUDevice` / `GPUNodeState`, экспортирует метрики Prometheus и события
   Kubernetes.
 - Go‑хуки нормализуют настройки модуля, доставляют обязательный
   `NodeFeatureRule` и выставляют статусные Conditions модуля.
@@ -33,11 +33,11 @@ module-sdk, Helm-шаблоны через `deckhouse_lib_helm` и пайпла�
 # Подготовить инструменты (golangci-lint, module-sdk wrapper и т.д.)
 make ensure-tools
 
-# Собрать все образы модуля (hooks, controller, bundle)
+# Собрать все образы модуля (hooks, controller, bundle) локально
 werf build
 
-# Собрать bundle для выкладки в Deckhouse
-werf bundle assemble --save-bundle-to=./bundle
+# Собрать и запушить образы в реестр (добавит читаемые теги вида <image>-dev)
+MODULES_MODULE_SOURCE=127.0.0.1:5001/gpu-control-plane MODULES_MODULE_TAG=dev make werf-build
 ```
 
 `werf-giterminism.yaml` фиксирует контекст сборки; проверка выполняется
@@ -76,7 +76,7 @@ werf bundle assemble --save-bundle-to=./bundle
    указывать.
 
 4. Убедитесь, что контроллер запущен в `d8-gpu-control-plane`, и что для
-   GPU-узлов появляются ресурсы `GPUDevice`/`GPUNodeInventory`.
+   GPU-узлов появляются ресурсы `GPUDevice`/`GPUNodeState`.
 
 > ℹ️ Bootstrap-компоненты (GFD с сайдкаром gfd-extender, DCGM hostengine +
 > exporter, watchdog/validator) разворачиваются автоматически на всех

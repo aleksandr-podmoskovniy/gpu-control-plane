@@ -141,146 +141,11 @@ func TestValidateSchedulingBranches(t *testing.T) {
 	}
 }
 
-func TestValidateMIGLayoutBranches(t *testing.T) {
-	h := &PoolValidationHandler{}
-
-	// Missing profiles when migProfile empty
-	spec := &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:      "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for empty profiles without migProfile")
-	}
-
-	// Invalid profile format
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "bad"}},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for invalid mig profile format")
-	}
-
-	// Invalid count
-	minusOne := int32(0)
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb", Count: &minusOne}},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for invalid count")
-	}
-
-	// SlicesPerUnit mismatch inside layout
-	s1 := int32(2)
-	s2 := int32(3)
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{
-					{Name: "1g.10gb", SlicesPerUnit: &s1},
-					{Name: "2g.20gb", SlicesPerUnit: &s2},
-				},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for mismatched profile slices")
-	}
-
-	// Conflict between layout slices and resource slicesPerUnit
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:          "MIG",
-			SlicesPerUnit: 4,
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{
-					{Name: "1g.10gb", SlicesPerUnit: &s1},
-				},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected conflict between resource slices and layout slices")
-	}
-
-	// Valid layout with shared slicesPerUnit
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{
-					{Name: "1g.10gb", SlicesPerUnit: &s1},
-					{Name: "2g.20gb", SlicesPerUnit: &s1},
-				},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err != nil {
-		t.Fatalf("expected valid layout, got %v", err)
-	}
-
-	// Invalid slicesPerUnit range
-	badSlices := int32(0)
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{
-					{Name: "1g.10gb", SlicesPerUnit: &badSlices},
-				},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for invalid slicesPerUnit range")
-	}
-
-	// Missing profile name
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{{
-				Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: ""}},
-			}},
-		},
-	}
-	if err := h.validateMIGLayout(spec); err == nil {
-		t.Fatalf("expected error for empty profile name")
-	}
-}
-
 func TestValidateResourceAdditionalPaths(t *testing.T) {
 	h := &PoolValidationHandler{}
 
-	// MIG with layout passes through validateResource and migLayout
-	spec := &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit: "MIG",
-			MIGLayout: []v1alpha1.GPUPoolMIGDeviceLayout{
-				{Profiles: []v1alpha1.GPUPoolMIGProfile{{Name: "1g.10gb"}}},
-			},
-			SlicesPerUnit: 1,
-		},
-	}
-	if err := h.validateResource(spec); err != nil {
-		t.Fatalf("expected valid MIG layout resource, got %v", err)
-	}
-
 	// Backend DRA valid path
-	spec = &v1alpha1.GPUPoolSpec{
+	spec := &v1alpha1.GPUPoolSpec{
 		Backend: "DRA",
 		Resource: v1alpha1.GPUPoolResourceSpec{
 			Unit:          "Card",
@@ -289,20 +154,6 @@ func TestValidateResourceAdditionalPaths(t *testing.T) {
 	}
 	if err := h.validateResource(spec); err != nil {
 		t.Fatalf("expected DRA card resource to be valid, got %v", err)
-	}
-
-	// TimeSlicingResources valid path
-	spec = &v1alpha1.GPUPoolSpec{
-		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:          "Card",
-			SlicesPerUnit: 1,
-			TimeSlicingResources: []v1alpha1.GPUPoolTimeSlicingResource{
-				{Name: "gpu.deckhouse.io/pool", SlicesPerUnit: 2},
-			},
-		},
-	}
-	if err := h.validateResource(spec); err != nil {
-		t.Fatalf("expected valid timeSlicingResources, got %v", err)
 	}
 }
 

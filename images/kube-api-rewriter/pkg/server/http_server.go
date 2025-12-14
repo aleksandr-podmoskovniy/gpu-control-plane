@@ -30,6 +30,15 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/images/kube-api-rewriter/pkg/tls/certmanager"
 )
 
+var (
+	netListen     = net.Listen
+	serverServe   = func(srv *http.Server, ln net.Listener) error { return srv.Serve(ln) }
+	serverServeTLS = func(srv *http.Server, ln net.Listener, certFile, keyFile string) error {
+		return srv.ServeTLS(ln, certFile, keyFile)
+	}
+	serverShutdown = func(srv *http.Server, ctx context.Context) error { return srv.Shutdown(ctx) }
+)
+
 // HTTPServer starts HTTP server with root handler using listen address.
 // Implements Runnable interface to be able to stop server.
 type HTTPServer struct {
@@ -56,7 +65,7 @@ func (s *HTTPServer) init() bool {
 		return false
 	}
 
-	l, err := net.Listen("tcp", s.ListenAddr)
+	l, err := netListen("tcp", s.ListenAddr)
 	if err != nil {
 		s.Err = err
 		log.Error(fmt.Sprintf("%s: listen on %s err: %s", s.InstanceDesc, s.ListenAddr, err))
@@ -84,9 +93,9 @@ func (s *HTTPServer) Start() {
 	if s.CertManager != nil {
 		go s.CertManager.Start()
 		s.setupTLS()
-		err = s.instance.ServeTLS(s.listener, "", "")
+		err = serverServeTLS(s.instance, s.listener, "", "")
 	} else {
-		err = s.instance.Serve(s.listener)
+		err = serverServe(s.instance, s.listener)
 	}
 	// Ignore closed error: it's a consequence of stop.
 	if err != nil {
@@ -130,7 +139,7 @@ func (s *HTTPServer) Stop() {
 	// Shutdown instance if it was initialized.
 	if s.instance != nil {
 		log.Info(fmt.Sprintf("%s: stop", s.InstanceDesc))
-		err := s.instance.Shutdown(context.Background())
+		err := serverShutdown(s.instance, context.Background())
 		// Ignore ErrClosed.
 		if err != nil {
 			switch {

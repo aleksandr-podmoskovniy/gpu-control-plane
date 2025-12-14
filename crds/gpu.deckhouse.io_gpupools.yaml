@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   labels:
     module: gpu-control-plane
   name: gpupools.gpu.deckhouse.io
@@ -248,58 +248,6 @@ spec:
                       per node.
                     format: int32
                     type: integer
-                  migLayout:
-                    description: MIGLayout allows specifying per-device MIG profiles
-                      with counts (only when Unit=MIG).
-                    items:
-                      description: GPUPoolMIGDeviceLayout describes MIG profiles per
-                        device selector.
-                      properties:
-                        deviceFilter:
-                          description: DeviceFilter allows matching by vendor:device
-                            hex strings (e.g. 0x20B010DE).
-                          items:
-                            type: string
-                          type: array
-                        pciBusIDs:
-                          description: PCIBusIDs restricts layout to specific PCI
-                            bus IDs (domain:bus:slot.func).
-                          items:
-                            type: string
-                          type: array
-                        profiles:
-                          description: Profiles lists MIG profiles with optional counts.
-                          items:
-                            description: GPUPoolMIGProfile represents desired MIG
-                              profile count.
-                            properties:
-                              count:
-                                description: Count is how many instances of the profile
-                                  to create (defaults to 1).
-                                format: int32
-                                type: integer
-                              name:
-                                description: Name is the MIG profile name (e.g. 1g.10gb).
-                                type: string
-                              slicesPerUnit:
-                                description: SlicesPerUnit overrides resource or layout
-                                  slices for this profile (optional).
-                                format: int32
-                                type: integer
-                            type: object
-                          type: array
-                        slicesPerUnit:
-                          description: SlicesPerUnit overrides resource.slicesPerUnit
-                            for this layout group.
-                          format: int32
-                          type: integer
-                        uuids:
-                          description: UUIDs restricts layout to specific GPU UUIDs.
-                          items:
-                            type: string
-                          type: array
-                      type: object
-                    type: array
                   migProfile:
                     description: MIGProfile specifies the MIG profile when Unit=MIG
                       (single profile shortcut).
@@ -312,24 +260,6 @@ spec:
                     maximum: 64
                     minimum: 1
                     type: integer
-                  timeSlicingResources:
-                    description: TimeSlicingResources allows overriding slicesPerUnit
-                      per resource.
-                    items:
-                      description: GPUPoolTimeSlicingResource overrides slicesPerUnit
-                        for a specific resource.
-                      properties:
-                        name:
-                          description: Name is the resource name to override (defaults
-                            to pool resource name).
-                          type: string
-                        slicesPerUnit:
-                          description: SlicesPerUnit is the number of slices for this
-                            resource.
-                          format: int32
-                          type: integer
-                      type: object
-                    type: array
                   unit:
                     description: Unit describes the resource unit (Card or MIG).
                     enum:
@@ -385,84 +315,20 @@ spec:
             description: Status reports aggregated usage, candidates and conditions
               for the pool.
             properties:
-              candidates:
-                description: Candidates enumerates nodes/devices pending for acceptance.
-                items:
-                  properties:
-                    lastEvent:
-                      description: LastEvent records when candidate state last changed.
-                      format: date-time
-                      type: string
-                    name:
-                      description: Name is the node or device awaiting assignment.
-                      type: string
-                    pools:
-                      description: Pools lists pending pool assignments for this candidate.
-                      items:
-                        properties:
-                          annotationHint:
-                            description: AnnotationHint suggests annotation to apply
-                              for manual approval.
-                            type: string
-                          autoApproved:
-                            description: AutoApproved indicates whether assignment
-                              will be granted automatically.
-                            type: boolean
-                          pool:
-                            description: Pool is the GPUPool name awaiting assignment.
-                            type: string
-                          reason:
-                            description: Reason describes why the assignment is pending
-                              or rejected.
-                            type: string
-                        type: object
-                      type: array
-                  type: object
-                type: array
               capacity:
-                description: Capacity summarises total/used/available capacity inside
-                  the pool.
+                description: Capacity summarises total capacity inside the pool.
                 properties:
-                  available:
-                    description: Available is free capacity that may still be assigned.
-                    format: int32
-                    type: integer
-                  baseUnits:
-                    description: BaseUnits is the number of base devices/partitions
-                      contributing to capacity.
-                    format: int32
-                    type: integer
-                  slicesPerUnit:
-                    description: SlicesPerUnit shows how many slices each base unit
-                      provides.
-                    format: int32
-                    type: integer
                   total:
                     description: Total is total pool capacity expressed in declared
                       units.
-                    format: int32
-                    type: integer
-                  unit:
-                    description: Unit repeats the resource unit for clarity.
-                    type: string
-                  used:
-                    description: Used is currently consumed capacity.
                     format: int32
                     type: integer
                 type: object
               conditions:
                 description: Conditions surfaces pool-level status conditions.
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -503,12 +369,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -518,64 +379,6 @@ spec:
                   - reason
                   - status
                   - type
-                  type: object
-                type: array
-              devices:
-                description: Devices mirrors per-device state for quick pool-centric
-                  lookups.
-                items:
-                  properties:
-                    autoAttach:
-                      description: AutoAttach mirrors the auto-attach flag for the
-                        device.
-                      type: boolean
-                    inventoryID:
-                      description: InventoryID references the GPUDevice included in
-                        the pool.
-                      type: string
-                    node:
-                      description: Node is the node hosting the device.
-                      type: string
-                    state:
-                      description: State is the current state of the device inside
-                        the pool.
-                      enum:
-                      - Discovered
-                      - Validating
-                      - Ready
-                      - PendingAssignment
-                      - Assigned
-                      - Reserved
-                      - InUse
-                      - Faulted
-                      type: string
-                  type: object
-                type: array
-              nodes:
-                description: Nodes lists per-node usage statistics.
-                items:
-                  properties:
-                    assignedDevices:
-                      description: AssignedDevices counts devices from this node currently
-                        in use.
-                      format: int32
-                      type: integer
-                    health:
-                      description: Health summarises node-level readiness (e.g. Healthy/Misconfigured).
-                      type: string
-                    lastEvent:
-                      description: LastEvent points to the latest significant event
-                        impacting the node in context of the pool.
-                      format: date-time
-                      type: string
-                    name:
-                      description: Name is the node identifier.
-                      type: string
-                    totalDevices:
-                      description: TotalDevices is the number of devices contributing
-                        to the pool on this node.
-                      format: int32
-                      type: integer
                   type: object
                 type: array
             type: object

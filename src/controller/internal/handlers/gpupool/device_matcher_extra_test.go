@@ -18,19 +18,24 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestFilterDevicesIncludeExcludeRules(t *testing.T) {
-	dev := v1alpha1.GPUNodeDevice{
-		InventoryID: "id1",
-		Product:     "prodA",
-		PCI:         v1alpha1.PCIAddress{Vendor: "10de", Device: "1a2b"},
-		MIG: v1alpha1.GPUMIGConfig{
-			Capable:           true,
-			ProfilesSupported: []string{"1g.10gb"},
+	dev := v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "id1",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				Product: "prodA",
+				PCI:     v1alpha1.PCIAddress{Vendor: "10de", Device: "1a2b"},
+				MIG: v1alpha1.GPUMIGConfig{
+					Capable:           true,
+					ProfilesSupported: []string{"1g.10gb"},
+				},
+			},
 		},
 	}
-	devs := []v1alpha1.GPUNodeDevice{dev}
+	devs := []v1alpha1.GPUDevice{dev}
 
 	// Empty include means pass, exclude by product blocks.
 	sel := &v1alpha1.GPUPoolDeviceSelector{
@@ -63,13 +68,17 @@ func TestFilterDevicesIncludeExcludeRules(t *testing.T) {
 }
 
 func TestMatchesExcludeBranches(t *testing.T) {
-	dev := v1alpha1.GPUNodeDevice{
-		InventoryID: "id2",
-		Product:     "prodB",
-		PCI:         v1alpha1.PCIAddress{Vendor: "1234", Device: "5678"},
-		MIG: v1alpha1.GPUMIGConfig{
-			Capable:           false,
-			ProfilesSupported: []string{"2g.20gb"},
+	dev := v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "id2",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				Product: "prodB",
+				PCI:     v1alpha1.PCIAddress{Vendor: "1234", Device: "5678"},
+				MIG: v1alpha1.GPUMIGConfig{
+					Capable:           false,
+					ProfilesSupported: []string{"2g.20gb"},
+				},
+			},
 		},
 	}
 
@@ -107,13 +116,17 @@ func TestMatchesExcludeBranches(t *testing.T) {
 }
 
 func TestMatchesIncludeBranches(t *testing.T) {
-	dev := v1alpha1.GPUNodeDevice{
-		InventoryID: "idx",
-		Product:     "prodX",
-		PCI:         v1alpha1.PCIAddress{Vendor: "abcd", Device: "ef01"},
-		MIG: v1alpha1.GPUMIGConfig{
-			Capable:           true,
-			ProfilesSupported: []string{"4g.20gb"},
+	dev := v1alpha1.GPUDevice{
+		Status: v1alpha1.GPUDeviceStatus{
+			InventoryID: "idx",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				Product: "prodX",
+				PCI:     v1alpha1.PCIAddress{Vendor: "abcd", Device: "ef01"},
+				MIG: v1alpha1.GPUMIGConfig{
+					Capable:           true,
+					ProfilesSupported: []string{"4g.20gb"},
+				},
+			},
 		},
 	}
 
@@ -139,3 +152,31 @@ func TestMatchesIncludeBranches(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func TestMIGProfilesUsesTypesWhenProfilesSupportedEmpty(t *testing.T) {
+	mig := v1alpha1.GPUMIGConfig{
+		Types: []v1alpha1.GPUMIGTypeCapacity{
+			{Name: " 1g.10gb ", Count: 1},
+			{Name: "", Count: 2},
+			{Name: "   ", Count: 3},
+		},
+	}
+	got := migProfiles(mig)
+	if len(got) != 1 || got[0] != "1g.10gb" {
+		t.Fatalf("unexpected profiles: %#v", got)
+	}
+}
+
+func TestMatchesInventoryIDFallsBackToDeviceName(t *testing.T) {
+	dev := v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-name"},
+		Status:     v1alpha1.GPUDeviceStatus{InventoryID: ""},
+	}
+
+	if !matchesInclude(v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"dev-name"}}, dev) {
+		t.Fatalf("expected include to match by device name when inventoryID is empty")
+	}
+	if !matchesExclude(v1alpha1.GPUPoolSelectorRules{InventoryIDs: []string{"dev-name"}}, dev) {
+		t.Fatalf("expected exclude to match by device name when inventoryID is empty")
+	}
+}

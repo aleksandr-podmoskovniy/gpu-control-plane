@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+var yamlMarshal = yaml.Marshal
+
 // PrettyHandler is a custom handler to print pretty debug logs:
 // - Print attributes unquoted
 // - Print body.dump and body.diff as sections
@@ -169,7 +171,7 @@ func (h *PrettyHandler) Handle(ctx context.Context, r slog.Record) error {
 
 	// Add sectioned info: grouped attributes, a body diff and a body dump.
 	if len(groups) > 0 {
-		groupsBytes, err := yaml.Marshal(groups)
+		groupsBytes, err := yamlMarshal(groups)
 		if err != nil {
 			return fmt.Errorf("error marshaling grouped attrs: %w", err)
 		}

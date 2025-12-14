@@ -135,8 +135,7 @@ properties:
           Expose controller metrics to Deckhouse Prometheus (`true`) or disable the ServiceMonitor (`false`).
 
           This flag does not disable DCGM, dcgm-exporter or gfd-extender on the nodes —
-          the bootstrap stack remains active to keep `GPUDevice.status.health`
-          up-to-date even without Prometheus.
+          the bootstrap stack remains active; DCGM telemetry is exposed via Prometheus and is not persisted in CRDs.
         x-examples: [true, false]
     additionalProperties: false
   inventory:

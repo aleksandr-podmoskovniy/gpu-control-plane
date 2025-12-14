@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	bootstrapStateSnapshot = "gpu-gpu-node-inventory"
+	bootstrapStateSnapshot = "gpu-gpu-node-state"
 	bootstrapStateFilter   = `{"name": .metadata.name, "status": .status}`
 )
 
@@ -60,7 +60,7 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 		{
 			Name:                         bootstrapStateSnapshot,
 			APIVersion:                   "gpu.deckhouse.io/v1alpha1",
-			Kind:                         "GPUNodeInventory",
+			Kind:                         "GPUNodeState",
 			JqFilter:                     bootstrapStateFilter,
 			ExecuteHookOnSynchronization: ptr.To(true),
 			ExecuteHookOnEvents:          ptr.To(true),

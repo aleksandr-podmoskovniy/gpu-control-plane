@@ -165,10 +165,10 @@ rules:
     resources: ["gpudevices/status"]
     verbs: ["update", "patch"]
   - apiGroups: ["gpu.deckhouse.io"]
-    resources: ["gpunodeinventories"]
+    resources: ["gpunodestates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["gpu.deckhouse.io"]
-    resources: ["gpunodeinventories/status"]
+    resources: ["gpunodestates/status"]
     verbs: ["update", "patch"]
   - apiGroups: ["gpu.deckhouse.io"]
     resources: ["gpupools"]
@@ -608,7 +608,7 @@ spec:
             - name: WAIT_TIMEOUT
               value: 600s
             - name: RESOURCES
-              value: '[{"gvr":{"Group":"nfd.k8s-sigs.io","Resource":"nodefeaturerules","Version":"v1alpha1"},"name":"deckhouse-gpu-kernel-os"},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpudevices","Version":"v1alpha1"},"name":""},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpunodeinventories","Version":"v1alpha1"},"name":""}]'
+              value: '[{"gvr":{"Group":"nfd.k8s-sigs.io","Resource":"nodefeaturerules","Version":"v1alpha1"},"name":"deckhouse-gpu-kernel-os"},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpudevices","Version":"v1alpha1"},"name":""},{"gvr":{"Group":"gpu.deckhouse.io","Resource":"gpunodestates","Version":"v1alpha1"},"name":""}]'
           resources:
             requests:
               ephemeral-storage: 50Mi

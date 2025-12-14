@@ -245,23 +245,6 @@ func moduleConfigEnabled(input *pkg.HookInput) (bool, error) {
 	return ptr.Deref(payload.Spec.Enabled, false), nil
 }
 
-func ensureNamespace(pc pkg.PatchCollector) error {
-	namespace := map[string]any{
-		"apiVersion": "v1",
-		"kind":       "Namespace",
-		"metadata": map[string]any{
-			"name": settings.ModuleNamespace,
-			"labels": map[string]any{
-				"app.kubernetes.io/name":       settings.ModuleName,
-				"app.kubernetes.io/managed-by": "deckhouse",
-			},
-		},
-	}
-
-	pc.CreateIfNotExists(&unstructured.Unstructured{Object: namespace})
-	return nil
-}
-
 func ensureNodeFeatureRule(pc pkg.PatchCollector) error {
 	manifest := fmt.Sprintf(nodeFeatureRuleTemplate, settings.NodeFeatureRuleName)
 	var obj map[string]any

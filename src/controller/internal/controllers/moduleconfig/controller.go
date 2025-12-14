@@ -25,13 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
@@ -43,78 +42,12 @@ const (
 
 var ModuleConfigGVK = schema.GroupVersionKind{Group: "deckhouse.io", Version: "v1alpha1", Kind: "ModuleConfig"}
 
-type controllerBuilder interface {
-	Named(string) controllerBuilder
-	For(client.Object, ...builder.ForOption) controllerBuilder
-	WithOptions(controller.Options) controllerBuilder
-	Complete(reconcile.Reconciler) error
-}
-
-type controllerRuntimeAdapter interface {
-	Named(string) controllerRuntimeAdapter
-	For(client.Object, ...builder.ForOption) controllerRuntimeAdapter
-	WithOptions(controller.Options) controllerRuntimeAdapter
-	Complete(reconcile.Reconciler) error
-}
-
-type runtimeControllerBuilder struct {
-	adapter controllerRuntimeAdapter
-}
-
-func (b *runtimeControllerBuilder) Named(name string) controllerBuilder {
-	b.adapter = b.adapter.Named(name)
-	return b
-}
-
-func (b *runtimeControllerBuilder) For(obj client.Object, opts ...builder.ForOption) controllerBuilder {
-	b.adapter = b.adapter.For(obj, opts...)
-	return b
-}
-
-func (b *runtimeControllerBuilder) WithOptions(opts controller.Options) controllerBuilder {
-	b.adapter = b.adapter.WithOptions(opts)
-	return b
-}
-
-func (b *runtimeControllerBuilder) Complete(r reconcile.Reconciler) error {
-	return b.adapter.Complete(r)
-}
-
-type builderControllerAdapter struct {
-	delegate *builder.Builder
-}
-
-func (a *builderControllerAdapter) Named(name string) controllerRuntimeAdapter {
-	a.delegate = a.delegate.Named(name)
-	return a
-}
-
-func (a *builderControllerAdapter) For(obj client.Object, opts ...builder.ForOption) controllerRuntimeAdapter {
-	a.delegate = a.delegate.For(obj, opts...)
-	return a
-}
-
-func (a *builderControllerAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
-	a.delegate = a.delegate.WithOptions(opts)
-	return a
-}
-
-func (a *builderControllerAdapter) Complete(r reconcile.Reconciler) error {
-	return a.delegate.Complete(r)
-}
-
-var newControllerManagedBy = func(mgr ctrl.Manager) controllerBuilder {
-	return &runtimeControllerBuilder{
-		adapter: &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)},
-	}
-}
-
 // Reconciler watches ModuleConfig changes and updates shared store.
 type Reconciler struct {
 	client client.Client
 	log    logr.Logger
 	store  *config.ModuleConfigStore
-	build  func(ctrl.Manager) controllerBuilder
+	build  func(ctrl.Manager) controllerbuilder.Builder
 }
 
 func New(log logr.Logger, store *config.ModuleConfigStore) (*Reconciler, error) {
@@ -122,7 +55,7 @@ func New(log logr.Logger, store *config.ModuleConfigStore) (*Reconciler, error) 
 		return nil, fmt.Errorf("module config store must be provided")
 	}
 	rec := &Reconciler{log: log, store: store}
-	rec.build = newControllerManagedBy
+	rec.build = controllerbuilder.NewManagedBy
 	return rec, nil
 }
 
@@ -138,12 +71,12 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		LogConstructor:          logger.NewConstructor(r.log),
 	}
 
-	builder := r.build(mgr).
+	ctrlBuilder := r.build(mgr).
 		Named(controllerName).
 		For(base).
 		WithOptions(options)
 
-	return builder.Complete(r)
+	return ctrlBuilder.Complete(r)
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

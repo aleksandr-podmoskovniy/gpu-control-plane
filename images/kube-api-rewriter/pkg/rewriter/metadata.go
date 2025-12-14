@@ -20,7 +20,6 @@ import (
 	"strings"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 func RewriteMetadata(rules *RewriteRules, metadataObj []byte, action Action) ([]byte, error) {
@@ -76,7 +75,7 @@ func RenameMetadataPatch(rules *RewriteRules, patch []byte) ([]byte, error) {
 				label := decodeJSONPatchPath(encLabel)
 				rwrLabel := rules.LabelsRewriter().Rewrite(label, Rename)
 				if label != rwrLabel {
-					return sjson.SetBytes(jsonPatch, "path", "/metadata/labels/"+encodeJSONPatchPath(rwrLabel))
+					return sjsonSetBytes(jsonPatch, "path", "/metadata/labels/"+encodeJSONPatchPath(rwrLabel))
 				}
 			}
 
@@ -85,7 +84,7 @@ func RenameMetadataPatch(rules *RewriteRules, patch []byte) ([]byte, error) {
 				anno := decodeJSONPatchPath(encAnno)
 				rwrAnno := rules.AnnotationsRewriter().Rewrite(anno, Rename)
 				if anno != rwrAnno {
-					return sjson.SetBytes(jsonPatch, "path", "/metadata/annotations/"+encodeJSONPatchPath(rwrAnno))
+					return sjsonSetBytes(jsonPatch, "path", "/metadata/annotations/"+encodeJSONPatchPath(rwrAnno))
 				}
 			}
 
@@ -94,7 +93,7 @@ func RenameMetadataPatch(rules *RewriteRules, patch []byte) ([]byte, error) {
 				fin := decodeJSONPatchPath(encFin)
 				rwrFin := rules.FinalizersRewriter().Rewrite(fin, Rename)
 				if fin != rwrFin {
-					return sjson.SetBytes(jsonPatch, "path", "/metadata/finalizers/"+encodeJSONPatchPath(rwrFin))
+					return sjsonSetBytes(jsonPatch, "path", "/metadata/finalizers/"+encodeJSONPatchPath(rwrFin))
 				}
 			}
 

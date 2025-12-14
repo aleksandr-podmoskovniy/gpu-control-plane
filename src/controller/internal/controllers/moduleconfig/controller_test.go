@@ -41,9 +41,11 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	moduleconfigpkg "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
 )
 
@@ -87,17 +89,21 @@ type fakeBuilder struct {
 	err      error
 }
 
-func (f *fakeBuilder) Named(name string) controllerBuilder {
+func (f *fakeBuilder) Named(name string) controllerbuilder.Builder {
 	f.named = name
 	return f
 }
 
-func (f *fakeBuilder) For(obj client.Object, _ ...builder.ForOption) controllerBuilder {
+func (f *fakeBuilder) For(obj client.Object, _ ...builder.ForOption) controllerbuilder.Builder {
 	f.forObj = obj
 	return f
 }
 
-func (f *fakeBuilder) WithOptions(opts controller.Options) controllerBuilder {
+func (f *fakeBuilder) Owns(client.Object, ...builder.OwnsOption) controllerbuilder.Builder { return f }
+
+func (f *fakeBuilder) WatchesRawSource(source.Source) controllerbuilder.Builder { return f }
+
+func (f *fakeBuilder) WithOptions(opts controller.Options) controllerbuilder.Builder {
 	f.options = opts
 	return f
 }
@@ -105,33 +111,6 @@ func (f *fakeBuilder) WithOptions(opts controller.Options) controllerBuilder {
 func (f *fakeBuilder) Complete(reconcile.Reconciler) error {
 	f.complete++
 	return f.err
-}
-
-type fakeRuntimeAdapter struct {
-	namedCalled    bool
-	forCalled      bool
-	options        controller.Options
-	completeCalled bool
-}
-
-func (f *fakeRuntimeAdapter) Named(string) controllerRuntimeAdapter {
-	f.namedCalled = true
-	return f
-}
-
-func (f *fakeRuntimeAdapter) For(client.Object, ...builder.ForOption) controllerRuntimeAdapter {
-	f.forCalled = true
-	return f
-}
-
-func (f *fakeRuntimeAdapter) WithOptions(opts controller.Options) controllerRuntimeAdapter {
-	f.options = opts
-	return f
-}
-
-func (f *fakeRuntimeAdapter) Complete(reconcile.Reconciler) error {
-	f.completeCalled = true
-	return nil
 }
 
 func newContext() context.Context {
@@ -144,60 +123,6 @@ func newModuleConfigScheme() *runtime.Scheme {
 	listGVK := schema.GroupVersionKind{Group: ModuleConfigGVK.Group, Version: ModuleConfigGVK.Version, Kind: ModuleConfigGVK.Kind + "List"}
 	scheme.AddKnownTypeWithName(listGVK, &unstructured.UnstructuredList{})
 	return scheme
-}
-
-func TestNewControllerManagedByCreatesBuilder(t *testing.T) {
-	if builder := newControllerManagedBy(nil); builder == nil {
-		t.Fatal("expected newControllerManagedBy to return controller builder")
-	}
-}
-
-func TestRuntimeControllerBuilderDelegates(t *testing.T) {
-	adapter := &fakeRuntimeAdapter{}
-	builder := &runtimeControllerBuilder{adapter: adapter}
-
-	returned := builder.Named("module").For(&unstructured.Unstructured{}).WithOptions(controller.Options{MaxConcurrentReconciles: 1})
-	if returned != builder {
-		t.Fatal("runtimeControllerBuilder should return itself")
-	}
-
-	if !adapter.namedCalled || !adapter.forCalled {
-		t.Fatalf("expected adapter Named/For invoked, adapter=%+v", adapter)
-	}
-	if adapter.options.MaxConcurrentReconciles != 1 {
-		t.Fatalf("unexpected options propagated: %+v", adapter.options)
-	}
-
-	if err := builder.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
-		return reconcile.Result{}, nil
-	})); err != nil {
-		t.Fatalf("Complete returned error: %v", err)
-	}
-	if !adapter.completeCalled {
-		t.Fatal("expected adapter Complete called")
-	}
-}
-
-func TestBuilderControllerAdapterDelegates(t *testing.T) {
-	scheme := newModuleConfigScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	mgr := newFakeManager(client, scheme)
-
-	adapter := &builderControllerAdapter{delegate: ctrl.NewControllerManagedBy(mgr)}
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(ModuleConfigGVK)
-
-	returned := adapter.Named("module").For(obj).WithOptions(controller.Options{MaxConcurrentReconciles: 2})
-	if returned != adapter {
-		t.Fatal("builderControllerAdapter should return itself")
-	}
-
-	if err := adapter.Complete(reconcile.Func(func(context.Context, reconcile.Request) (reconcile.Result, error) {
-		return reconcile.Result{}, nil
-	})); err != nil {
-		t.Fatalf("Complete returned error: %v", err)
-	}
 }
 
 func TestNewRequiresStore(t *testing.T) {
@@ -293,7 +218,7 @@ func TestSetupWithManagerConfiguresBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	rec.build = func(ctrl.Manager) controllerBuilder { return builderStub }
+	rec.build = func(ctrl.Manager) controllerbuilder.Builder { return builderStub }
 
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
 		t.Fatalf("SetupWithManager returned error: %v", err)

@@ -17,6 +17,7 @@ package webhook
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -42,8 +43,7 @@ func TestPodValidatorGVK(t *testing.T) {
 func TestPodValidatorHandleNoPool(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
-	v := newPodValidator(testr.New(t), decoder, nil, nil)
+	v := newPodValidator(testr.New(t), nil)
 
 	pod := corev1.Pod{}
 	raw, _ := json.Marshal(pod)
@@ -62,8 +62,6 @@ func TestPodValidatorNamespaceNotEnabled(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
-
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "gpu-team"}}
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
@@ -83,7 +81,7 @@ func TestPodValidatorNamespaceNotEnabled(t *testing.T) {
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	v := newPodValidator(testr.New(t), cl)
 	resp := v.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial when namespace not enabled")
@@ -94,8 +92,6 @@ func TestPodValidatorClusterPoolResolve(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
-
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "gpu-team",
 		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
@@ -103,7 +99,10 @@ func TestPodValidatorClusterPoolResolve(t *testing.T) {
 	clusterPool := &v1alpha1.ClusterGPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared"},
 		Spec:       v1alpha1.GPUPoolSpec{},
-		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity:   v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{Type: "Configured", Status: metav1.ConditionTrue}},
+		},
 	}
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
@@ -123,7 +122,7 @@ func TestPodValidatorClusterPoolResolve(t *testing.T) {
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, clusterPool).Build()
-	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	v := newPodValidator(testr.New(t), cl)
 	resp := v.Handle(context.Background(), req)
 	if !resp.Allowed {
 		t.Fatalf("expected allowed for cluster pool pod, got %v", resp.Result)
@@ -134,7 +133,6 @@ func TestPodValidatorDeniesWhenCapacityExceeded(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "gpu-team",
@@ -144,7 +142,8 @@ func TestPodValidatorDeniesWhenCapacityExceeded(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "shared"},
 		Spec:       v1alpha1.GPUPoolSpec{},
 		Status: v1alpha1.GPUPoolStatus{
-			Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1},
+			Capacity:   v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{Type: "Configured", Status: metav1.ConditionTrue}},
 		},
 	}
 	pod := corev1.Pod{
@@ -165,29 +164,74 @@ func TestPodValidatorDeniesWhenCapacityExceeded(t *testing.T) {
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, clusterPool).Build()
-	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	v := newPodValidator(testr.New(t), cl)
 	resp := v.Handle(context.Background(), req)
 	if resp.Allowed {
-		t.Fatalf("expected denial when requested exceeds available")
+		t.Fatalf("expected denial when requested exceeds total")
 	}
 }
 
+func TestRequestedResourcesUsesInitContainerMax(t *testing.T) {
+	pool := poolRequest{name: "pool-a", keyPrefix: localPoolResourcePrefix}
+
+	t.Run("init-container-dominates", func(t *testing.T) {
+		pod := &corev1.Pod{
+			Spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("3")},
+					},
+				}},
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("1")},
+					}},
+					{Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("1")},
+					}},
+				},
+			},
+		}
+
+		if got := requestedResources(pod, pool); got != 3 {
+			t.Fatalf("unexpected requestedResources(): got %d, want %d", got, 3)
+		}
+	})
+
+	t.Run("containers-sum-dominates", func(t *testing.T) {
+		pod := &corev1.Pod{
+			Spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("1")},
+					},
+				}},
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("2")},
+					}},
+					{Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("2")},
+					}},
+				},
+			},
+		}
+
+		if got := requestedResources(pod, pool); got != 4 {
+			t.Fatalf("unexpected requestedResources(): got %d, want %d", got, 4)
+		}
+	})
+}
+
 func TestPodValidatorResolvePoolErrors(t *testing.T) {
-	v := &podValidator{}
-	if _, err := v.resolvePool(context.Background(), poolRequest{name: "a"}, ""); err == nil {
+	if _, err := resolvePoolByRequest(context.Background(), nil, poolRequest{name: "a", keyPrefix: localPoolResourcePrefix}, "ns"); err == nil {
 		t.Fatalf("expected error without client")
 	}
-
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
-	v.client = cl
-	if _, err := v.resolvePool(context.Background(), poolRequest{name: "a"}, ""); err == nil {
+	if _, err := resolvePoolByRequest(context.Background(), cl, poolRequest{name: "a", keyPrefix: localPoolResourcePrefix}, ""); err == nil {
 		t.Fatalf("expected error when namespace empty for namespaced pool")
-	}
-
-	if _, err := v.resolvePool(context.Background(), poolRequest{name: "a", isCluster: true}, ""); err == nil {
-		t.Fatalf("expected error when cluster pool missing")
 	}
 }
 
@@ -195,8 +239,6 @@ func TestPodValidatorMultiplePoolsAndMissingPool(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
-
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "gpu-team",
 		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
@@ -218,7 +260,7 @@ func TestPodValidatorMultiplePoolsAndMissingPool(t *testing.T) {
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: raw, Object: &pod}}}
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	v := newPodValidator(testr.New(t), cl)
 	if resp := v.Handle(context.Background(), req); resp.Allowed {
 		t.Fatalf("expected denial for multiple pools")
 	}
@@ -253,14 +295,19 @@ func TestPodValidatorHandleSwitchBranches(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   "gpu-team",
 		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
 	}}
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
-		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{
+				Type:   "Configured",
+				Status: metav1.ConditionTrue,
+			}},
+		},
 	}
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
@@ -273,7 +320,7 @@ func TestPodValidatorHandleSwitchBranches(t *testing.T) {
 		},
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	v = newPodValidator(testr.New(t), decoder, nil, cl)
+	v = newPodValidator(testr.New(t), cl)
 	req = cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Object: pod}}}
 	if resp := v.Handle(context.Background(), req); !resp.Allowed {
 		t.Fatalf("expected allowed in object branch, got %v", resp.Result)
@@ -282,7 +329,7 @@ func TestPodValidatorHandleSwitchBranches(t *testing.T) {
 	// invalid raw json triggers error branch
 	req = cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{Object: runtime.RawExtension{Raw: []byte(`{invalid}`)}}}
 	resp = v.Handle(context.Background(), req)
-	if resp.Allowed || resp.Result == nil || resp.Result.Code != 422 {
+	if resp.Allowed || resp.Result == nil || resp.Result.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 on invalid raw payload, got %+v", resp)
 	}
 }
@@ -291,7 +338,6 @@ func TestPodValidatorNamespaceNotFoundAndNamespacedPool(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
-	decoder := cradmission.NewDecoder(scheme)
 
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
@@ -308,7 +354,7 @@ func TestPodValidatorNamespaceNotFoundAndNamespacedPool(t *testing.T) {
 
 	// namespace missing
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
-	v := newPodValidator(testr.New(t), decoder, nil, cl)
+	v := newPodValidator(testr.New(t), cl)
 	if resp := v.Handle(context.Background(), req); resp.Allowed {
 		t.Fatalf("expected denial when namespace missing")
 	}
@@ -320,10 +366,16 @@ func TestPodValidatorNamespaceNotFoundAndNamespacedPool(t *testing.T) {
 	}}
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
-		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Available: 1, Total: 1}},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{
+				Type:   "Configured",
+				Status: metav1.ConditionTrue,
+			}},
+		},
 	}
 	cl = fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
-	v = newPodValidator(testr.New(t), decoder, nil, cl)
+	v = newPodValidator(testr.New(t), cl)
 	if resp := v.Handle(context.Background(), req); !resp.Allowed {
 		t.Fatalf("expected allowed when namespace/pool exist, got %v", resp.Result)
 	}
