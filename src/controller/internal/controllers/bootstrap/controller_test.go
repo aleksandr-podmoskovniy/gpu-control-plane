@@ -384,20 +384,14 @@ func TestSetupWithManagerIndexesPodsWhenIndexerProvided(t *testing.T) {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
 	idx := mgr.indexer.(*stubFieldIndexer)
-	if len(idx.results) != 6 {
-		t.Fatalf("expected 6 extractValue calls, got %d", len(idx.results))
+	if len(idx.results) != 3 {
+		t.Fatalf("expected 3 extractValue calls, got %d", len(idx.results))
 	}
 	if len(idx.results[0]) != 1 || idx.results[0][0] != "node-a" {
 		t.Fatalf("unexpected extractValue result: %#v", idx.results[0])
 	}
 	if idx.results[1] != nil || idx.results[2] != nil {
 		t.Fatalf("expected nil extractValue results for non-matching pod objects, got %#v", idx.results[1:3])
-	}
-	if len(idx.results[3]) != 1 || idx.results[3][0] != "node-b" {
-		t.Fatalf("unexpected extractValue result for GPUDevice index: %#v", idx.results[3])
-	}
-	if idx.results[4] != nil || idx.results[5] != nil {
-		t.Fatalf("expected nil extractValue results for non-matching GPUDevice objects, got %#v", idx.results[4:])
 	}
 }
 

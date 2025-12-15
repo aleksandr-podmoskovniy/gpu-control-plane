@@ -93,7 +93,7 @@ false
     - {{ . | quote }}
 {{- end }}
 {{- else }}
-    - "__gpu-control-plane-no-nodes__"
+    - "gpu-control-plane-no-nodes"
 {{- end }}
 {{- end -}}
 

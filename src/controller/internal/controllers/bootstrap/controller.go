@@ -45,7 +45,6 @@ import (
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
@@ -132,9 +131,6 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 			}
 			return nil
 		}); err != nil {
-			return err
-		}
-		if err := indexer.IndexGPUDeviceByNode(ctx, fieldIndexer); err != nil {
 			return err
 		}
 	}
