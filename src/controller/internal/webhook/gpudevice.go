@@ -60,22 +60,43 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 		return cradmission.Errored(http.StatusUnprocessableEntity, err)
 	}
 
-	if device.Status.State != v1alpha1.GPUDeviceStateReady {
-		return cradmission.Denied(fmt.Sprintf("device state must be Ready, got %s", device.Status.State))
-	}
-
-	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") {
-		return cradmission.Denied("device is marked as ignored")
-	}
-
 	namespacedPool := strings.TrimSpace(device.Annotations[namespacedAssignmentAnnotation])
 	clusterPool := strings.TrimSpace(device.Annotations[clusterAssignmentAnnotation])
 
 	if namespacedPool != "" && clusterPool != "" {
 		return cradmission.Denied("only one assignment annotation is allowed (namespaced or cluster)")
 	}
+
+	assignmentSet := namespacedPool != "" || clusterPool != ""
+	assignmentChanged := req.Operation == admv1.Create && assignmentSet
+	if req.Operation == admv1.Update {
+		assignmentChanged = assignmentSet
+	}
+	if req.Operation == admv1.Update && len(req.OldObject.Raw) > 0 {
+		oldDevice := &v1alpha1.GPUDevice{}
+		if err := h.decoder.DecodeRaw(req.OldObject, oldDevice); err != nil {
+			return cradmission.Errored(http.StatusUnprocessableEntity, err)
+		}
+
+		oldNamespacedPool := strings.TrimSpace(oldDevice.Annotations[namespacedAssignmentAnnotation])
+		oldClusterPool := strings.TrimSpace(oldDevice.Annotations[clusterAssignmentAnnotation])
+		assignmentChanged = oldNamespacedPool != namespacedPool || oldClusterPool != clusterPool
+	}
+
+	if !assignmentChanged {
+		return cradmission.Allowed("")
+	}
+
 	if namespacedPool == "" && clusterPool == "" {
 		return cradmission.Allowed("")
+	}
+
+	if strings.EqualFold(device.Labels["gpu.deckhouse.io/ignore"], "true") {
+		return cradmission.Denied("device is marked as ignored")
+	}
+
+	if device.Status.State != v1alpha1.GPUDeviceStateReady {
+		return cradmission.Denied(fmt.Sprintf("device state must be Ready, got %s", device.Status.State))
 	}
 
 	if clusterPool != "" {

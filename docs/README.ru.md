@@ -43,7 +43,8 @@ weight: 10
   профили MIG, объём памяти, compute capability, поддерживаемая точность,
   флаги управляемости.
 - Агрегирует состояние узла в `GPUNodeState`: сведения о драйвере, готовности
-  CUDA Toolkit, статус bootstrap и условия готовности.
+  CUDA Toolkit и условия готовности (например, `ManagedDisabled`,
+  `InventoryComplete`, `ReadyForPooling`, `DriverMissing`, `ToolkitMissing`).
 - Публикует события Kubernetes (`GPUDeviceDetected`, `GPUInventoryConditionChanged`)
   и метрики Prometheus (`gpu_inventory_devices_total`,
   `gpu_inventory_condition`).
@@ -59,8 +60,8 @@ weight: 10
   статус с аппаратными характеристиками, флагами управляемости и вызывает
   обработчики для применения контрактов (авто-привязка, здоровье, пулы).
 - **GPUNodeState** — агрегированное состояние узла, включающее драйвер,
-  статус bootstrap, условия `ManagedDisabled`/`InventoryComplete` и другую
-  информацию для высокоуровневых контроллеров и admission webhook'ов.
+  условия готовности и другую информацию для высокоуровневых контроллеров и
+  admission webhook'ов.
 
 ## Работа контроллера
 
@@ -91,6 +92,18 @@ weight: 10
   которое метит GPU-узлы в пространстве `gpu.deckhouse.io/*`.
 - `pkg/readiness` — публикует probe готовности, чтобы addon-operator блокировал
   релизы при ошибках валидации или незавершённом bootstrap.
+
+Bootstrap DaemonSet'ы всегда разворачивают NVIDIA-стек (GFD + gfd-extender, DCGM
+hostengine/exporter, watchdog, validator) на управляемых GPU-нодах вне
+зависимости от `monitoring.serviceMonitor`. Флаг мониторинга влияет только на
+рендер объектов Prometheus/Grafana; DCGM-метрики экспортируются в Prometheus и не
+сохраняются в CRD.
+
+Планирование DaemonSet'ов выполняется по меткам Node, которые выставляет
+поставляемый NodeFeatureRule (например `gpu.deckhouse.io/present=true`), и
+политике управляемых узлов. Они не зависят от наличия `GPUDevice`/`GPUNodeState`,
+поэтому bootstrap Pod'ы могут быть запущены даже при деградации контроллеров
+инвентаризации.
 
 ## Пакетирование и поставка
 
@@ -134,31 +147,29 @@ weight: 10
      name: gpu-control-plane
    spec:
      enabled: true
-    settings:
-      highAvailability: true
-      managedNodes:
-        labelKey: gpu.deckhouse.io/enabled
-        enabledByDefault: true
-       deviceApproval:
-         mode: Manual
-       scheduling:
-         defaultStrategy: Spread
-         topologyKey: topology.kubernetes.io/zone
-      inventory:
-        resyncPeriod: "30s"
-    version: 1
+   settings:
+     highAvailability: true
+     managedNodes:
+       labelKey: gpu.deckhouse.io/enabled
+       enabledByDefault: true
+     deviceApproval:
+       mode: Manual
+     scheduling:
+       defaultStrategy: Spread
+       topologyKey: topology.kubernetes.io/zone
+     inventory:
+       resyncPeriod: "30s"
+   version: 1
    ```
 
-```
-
-При опущенных полях используются значения по умолчанию:
-`managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
-`deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
-`scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
+   При опущенных полях используются значения по умолчанию:
+   `managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
+   `deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
+   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
 
 5. Проверка работы: Deployment `gpu-control-plane-controller` в
-пространстве имён `d8-gpu-control-plane`, появление объектов
-`GPUDevice`/`GPUNodeState` для GPU-узлов.
+   пространстве имён `d8-gpu-control-plane`, появление объектов
+   `GPUDevice`/`GPUNodeState` для GPU-узлов.
 
 Интервал повторного опроса можно задать через
 `.spec.settings.inventory.resyncPeriod` (по умолчанию `30s`).
@@ -166,20 +177,23 @@ weight: 10
 ## Наблюдаемость
 
 - Метрики Prometheus: `gpu_inventory_devices_total`,
-`gpu_inventory_condition{condition=...}`.
+  `gpu_inventory_condition{condition=...}`.
 - События Kubernetes: `GPUDeviceDetected`, `GPUDeviceRemoved`,
-`GPUInventoryConditionChanged`.
+  `GPUInventoryConditionChanged`.
 - Ресурсы наблюдаемости (ScrapeConfig, PrometheusRule, Grafana дашборды) поставляются
-модулем и активируются автоматически при наличии необходимых модулей Deckhouse.
+  модулем и активируются автоматически при наличии необходимых модулей Deckhouse.
 
 ## Структура репозитория
 
 - `openapi/values.yaml` — схема внутренних значений, используемых хуками и Helm.
 - `openapi/config-values.yaml` — публичная схема для документации ModuleConfig.
 - `images/hooks/pkg/hooks` — исходники хуков, собираемых в бинарь
-`gpu-control-plane-module-hooks`.
+  `gpu-control-plane-module-hooks`.
 - `src/controller` — код контроллера инвентаризации и вспомогательных
-обработчиков.
+  обработчиков.
 - `templates/` — Helm-манифесты, которые разворачивает addon-operator.
 - `images/` — `werf.inc.yaml` с описанием сборки образов контроллера, хуков и bundle.
+
+```
+
 ```

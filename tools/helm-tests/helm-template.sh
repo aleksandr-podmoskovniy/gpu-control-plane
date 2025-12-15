@@ -63,12 +63,23 @@ ensure_helm() {
       ;;
   esac
 
+  local cache_dir="${ROOT_DIR}/.cache/helm/v${desired_version}/${os}-${arch}"
+  local cached_bin="${cache_dir}/helm"
+  if [[ -x "${cached_bin}" ]]; then
+    HELM_BIN="${cached_bin}"
+    return
+  fi
+
   echo "Downloading Helm v${desired_version} (${os}/${arch}) ..." >&2
   HELM_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/helm.XXXXXX")
-  curl -sSL "https://get.helm.sh/helm-v${desired_version}-${os}-${arch}.tar.gz" -o "${HELM_TMPDIR}/helm.tar.gz"
+  curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 --http1.1 \
+    "https://get.helm.sh/helm-v${desired_version}-${os}-${arch}.tar.gz" \
+    -o "${HELM_TMPDIR}/helm.tar.gz"
   tar -xzf "${HELM_TMPDIR}/helm.tar.gz" -C "${HELM_TMPDIR}"
-  HELM_BIN="${HELM_TMPDIR}/${os}-${arch}/helm"
-  chmod +x "${HELM_BIN}"
+  mkdir -p "${cache_dir}"
+  cp "${HELM_TMPDIR}/${os}-${arch}/helm" "${cached_bin}"
+  chmod +x "${cached_bin}"
+  HELM_BIN="${cached_bin}"
 }
 
 render_chart() {

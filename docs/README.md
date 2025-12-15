@@ -41,8 +41,9 @@ consistent view of detected hardware for other Deckhouse modules.
 
 - Keeps a per-device representation in `GPUDevice` objects (PCI IDs, MIG
   profiles, memory, compute capability, precision support, management flags).
-- Aggregates node-wide state in `GPUNodeState`, including driver/toolkit
-  versions, bootstrap status, and readiness conditions.
+- Aggregates node-wide state in `GPUNodeState` via readiness conditions
+  (for example, `ManagedDisabled`, `InventoryComplete`, `ReadyForPooling`,
+  `DriverMissing`, `ToolkitMissing`).
 - Emits Kubernetes events (`GPUDeviceDetected`, `GPUInventoryConditionChanged`)
   and Prometheus metrics (`gpu_inventory_devices_total`,
   `gpu_inventory_condition`) for monitoring and alerting.
@@ -59,8 +60,8 @@ consistent view of detected hardware for other Deckhouse modules.
   keeps hardware facts in the status, updates management flags, and triggers
   downstream handlers that apply contracts (auto-attach, health, pools).
 - **GPUNodeState** – node-level aggregate with driver/toolkit summary,
-  bootstrap status, and readiness conditions consumed by higher-level
-  controllers and admission webhooks.
+  readiness conditions consumed by higher-level controllers and admission
+  webhooks.
 
 ## Controller workflow
 
@@ -97,6 +98,11 @@ DCGM hostengine/exporter, watchdog, validator) on managed nodes regardless of
 `monitoring.serviceMonitor`. The monitoring flag only controls whether Prometheus
 scrape objects and Grafana dashboards are rendered; DCGM telemetry is exposed via
 Prometheus and is not persisted in CRDs.
+
+The DaemonSets are scheduled based on Node labels produced by the shipped
+NodeFeatureRule (for example `gpu.deckhouse.io/present=true`) and the managed
+nodes policy. They do not depend on `GPUDevice`/`GPUNodeState` existence, so
+bootstrap Pods may be running even when the inventory controllers are degraded.
 
 ## Packaging and deployment assets
 
@@ -147,26 +153,24 @@ Prometheus and is not persisted in CRDs.
      managedNodes:
        labelKey: gpu.deckhouse.io/enabled
        enabledByDefault: true
-       deviceApproval:
-         mode: Manual
-       scheduling:
-         defaultStrategy: Spread
-         topologyKey: topology.kubernetes.io/zone
+     deviceApproval:
+       mode: Manual
+     scheduling:
+       defaultStrategy: Spread
+       topologyKey: topology.kubernetes.io/zone
      inventory:
        resyncPeriod: "30s"
    version: 1
    ```
 
-```
-
-If a field is omitted the module applies defaults:
-`managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
-`deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
-`scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
+   If a field is omitted the module applies defaults:
+   `managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
+   `deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
+   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
 
 5. Confirm that the controller is running in the `d8-gpu-control-plane`
-  namespace and that `GPUDevice`/`GPUNodeState` CRs are created for GPU
-  nodes.
+   namespace and that `GPUDevice`/`GPUNodeState` CRs are created for GPU
+   nodes.
 
 The background rescan interval can be adjusted via
 `.spec.settings.inventory.resyncPeriod` (default `30s`).
@@ -174,28 +178,31 @@ The background rescan interval can be adjusted via
 ## Monitoring
 
 - Prometheus metrics: `gpu_inventory_devices_total`,
- `gpu_inventory_condition{condition=...}`.
+  `gpu_inventory_condition{condition=...}`.
 - Kubernetes events: `GPUDeviceDetected`, `GPUDeviceRemoved`,
- `GPUInventoryConditionChanged`.
+  `GPUInventoryConditionChanged`.
 - Optional scraping integration (ScrapeConfig) and PrometheusRule/Grafana dashboards ship
- with the module and are enabled automatically when the required Deckhouse
- modules are present.
+  with the module and are enabled automatically when the required Deckhouse
+  modules are present.
 
 ## Repository layout
 
 - `openapi/values.yaml` – internal values schema used by hooks and templates.
 - `openapi/config-values.yaml` – public schema rendered into documentation.
 - `images/hooks/pkg/hooks` – module-sdk hooks compiled into the
- `gpu-control-plane-module-hooks` binary.
+  `gpu-control-plane-module-hooks` binary.
 - `src/controller` – Go sources of the inventory controller and supporting
- handlers.
+  handlers.
 - `templates/` – Helm manifests rendered by modules-operator/addon-operator.
 - `images/` – `werf.inc.yaml` descriptors for controller, hooks and bundle
- images.
+  images.
 
 ## Configuration reference
 
 - [Config values schema](../openapi/config-values.yaml)
 - [Internal values schema](../openapi/values.yaml)
 - [Russian config reference](../openapi/doc-ru-config-values.yaml)
+
+```
+
 ```

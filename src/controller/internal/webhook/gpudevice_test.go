@@ -140,6 +140,60 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	}
 }
 
+func TestGPUDeviceAssignmentValidatorAllowsCreateWithoutAssignment(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{Name: "dev-a"},
+	}
+	raw, _ := json.Marshal(device)
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Create,
+		Object:    runtime.RawExtension{Raw: raw},
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if !resp.Allowed {
+		t.Fatalf("expected create without assignment to be allowed, got %+v", resp.Result)
+	}
+}
+
+func TestGPUDeviceAssignmentValidatorAllowsUpdateWhenAssignmentUnchanged(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
+
+	oldDevice := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev-a",
+			Annotations: map[string]string{namespacedAssignmentAnnotation: "pool-a"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{State: v1alpha1.GPUDeviceStatePendingAssignment},
+	}
+	newDevice := oldDevice.DeepCopy()
+	newDevice.Labels = map[string]string{"example": "label"}
+
+	oldRaw, _ := json.Marshal(oldDevice)
+	newRaw, _ := json.Marshal(newDevice)
+
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Update,
+		Object:    runtime.RawExtension{Raw: newRaw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if !resp.Allowed {
+		t.Fatalf("expected update with unchanged assignment to be allowed, got %+v", resp.Result)
+	}
+}
+
 func TestGPUDeviceAssignmentValidatorAmbiguousPoolName(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
