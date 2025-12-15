@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	ensurecrds "github.com/deckhouse/module-sdk/common-hooks/ensure_crds"
+
 	_ "hooks/pkg/hooks/bootstrap_state_sync"
 	_ "hooks/pkg/hooks/ca_discovery"
 	_ "hooks/pkg/hooks/copy_custom_certificate"
@@ -26,3 +28,7 @@ import (
 	_ "hooks/pkg/hooks/tls_certificates_metrics_proxy"
 	_ "hooks/pkg/hooks/validate_module_config"
 )
+
+func init() {
+	ensurecrds.RegisterEnsureCRDsHookEM("crds/*.yaml")
+}

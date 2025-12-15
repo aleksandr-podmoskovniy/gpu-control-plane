@@ -104,8 +104,10 @@ spec:
         ) ||
         (
           has(namespaceObject.metadata.labels) &&
-          has(namespaceObject.metadata.labels["gpu.deckhouse.io/enabled"]) &&
-          namespaceObject.metadata.labels["gpu.deckhouse.io/enabled"] == "true"
+          namespaceObject.metadata.labels.exists(k, v,
+            k == "gpu.deckhouse.io/enabled" &&
+            v == "true"
+          )
         )
       message: "GPU resources may be requested only in namespaces with label gpu.deckhouse.io/enabled=true."
 ---

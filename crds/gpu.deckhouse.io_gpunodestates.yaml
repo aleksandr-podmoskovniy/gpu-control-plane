@@ -16,9 +16,6 @@ spec:
     kind: GPUNodeState
     listKind: GPUNodeStateList
     plural: gpunodestates
-    shortNames:
-    - gpunode
-    - gpnode
     singular: gpunodestate
   scope: Cluster
   versions:

@@ -165,7 +165,7 @@ type GPUDeviceList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=gpunodestates,scope=Cluster,shortName=gpunode;gpnode,categories=deckhouse;gpu
+// +kubebuilder:resource:path=gpunodestates,scope=Cluster,categories=deckhouse;gpu
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.nodeName`
 // +kubebuilder:printcolumn:name="ReadyForPooling",type=string,JSONPath=`.status.conditions[?(@.type=="ReadyForPooling")].status`
 // GPUNodeState aggregates GPU-related state for a Kubernetes node.
