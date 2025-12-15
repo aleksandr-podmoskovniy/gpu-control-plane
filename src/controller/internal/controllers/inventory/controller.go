@@ -407,9 +407,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		r.recorder.Eventf(node, corev1.EventTypeWarning, eventDetectUnavailable, "gfd-extender unavailable for node %s: %v", node.Name, err)
 	}
 
-	invPlaceholder := r.ensureInventoryPlaceholder(node)
 	for _, snapshot := range snapshotList {
-		device, res, err := r.deviceSvc().Reconcile(ctx, invPlaceholder, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, detections)
+		device, res, err := r.deviceSvc().Reconcile(ctx, node, snapshot, nodeSnapshot.Labels, managed, approvalPolicy, detections)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

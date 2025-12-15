@@ -1248,8 +1248,7 @@ func TestReconcileDeviceOwnerReferenceError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err == nil {
 		t.Fatalf("expected error due to missing scheme registration")
 	}
@@ -1289,8 +1288,7 @@ func TestReconcileDeviceGetError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if !errors.Is(err, getErr) {
 		t.Fatalf("expected device get error, got %v", err)
 	}
@@ -1332,8 +1330,7 @@ func TestReconcileDeviceMetadataPatchError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -1366,8 +1363,7 @@ func TestReconcileDeviceCreateError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -1399,8 +1395,7 @@ func TestCreateDeviceStatusConflictTriggersRequeue(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	device, result, err := reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	device, result, err := reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -1463,8 +1458,7 @@ func TestReconcileDeviceNoStatusPatchWhenUnchanged(t *testing.T) {
 		UUID:    "GPU-NOCHANGE-UUID",
 		Product: "Existing",
 	}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -2675,10 +2669,9 @@ func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
 		scheme: scheme,
 	}
 	svc := reconciler.deviceSvc().(*deviceService)
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
 
 	snapshot := deviceSnapshot{Index: "1"}
-	changed, err := svc.ensureDeviceMetadata(context.Background(), invPlaceholder, device, snapshot)
+	changed, err := svc.ensureDeviceMetadata(context.Background(), node, device, snapshot)
 	if err != nil {
 		t.Fatalf("ensureDeviceMetadata returned error: %v", err)
 	}
@@ -2691,8 +2684,8 @@ func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
 	if device.Labels[deviceIndexLabelKey] != "1" {
 		t.Fatalf("device index label not set: %v", device.Labels)
 	}
-	if len(device.OwnerReferences) != 1 || device.OwnerReferences[0].Name != invPlaceholder.Name || device.OwnerReferences[0].Kind != "GPUNodeState" {
-		t.Fatalf("expected owner reference to inventory, got %+v", device.OwnerReferences)
+	if len(device.OwnerReferences) != 1 || device.OwnerReferences[0].Name != node.Name || device.OwnerReferences[0].Kind != "Node" {
+		t.Fatalf("expected owner reference to node, got %+v", device.OwnerReferences)
 	}
 }
 
@@ -2710,12 +2703,11 @@ func TestEnsureDeviceMetadataNoChanges(t *testing.T) {
 	}
 	reconciler := &Reconciler{client: newTestClient(scheme), scheme: scheme}
 	svc := reconciler.deviceSvc().(*deviceService)
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	if err := controllerutil.SetOwnerReference(invPlaceholder, device, scheme); err != nil {
+	if err := controllerutil.SetOwnerReference(node, device, scheme); err != nil {
 		t.Fatalf("preparing owner reference: %v", err)
 	}
 
-	changed, err := svc.ensureDeviceMetadata(context.Background(), invPlaceholder, device, deviceSnapshot{Index: "0"})
+	changed, err := svc.ensureDeviceMetadata(context.Background(), node, device, deviceSnapshot{Index: "0"})
 	if err != nil {
 		t.Fatalf("ensureDeviceMetadata returned error: %v", err)
 	}
@@ -2736,8 +2728,7 @@ func TestEnsureDeviceMetadataPatchError(t *testing.T) {
 	}
 
 	svc := reconciler.deviceSvc().(*deviceService)
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, err := svc.ensureDeviceMetadata(context.Background(), invPlaceholder, device, deviceSnapshot{Index: "0"})
+	_, err := svc.ensureDeviceMetadata(context.Background(), node, device, deviceSnapshot{Index: "0"})
 	if err == nil {
 		t.Fatalf("expected patch error from ensureDeviceMetadata")
 	}
@@ -3195,8 +3186,7 @@ func TestReconcileDeviceSetsPCIAddress(t *testing.T) {
 		Product:    "NVIDIA-TEST",
 		MemoryMiB:  1024,
 	}
-	invPlaceholder := rec.ensureInventoryPlaceholder(node)
-	device, _, err := rec.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, rec.fallbackApproval, nodeDetection{})
+	device, _, err := rec.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, rec.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("reconcileDevice returned error: %v", err)
 	}
@@ -3565,8 +3555,7 @@ func TestReconcileDeviceAutoAttachAutomatic(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 
 	snapshot := deviceSnapshot{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -3640,8 +3629,7 @@ func TestReconcileDeviceSkipsStatusPatchWhenUnchanged(t *testing.T) {
 		UUID:    "GPU-UNCHANGED-UUID",
 	}
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, result, err := reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	_, result, err := reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -3858,8 +3846,7 @@ func TestReconcileDeviceRefetchFailure(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, deviceSnapshot{
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, deviceSnapshot{
 		Index:     "0",
 		Vendor:    "10de",
 		Device:    "1db5",
@@ -3907,8 +3894,7 @@ func TestReconcileDeviceStatusPatchError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, deviceSnapshot{
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, deviceSnapshot{
 		Index:     "0",
 		Vendor:    "10de",
 		Device:    "1db5",
@@ -3950,8 +3936,7 @@ func TestCreateDeviceStatusUpdateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, deviceSnapshot{
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, deviceSnapshot{
 		Index:     "0",
 		Vendor:    "10de",
 		Device:    "1db5",
@@ -4019,8 +4004,7 @@ func TestReconcileDeviceUpdatesProductUUIDAndAutoAttach(t *testing.T) {
 		UUID:    "GPU-NEW-UUID",
 	}
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	updated, _, err := reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
+	updated, _, err := reconciler.deviceSvc().Reconcile(context.Background(), node, snapshot, map[string]string{}, true, reconciler.fallbackApproval, nodeDetection{})
 	if err != nil {
 		t.Fatalf("unexpected reconcileDevice error: %v", err)
 	}
@@ -4071,8 +4055,7 @@ func TestReconcileDeviceHandlerError(t *testing.T) {
 	reconciler.recorder = record.NewFakeRecorder(32)
 	reconciler.handlers = []contracts.InventoryHandler{errHandler}
 
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), invPlaceholder, deviceSnapshot{
+	_, _, err = reconciler.deviceSvc().Reconcile(context.Background(), node, deviceSnapshot{
 		Index:     "0",
 		Vendor:    "10de",
 		Device:    "1db5",
@@ -4093,8 +4076,7 @@ func TestEnsureDeviceMetadataOwnerReferenceError(t *testing.T) {
 	device := &v1alpha1.GPUDevice{}
 
 	svc := reconciler.deviceSvc().(*deviceService)
-	invPlaceholder := reconciler.ensureInventoryPlaceholder(node)
-	changed, err := svc.ensureDeviceMetadata(context.Background(), invPlaceholder, device, deviceSnapshot{Index: "0"})
+	changed, err := svc.ensureDeviceMetadata(context.Background(), node, device, deviceSnapshot{Index: "0"})
 	if err == nil {
 		t.Fatal("expected owner reference error")
 	}

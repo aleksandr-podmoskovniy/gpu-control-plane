@@ -32,7 +32,7 @@ import (
 )
 
 type DeviceService interface {
-	Reconcile(ctx context.Context, node *v1alpha1.GPUNodeState, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error)
+	Reconcile(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error)
 }
 
 type deviceService struct {
@@ -51,7 +51,7 @@ func newDeviceService(c client.Client, scheme *runtimeScheme, recorder eventReco
 	}
 }
 
-func (s *deviceService) Reconcile(ctx context.Context, node *v1alpha1.GPUNodeState, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
+func (s *deviceService) Reconcile(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
 	deviceName := buildDeviceName(node.Name, snapshot)
 	device := &v1alpha1.GPUDevice{}
 	err := s.client.Get(ctx, types.NamespacedName{Name: deviceName}, device)
@@ -126,7 +126,7 @@ func (s *deviceService) Reconcile(ctx context.Context, node *v1alpha1.GPUNodeSta
 	return device, result, nil
 }
 
-func (s *deviceService) createDevice(ctx context.Context, node *v1alpha1.GPUNodeState, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
+func (s *deviceService) createDevice(ctx context.Context, node *corev1.Node, snapshot deviceSnapshot, nodeLabels map[string]string, managed bool, approval DeviceApprovalPolicy, detections nodeDetection) (*v1alpha1.GPUDevice, contracts.Result, error) {
 	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: buildDeviceName(node.Name, snapshot),
@@ -175,7 +175,7 @@ func (s *deviceService) createDevice(ctx context.Context, node *v1alpha1.GPUNode
 	return device, result, nil
 }
 
-func (s *deviceService) ensureDeviceMetadata(ctx context.Context, node *v1alpha1.GPUNodeState, device *v1alpha1.GPUDevice, snapshot deviceSnapshot) (bool, error) {
+func (s *deviceService) ensureDeviceMetadata(ctx context.Context, node *corev1.Node, device *v1alpha1.GPUDevice, snapshot deviceSnapshot) (bool, error) {
 	desired := device.DeepCopy()
 	changed := false
 

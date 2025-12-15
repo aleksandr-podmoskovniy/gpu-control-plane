@@ -31,7 +31,7 @@ import (
 func TestReconcileDeviceUpdatesHardware(t *testing.T) {
 	scheme := newTestScheme(t)
 
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-extended"}}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-extended", UID: types.UID("node-extended")}}
 	existing := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "node-extended-0-10de-1db4",
@@ -70,8 +70,7 @@ func TestReconcileDeviceUpdatesHardware(t *testing.T) {
 	}
 
 	approval := DeviceApprovalPolicy{}
-	invPlaceholder := rec.ensureInventoryPlaceholder(node)
-	if _, _, err := rec.deviceSvc().Reconcile(context.Background(), invPlaceholder, snap, node.Labels, true, approval, nodeDetection{}); err != nil {
+	if _, _, err := rec.deviceSvc().Reconcile(context.Background(), node, snap, node.Labels, true, approval, nodeDetection{}); err != nil {
 		t.Fatalf("reconcileDevice returned error: %v", err)
 	}
 
