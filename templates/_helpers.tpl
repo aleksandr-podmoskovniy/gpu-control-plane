@@ -117,6 +117,8 @@ deckhouse-gpu-kernel-os
 {{- end }}
 - operator: Exists
   effect: NoSchedule
+- operator: Exists
+  effect: NoExecute
 {{- end -}}
 
 {{- define "gpuControlPlane.isEnabled" -}}
