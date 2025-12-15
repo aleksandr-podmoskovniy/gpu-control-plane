@@ -228,8 +228,10 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 	if entry.PCI.Class != "" && hw.PCI.Class == "" {
 		hw.PCI.Class = strings.ToLower(entry.PCI.Class)
 	}
-	if entry.PCI.Address != "" && hw.PCI.Address == "" {
-		hw.PCI.Address = canonicalizePCIAddress(entry.PCI.Address)
+	if entry.PCI.Address != "" {
+		if addr := canonicalizePCIAddress(entry.PCI.Address); addr != "" && addr != hw.PCI.Address {
+			hw.PCI.Address = addr
+		}
 	}
 	if entry.MIG.Capable {
 		hw.MIG.Capable = true
@@ -240,8 +242,10 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 			hw.MIG.Strategy = v1alpha1.GPUMIGStrategySingle
 		case "mixed":
 			hw.MIG.Strategy = v1alpha1.GPUMIGStrategyMixed
-		default:
+		case "none":
 			hw.MIG.Strategy = v1alpha1.GPUMIGStrategyNone
+		default:
+			// Unknown values may belong to a different semantic (e.g. "enabled"/"disabled") — do not override.
 		}
 	}
 	if len(entry.MIG.ProfilesSupported) > 0 {

@@ -94,10 +94,11 @@ func queryNVML() ([]Info, error) {
 
 		if pci, ret := dev.GetPciInfo(); ret == nvml.SUCCESS {
 			busID := strings.TrimRight(string(pci.BusId[:]), "\x00")
+			vendor, device := decodeNVMLPciDeviceID(pci.PciDeviceId)
 			info.PCI = PCIInfo{
 				Address: strings.ToLower(busID),
-				Vendor:  fmt.Sprintf("%04x", pci.PciDeviceId>>16),
-				Device:  fmt.Sprintf("%04x", pci.PciDeviceId&0xffff),
+				Vendor:  vendor,
+				Device:  device,
 				Class:   "",
 			}
 		}
@@ -111,10 +112,10 @@ func queryNVML() ([]Info, error) {
 		}
 
 		if migMode, _, ret := dev.GetMigMode(); ret == nvml.SUCCESS {
-			if migMode != 0 {
-				info.MIG.Capable = true
-				info.MIG.Mode = fmt.Sprintf("%d", migMode)
-			}
+			info.MIG.Capable, info.MIG.Mode = migInfoFromGetMigMode(true, migMode)
+		} else if ret != nvml.ERROR_NOT_SUPPORTED {
+			info.Partial = true
+			info.Warnings = append(info.Warnings, fmt.Sprintf("get mig mode: %s", nvml.ErrorString(ret)))
 		}
 
 		info.Precision = derivePrecisions(info.ComputeMajor, info.ComputeMinor)

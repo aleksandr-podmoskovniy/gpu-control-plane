@@ -61,8 +61,20 @@ func TestApplyDetectionHardwareMIGModeAndProfilesBranches(t *testing.T) {
 
 	device3 := &v1alpha1.GPUDevice{}
 	applyDetectionHardware(device3, detectGPUEntry{MIG: detectGPUMIG{Mode: "unknown"}})
-	if device3.Status.Hardware.MIG.Strategy != v1alpha1.GPUMIGStrategyNone {
-		t.Fatalf("expected MIG strategy None, got %v", device3.Status.Hardware.MIG.Strategy)
+	if device3.Status.Hardware.MIG.Strategy != "" {
+		t.Fatalf("expected MIG strategy to stay untouched, got %v", device3.Status.Hardware.MIG.Strategy)
 	}
 }
 
+func TestApplyDetectionHardwareOverridesPCIAddress(t *testing.T) {
+	device := &v1alpha1.GPUDevice{}
+	device.Status.Hardware.PCI.Address = "0000:00:00.0"
+
+	applyDetectionHardware(device, detectGPUEntry{
+		PCI: detectGPUPCI{Address: "00000000:01:00.0"},
+	})
+
+	if device.Status.Hardware.PCI.Address != "0000:01:00.0" {
+		t.Fatalf("expected pci address to be overridden, got %q", device.Status.Hardware.PCI.Address)
+	}
+}
