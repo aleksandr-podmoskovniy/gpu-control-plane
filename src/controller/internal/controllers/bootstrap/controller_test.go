@@ -288,10 +288,21 @@ type stubFieldIndexer struct {
 	err     error
 }
 
-func (s *stubFieldIndexer) IndexField(_ context.Context, _ client.Object, _ string, extractValue client.IndexerFunc) error {
-	s.results = append(s.results, extractValue(&corev1.Pod{Spec: corev1.PodSpec{NodeName: "node-a"}}))
-	s.results = append(s.results, extractValue(&corev1.Pod{}))
-	s.results = append(s.results, extractValue(&corev1.Node{}))
+func (s *stubFieldIndexer) IndexField(_ context.Context, obj client.Object, _ string, extractValue client.IndexerFunc) error {
+	switch obj := obj.(type) {
+	case *corev1.Pod:
+		_ = obj
+		s.results = append(s.results, extractValue(&corev1.Pod{Spec: corev1.PodSpec{NodeName: "node-a"}}))
+		s.results = append(s.results, extractValue(&corev1.Pod{}))
+		s.results = append(s.results, extractValue(&corev1.Node{}))
+	case *v1alpha1.GPUDevice:
+		_ = obj
+		s.results = append(s.results, extractValue(&v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{NodeName: "node-b"}}))
+		s.results = append(s.results, extractValue(&v1alpha1.GPUDevice{}))
+		s.results = append(s.results, extractValue(&corev1.Node{}))
+	default:
+		s.results = append(s.results, extractValue(obj))
+	}
 	return s.err
 }
 
@@ -373,14 +384,20 @@ func TestSetupWithManagerIndexesPodsWhenIndexerProvided(t *testing.T) {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
 	idx := mgr.indexer.(*stubFieldIndexer)
-	if len(idx.results) != 3 {
-		t.Fatalf("expected 3 extractValue calls, got %d", len(idx.results))
+	if len(idx.results) != 6 {
+		t.Fatalf("expected 6 extractValue calls, got %d", len(idx.results))
 	}
 	if len(idx.results[0]) != 1 || idx.results[0][0] != "node-a" {
 		t.Fatalf("unexpected extractValue result: %#v", idx.results[0])
 	}
 	if idx.results[1] != nil || idx.results[2] != nil {
-		t.Fatalf("expected nil extractValue results for non-matching objects, got %#v", idx.results[1:])
+		t.Fatalf("expected nil extractValue results for non-matching pod objects, got %#v", idx.results[1:3])
+	}
+	if len(idx.results[3]) != 1 || idx.results[3][0] != "node-b" {
+		t.Fatalf("unexpected extractValue result for GPUDevice index: %#v", idx.results[3])
+	}
+	if idx.results[4] != nil || idx.results[5] != nil {
+		t.Fatalf("expected nil extractValue results for non-matching GPUDevice objects, got %#v", idx.results[4:])
 	}
 }
 
@@ -768,14 +785,10 @@ func TestReconcilePersistsStatusChanges(t *testing.T) {
 	}
 }
 
-func TestEffectiveBootstrapPhaseDefaultAndDisabled(t *testing.T) {
+func TestEffectiveBootstrapPhaseDefault(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeState{}
 	if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
 		t.Fatalf("expected default phase Validating, got %s", phase)
-	}
-	inventory.Status.Conditions = []metav1.Condition{{Type: conditionManagedDisabled, Status: metav1.ConditionTrue}}
-	if phase := effectiveBootstrapPhase(inventory); phase != "Disabled" {
-		t.Fatalf("expected phase Disabled when managed-disabled, got %s", phase)
 	}
 }
 
@@ -788,33 +801,29 @@ func TestEffectiveBootstrapPhaseVariants(t *testing.T) {
 		}
 	})
 
-	t.Run("validating-driver", func(t *testing.T) {
+	t.Run("validating-driver-not-ready", func(t *testing.T) {
 		inventory := &v1alpha1.GPUNodeState{}
-		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionDriverMissing, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionToolkitReady, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionDriverReady, Status: metav1.ConditionFalse})
 		if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
 			t.Fatalf("expected phase Validating, got %s", phase)
 		}
 	})
 
-	t.Run("validating-toolkit", func(t *testing.T) {
+	t.Run("validating-toolkit-not-ready", func(t *testing.T) {
 		inventory := &v1alpha1.GPUNodeState{}
-		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionToolkitMissing, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionDriverReady, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionToolkitReady, Status: metav1.ConditionFalse})
 		if phase := effectiveBootstrapPhase(inventory); phase != "Validating" {
 			t.Fatalf("expected phase Validating, got %s", phase)
 		}
 	})
 
-	t.Run("monitoring-missing", func(t *testing.T) {
+	t.Run("monitoring-not-ready", func(t *testing.T) {
 		inventory := &v1alpha1.GPUNodeState{}
-		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionMonitoringMissing, Status: metav1.ConditionTrue})
-		if phase := effectiveBootstrapPhase(inventory); phase != "Monitoring" {
-			t.Fatalf("expected phase Monitoring, got %s", phase)
-		}
-	})
-
-	t.Run("monitoring-gfd-false", func(t *testing.T) {
-		inventory := &v1alpha1.GPUNodeState{}
-		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionGFDReady, Status: metav1.ConditionFalse})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionDriverReady, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionToolkitReady, Status: metav1.ConditionTrue})
+		apimeta.SetStatusCondition(&inventory.Status.Conditions, metav1.Condition{Type: conditionMonitoringReady, Status: metav1.ConditionFalse})
 		if phase := effectiveBootstrapPhase(inventory); phase != "Monitoring" {
 			t.Fatalf("expected phase Monitoring, got %s", phase)
 		}

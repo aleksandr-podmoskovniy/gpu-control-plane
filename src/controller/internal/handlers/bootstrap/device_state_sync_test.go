@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 func newDeviceClient(t *testing.T, objs ...runtime.Object) client.Client {
@@ -38,7 +39,14 @@ func newDeviceClient(t *testing.T, objs ...runtime.Object) client.Client {
 	}
 	builder := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithStatusSubresource(&v1alpha1.GPUDevice{})
+		WithStatusSubresource(&v1alpha1.GPUDevice{}).
+		WithIndex(&v1alpha1.GPUDevice{}, indexer.GPUDeviceNodeField, func(obj client.Object) []string {
+			dev, ok := obj.(*v1alpha1.GPUDevice)
+			if !ok || dev.Status.NodeName == "" {
+				return nil
+			}
+			return []string{dev.Status.NodeName}
+		})
 	if len(objs) > 0 {
 		builder = builder.WithRuntimeObjects(objs...)
 	}
@@ -51,10 +59,9 @@ func inventoryWithInfraReady(node string) *v1alpha1.GPUNodeState {
 		Status: v1alpha1.GPUNodeStateStatus{
 			Conditions: []metav1.Condition{
 				{Type: conditionInventoryComplete, Status: metav1.ConditionTrue},
-				{Type: conditionGFDReady, Status: metav1.ConditionTrue},
-				{Type: conditionDriverMissing, Status: metav1.ConditionFalse},
-				{Type: conditionToolkitMissing, Status: metav1.ConditionFalse},
-				{Type: conditionMonitoringMissing, Status: metav1.ConditionFalse},
+				{Type: conditionDriverReady, Status: metav1.ConditionTrue},
+				{Type: conditionToolkitReady, Status: metav1.ConditionTrue},
+				{Type: conditionMonitoringReady, Status: metav1.ConditionTrue},
 			},
 		},
 	}
@@ -91,9 +98,9 @@ func (f *failingDevicePatchClient) Status() client.StatusWriter {
 	return failingStatusWriter{}
 }
 
-func TestDeviceStateSyncHandlerKeepsDevicesDiscoveredWhileValidating(t *testing.T) {
+func TestDeviceStateSyncHandlerKeepsDevicesDiscoveredWhenDriverNotReady(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
 	}
 
@@ -104,9 +111,7 @@ func TestDeviceStateSyncHandlerKeepsDevicesDiscoveredWhileValidating(t *testing.
 
 	inventory := &v1alpha1.GPUNodeState{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-		Status: v1alpha1.GPUNodeStateStatus{
-			Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionFalse}},
-		},
+		Status:     v1alpha1.GPUNodeStateStatus{},
 	}
 
 	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
@@ -124,7 +129,7 @@ func TestDeviceStateSyncHandlerKeepsDevicesDiscoveredWhileValidating(t *testing.
 
 func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenDriverMissingAfterInventoryComplete(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateReady},
 	}
 
@@ -138,7 +143,6 @@ func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenDriverMissingAfterInventor
 		Status: v1alpha1.GPUNodeStateStatus{
 			Conditions: []metav1.Condition{
 				{Type: conditionInventoryComplete, Status: metav1.ConditionTrue},
-				{Type: conditionDriverMissing, Status: metav1.ConditionTrue},
 			},
 		},
 	}
@@ -158,7 +162,7 @@ func TestDeviceStateSyncHandlerMarksDevicesFaultedWhenDriverMissingAfterInventor
 
 func TestDeviceStateSyncHandlerDoesNotFaultNewDevices(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
 	}
 
@@ -172,7 +176,6 @@ func TestDeviceStateSyncHandlerDoesNotFaultNewDevices(t *testing.T) {
 		Status: v1alpha1.GPUNodeStateStatus{
 			Conditions: []metav1.Condition{
 				{Type: conditionInventoryComplete, Status: metav1.ConditionTrue},
-				{Type: conditionDriverMissing, Status: metav1.ConditionTrue},
 			},
 		},
 	}
@@ -211,7 +214,7 @@ func TestDeviceStateSyncHandlerSkipsEmptyNode(t *testing.T) {
 
 func TestDeviceStateSyncHandlerPromotesToReady(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
 	}
 	client := newDeviceClient(t, device)
@@ -242,21 +245,16 @@ func TestDeviceStateSyncHandlerKeepsAssignedStates(t *testing.T) {
 		v1alpha1.GPUDeviceStateInUse,
 		v1alpha1.GPUDeviceStatePendingAssignment,
 	}
-		for _, state := range states {
-			device := &v1alpha1.GPUDevice{
-				ObjectMeta: metav1.ObjectMeta{Name: string(state), Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
-				Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: state},
-			}
+	for _, state := range states {
+		device := &v1alpha1.GPUDevice{
+			ObjectMeta: metav1.ObjectMeta{Name: string(state)},
+			Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: state},
+		}
 		client := newDeviceClient(t, device)
 		handler := NewDeviceStateSyncHandler(testr.New(t))
 		handler.SetClient(client)
 
-		inventory := &v1alpha1.GPUNodeState{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
-			Status: v1alpha1.GPUNodeStateStatus{
-				Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionTrue}},
-			},
-		}
+		inventory := inventoryWithInfraReady("node-a")
 
 		if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
 			t.Fatalf("handler returned error: %v", err)
@@ -273,7 +271,7 @@ func TestDeviceStateSyncHandlerKeepsAssignedStates(t *testing.T) {
 
 func TestDeviceStateSyncHandlerMovesDiscoveredToValidatingWhenInfraReady(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
 	}
 	client := newDeviceClient(t, device)
@@ -295,7 +293,7 @@ func TestDeviceStateSyncHandlerMovesDiscoveredToValidatingWhenInfraReady(t *test
 
 func TestDeviceStateSyncHandlerRecoversFaultedWhenInfraStable(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateFaulted},
 	}
 	client := newDeviceClient(t, device)
@@ -319,7 +317,7 @@ func TestDeviceStateSyncHandlerRecoversFaultedWhenInfraStable(t *testing.T) {
 
 func TestDeviceStateSyncHandlerFaultsReadyWhenDriverMissing(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateReady},
 	}
 	client := newDeviceClient(t, device)
@@ -328,9 +326,8 @@ func TestDeviceStateSyncHandlerFaultsReadyWhenDriverMissing(t *testing.T) {
 
 	inventory := inventoryWithInfraReady("node-a")
 	for i := range inventory.Status.Conditions {
-		if inventory.Status.Conditions[i].Type == conditionDriverMissing {
-			inventory.Status.Conditions[i].Status = metav1.ConditionTrue
-			break
+		if inventory.Status.Conditions[i].Type == conditionDriverReady {
+			inventory.Status.Conditions[i].Status = metav1.ConditionFalse
 		}
 	}
 	if _, err := handler.HandleNode(context.Background(), inventory); err != nil {
@@ -364,7 +361,7 @@ func TestDeviceStateSyncHandlerHandlesListError(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeState{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Status: v1alpha1.GPUNodeStateStatus{
-			Conditions: []metav1.Condition{{Type: conditionReadyForPooling, Status: metav1.ConditionTrue}},
+			Conditions: []metav1.Condition{{Type: conditionDriverReady, Status: metav1.ConditionTrue}},
 		},
 	}
 
@@ -375,7 +372,7 @@ func TestDeviceStateSyncHandlerHandlesListError(t *testing.T) {
 
 func TestDeviceStateSyncHandlerAggregatesPatchErrors(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev", Labels: map[string]string{gpuDeviceNodeLabelKey: "node-a"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-dev"},
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a", State: v1alpha1.GPUDeviceStateDiscovered},
 	}
 	baseClient := newDeviceClient(t, device)
@@ -412,36 +409,34 @@ func TestDesiredDeviceState(t *testing.T) {
 	tests := []struct {
 		name               string
 		device             *v1alpha1.GPUDevice
+		driverToolkitReady bool
 		infraReady         bool
 		degradedHard       bool
-		degradedMonitoring bool
 		want               v1alpha1.GPUDeviceState
 		mutate             bool
 	}{
-		{"assigned-remains", newDevice(v1alpha1.GPUDeviceStateAssigned), true, false, false, v1alpha1.GPUDeviceStateAssigned, false},
+		{"assigned-remains", newDevice(v1alpha1.GPUDeviceStateAssigned), true, true, false, v1alpha1.GPUDeviceStateAssigned, false},
 		{"reserved-remains", newDevice(v1alpha1.GPUDeviceStateReserved), false, false, false, v1alpha1.GPUDeviceStateReserved, false},
-		{"ready-stable", newDevice(v1alpha1.GPUDeviceStateReady), true, false, false, v1alpha1.GPUDeviceStateReady, false},
-		{"ready-ignores-monitoring-only", newDevice(v1alpha1.GPUDeviceStateReady), false, false, true, v1alpha1.GPUDeviceStateReady, false},
-		{"ready-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateReady), true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
-		{"pending-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
-		{"pending-stable-when-clean", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), true, false, false, v1alpha1.GPUDeviceStatePendingAssignment, false},
-		{"discovered-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"discovered-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), false, false, false, v1alpha1.GPUDeviceStateDiscovered, false},
-		{"faulted-to-validating-when-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"faulted-stays-when-not-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), false, false, false, v1alpha1.GPUDeviceStateFaulted, false},
-		{"faulted-stays-when-monitoring-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), false, false, true, v1alpha1.GPUDeviceStateFaulted, false},
-		{"faulted-stays-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), true, true, false, v1alpha1.GPUDeviceStateFaulted, false},
-		{"validating-to-ready", newDevice(v1alpha1.GPUDeviceStateValidating), true, false, false, v1alpha1.GPUDeviceStateReady, true},
-		{"validating-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), true, true, false, v1alpha1.GPUDeviceStateFaulted, true},
-		{"validating-stays-when-monitoring-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), false, false, true, v1alpha1.GPUDeviceStateValidating, false},
-		{"validating-waits-when-not-ready", newDevice(v1alpha1.GPUDeviceStateValidating), false, false, false, v1alpha1.GPUDeviceStateValidating, false},
+		{"ready-stable", newDevice(v1alpha1.GPUDeviceStateReady), true, true, false, v1alpha1.GPUDeviceStateReady, false},
+		{"ready-demotes-when-monitoring-missing", newDevice(v1alpha1.GPUDeviceStateReady), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"ready-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateReady), true, true, true, v1alpha1.GPUDeviceStateFaulted, true},
+		{"pending-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), true, true, true, v1alpha1.GPUDeviceStateFaulted, true},
+		{"pending-stable-when-clean", newDevice(v1alpha1.GPUDeviceStatePendingAssignment), true, true, false, v1alpha1.GPUDeviceStatePendingAssignment, false},
+		{"discovered-to-validating-when-driver-toolkit-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"discovered-stays-when-driver-toolkit-not-ready", newDevice(v1alpha1.GPUDeviceStateDiscovered), false, false, false, v1alpha1.GPUDeviceStateDiscovered, false},
+		{"faulted-to-validating-when-driver-toolkit-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
+		{"faulted-stays-when-driver-toolkit-not-ready", newDevice(v1alpha1.GPUDeviceStateFaulted), false, false, false, v1alpha1.GPUDeviceStateFaulted, false},
+		{"faulted-stays-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateFaulted), true, true, true, v1alpha1.GPUDeviceStateFaulted, false},
+		{"validating-to-ready", newDevice(v1alpha1.GPUDeviceStateValidating), true, true, false, v1alpha1.GPUDeviceStateReady, true},
+		{"validating-faulted-when-hard-degraded", newDevice(v1alpha1.GPUDeviceStateValidating), true, true, true, v1alpha1.GPUDeviceStateFaulted, true},
+		{"validating-waits-when-infra-not-ready", newDevice(v1alpha1.GPUDeviceStateValidating), true, false, false, v1alpha1.GPUDeviceStateValidating, false},
+		{"empty-state-normalizes", newDevice(""), false, false, false, v1alpha1.GPUDeviceStateDiscovered, true},
 		{"empty-state-promotes", newDevice(""), true, false, false, v1alpha1.GPUDeviceStateValidating, true},
-		{"empty-state-degraded-hard", newDevice(""), false, true, false, v1alpha1.GPUDeviceStateDiscovered, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, mutate := desiredDeviceState(tt.device, tt.infraReady, tt.degradedHard, tt.degradedMonitoring)
+			got, mutate := desiredDeviceState(tt.device, tt.driverToolkitReady, tt.infraReady, tt.degradedHard)
 			if got != tt.want || mutate != tt.mutate {
 				t.Fatalf("expected (%s,%t), got (%s,%t)", tt.want, tt.mutate, got, mutate)
 			}

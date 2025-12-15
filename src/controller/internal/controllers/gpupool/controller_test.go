@@ -287,8 +287,8 @@ func TestSetupWithManagerAddsModuleConfigWatch(t *testing.T) {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
 
-	if len(stub.watchedSources) != 2 {
-		t.Fatalf("expected module config + device watchers, got %d", len(stub.watchedSources))
+	if len(stub.watchedSources) != 3 {
+		t.Fatalf("expected module config + device + validator pod watchers, got %d", len(stub.watchedSources))
 	}
 }
 
@@ -306,8 +306,8 @@ func TestSetupWithManagerWithoutModuleWatcherFactory(t *testing.T) {
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
-	if len(stub.watchedSources) != 1 {
-		t.Fatalf("expected only device watcher, got %d", len(stub.watchedSources))
+	if len(stub.watchedSources) != 2 {
+		t.Fatalf("expected device + validator pod watchers, got %d", len(stub.watchedSources))
 	}
 }
 

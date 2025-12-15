@@ -335,6 +335,12 @@ type ClusterGPUPoolList struct {
 type GPUPoolCapacityStatus struct {
 	// Total is total pool capacity expressed in declared units.
 	Total int32 `json:"total,omitempty"`
+	// Available is currently available pool capacity expressed in declared units.
+	// Currently the system does not track runtime usage, so Available == Total.
+	Available int32 `json:"available,omitempty"`
+	// Used is the capacity currently allocated to workloads.
+	// Currently the system does not track runtime usage, so Used is always 0.
+	Used int32 `json:"used,omitempty"`
 }
 
 // +kubebuilder:object:root=true

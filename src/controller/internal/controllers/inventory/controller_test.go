@@ -281,6 +281,7 @@ type fakeControllerBuilder struct {
 	name           string
 	forObjects     []client.Object
 	ownedObjects   []client.Object
+	ownsMatchEvery map[int]bool
 	watchedSources []source.Source
 	options        controller.Options
 	completed      bool
@@ -297,8 +298,17 @@ func (b *fakeControllerBuilder) For(obj client.Object, _ ...builder.ForOption) c
 	return b
 }
 
-func (b *fakeControllerBuilder) Owns(obj client.Object, _ ...builder.OwnsOption) controllerbuilder.Builder {
+func (b *fakeControllerBuilder) Owns(obj client.Object, opts ...builder.OwnsOption) controllerbuilder.Builder {
 	b.ownedObjects = append(b.ownedObjects, obj)
+	if b.ownsMatchEvery == nil {
+		b.ownsMatchEvery = make(map[int]bool)
+	}
+	ownedIndex := len(b.ownedObjects) - 1
+	for _, opt := range opts {
+		if opt == builder.MatchEveryOwner {
+			b.ownsMatchEvery[ownedIndex] = true
+		}
+	}
 	return b
 }
 
@@ -668,9 +678,6 @@ func TestReconcileCreatesDeviceAndInventory(t *testing.T) {
 	if cond := getCondition(fetchedInventory.Status.Conditions, conditionInventoryComplete); cond == nil || cond.Status != metav1.ConditionTrue {
 		t.Fatalf("expected InventoryComplete=true, got %+v", cond)
 	}
-	if cond := getCondition(fetchedInventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionFalse {
-		t.Fatalf("expected ManagedDisabled=false, got %+v", cond)
-	}
 }
 
 func TestReconcileHandlesNamespacedNodeFeature(t *testing.T) {
@@ -996,9 +1003,6 @@ func TestReconcileDeletesOrphansAndUpdatesManagedFlag(t *testing.T) {
 	inventory := &v1alpha1.GPUNodeState{}
 	if err := client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory); err != nil {
 		t.Fatalf("inventory missing: %v", err)
-	}
-	if cond := getCondition(inventory.Status.Conditions, conditionManagedDisabled); cond == nil || cond.Status != metav1.ConditionTrue {
-		t.Fatalf("expected ManagedDisabled=true, got %+v", cond)
 	}
 	if cond := getCondition(inventory.Status.Conditions, conditionInventoryComplete); cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected InventoryComplete=false, got %+v", cond)
@@ -1980,7 +1984,6 @@ func TestReconcileDeletesExistingInventoryWhenDevicesDisappear(t *testing.T) {
 	client := newTestClient(scheme, node, feature, device, inventory)
 
 	cpmetrics.InventoryDevicesSet(node.Name, 5)
-	cpmetrics.InventoryConditionSet(node.Name, conditionManagedDisabled, true)
 	cpmetrics.InventoryConditionSet(node.Name, conditionInventoryComplete, true)
 
 	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(defaultModuleSettings()), nil)
@@ -2506,7 +2509,7 @@ func TestReconcileNodeInventoryMarksNoDevicesDiscovered(t *testing.T) {
 		Labels:          map[string]string{},
 	}
 
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}); err != nil {
+	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 
@@ -2546,7 +2549,7 @@ func TestReconcileNodeInventorySkipsCreationWhenNoDevicesV2(t *testing.T) {
 		Labels:          map[string]string{},
 	}
 
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil, ManagedNodesPolicy{EnabledByDefault: true}); err != nil {
+	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil); err != nil {
 		t.Fatalf("unexpected reconcileNodeInventory error: %v", err)
 	}
 
@@ -2585,7 +2588,7 @@ func TestReconcileNodeInventoryOwnerReferenceError(t *testing.T) {
 		},
 	}
 
-	err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device}, reconciler.fallbackManaged)
+	err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, []*v1alpha1.GPUDevice{device})
 	if err == nil {
 		t.Fatalf("expected owner reference error due to missing scheme registration")
 	}
@@ -2630,7 +2633,7 @@ func TestReconcileNodeInventoryPatchesSpecAndOwnerRef(t *testing.T) {
 		},
 	}}
 
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, devices, ManagedNodesPolicy{}); err != nil {
+	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, devices); err != nil {
 		t.Fatalf("reconcileNodeInventory returned error: %v", err)
 	}
 
@@ -2768,7 +2771,6 @@ func TestReconcileInvokesHandlersErrorPropagation(t *testing.T) {
 func TestCleanupNodeDeletesMetrics(t *testing.T) {
 	const nodeName = "cleanup-metrics"
 	cpmetrics.InventoryDevicesSet(nodeName, 2)
-	cpmetrics.InventoryConditionSet(nodeName, conditionManagedDisabled, true)
 	cpmetrics.InventoryConditionSet(nodeName, conditionInventoryComplete, true)
 
 	scheme := newTestScheme(t)
@@ -2807,6 +2809,9 @@ func TestSetupWithDependencies(t *testing.T) {
 	}
 	if len(builder.forObjects) != 1 || len(builder.ownedObjects) != 2 {
 		t.Fatalf("unexpected builder registrations: for=%d owns=%d", len(builder.forObjects), len(builder.ownedObjects))
+	}
+	if !builder.ownsMatchEvery[0] || !builder.ownsMatchEvery[1] {
+		t.Fatalf("expected Owns() to use MatchEveryOwner for all owned objects, got %#v", builder.ownsMatchEvery)
 	}
 	if len(builder.watchedSources) != 1 || builder.watchedSources[0] != fakeSource {
 		t.Fatalf("expected node feature source to be passed to builder, got %d watchers", len(builder.watchedSources))
@@ -4110,7 +4115,7 @@ func TestReconcileNodeInventoryOwnerReferenceCreateError(t *testing.T) {
 
 	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{
 		Devices: []deviceSnapshot{{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}},
-	}, devices, reconciler.fallbackManaged)
+	}, devices)
 	if err == nil {
 		t.Fatal("expected owner reference error on create")
 	}
@@ -4140,7 +4145,7 @@ func TestReconcileNodeInventoryReturnsGetError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged); !errors.Is(err, getErr) {
+	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil); !errors.Is(err, getErr) {
 		t.Fatalf("expected get error to propagate, got %v", err)
 	}
 }
@@ -4186,7 +4191,7 @@ func TestReconcileNodeInventoryCreateError(t *testing.T) {
 
 	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{
 		Devices: []deviceSnapshot{{Index: "0", Vendor: "10de", Device: "1db5", Class: "0302"}},
-	}, devices, reconciler.fallbackManaged)
+	}, devices)
 	if !errors.Is(err, createErr) {
 		t.Fatalf("expected create error, got %v", err)
 	}
@@ -4209,7 +4214,7 @@ func TestReconcileNodeInventoryOwnerReferenceUpdateError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
+	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil)
 	if err == nil {
 		t.Fatal("expected owner reference error on update")
 	}
@@ -4248,7 +4253,7 @@ func TestReconcileNodeInventoryPatchError(t *testing.T) {
 	reconciler.scheme = scheme
 	reconciler.recorder = record.NewFakeRecorder(32)
 
-	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil, reconciler.fallbackManaged)
+	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{}, nil)
 	if !errors.Is(err, patchErr) {
 		t.Fatalf("expected patch error, got %v", err)
 	}
@@ -4313,52 +4318,9 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 				MIG:     v1alpha1.GPUMIGConfig{},
 			},
 		},
-	}}, reconciler.fallbackManaged)
+	}})
 	if err == nil || !strings.Contains(err.Error(), "inventory refetch failure") {
 		t.Fatalf("expected refetch failure, got %v", err)
-	}
-}
-
-func TestReconcileNodeInventoryDefaultManagedLabel(t *testing.T) {
-	scheme := newTestScheme(t)
-	node := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker-inv-managed-default",
-			UID:  types.UID("node-inv-managed-default"),
-		},
-	}
-	inventory := &v1alpha1.GPUNodeState{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: node.Name,
-			OwnerReferences: []metav1.OwnerReference{
-				{APIVersion: "v1", Kind: "Node", Name: node.Name, UID: node.UID},
-			},
-		},
-		Spec: v1alpha1.GPUNodeStateSpec{NodeName: node.Name},
-	}
-	client := newTestClient(scheme, node, inventory)
-
-	module := defaultModuleSettings()
-	module.ManagedNodes.LabelKey = ""
-
-	reconciler, err := New(testr.New(t), config.ControllerConfig{}, moduleStoreFrom(module), nil)
-	if err != nil {
-		t.Fatalf("unexpected error constructing reconciler: %v", err)
-	}
-	reconciler.client = client
-	reconciler.scheme = scheme
-	reconciler.recorder = record.NewFakeRecorder(32)
-
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{Managed: false}, nil, ManagedNodesPolicy{}); err != nil {
-		t.Fatalf("unexpected reconcile error: %v", err)
-	}
-	updatedInventory := &v1alpha1.GPUNodeState{}
-	if err := client.Get(context.Background(), types.NamespacedName{Name: node.Name}, updatedInventory); err != nil {
-		t.Fatalf("get inventory: %v", err)
-	}
-	cond := getCondition(updatedInventory.Status.Conditions, conditionManagedDisabled)
-	if cond == nil || cond.Message != fmt.Sprintf("node is marked with %s=false", defaultManagedNodeLabelKey) {
-		t.Fatalf("expected default managed label usage, got %+v", cond)
 	}
 }
 
@@ -4436,7 +4398,7 @@ func TestReconcileNodeInventorySkipsCreationWhenNoDevices(t *testing.T) {
 	}
 
 	snapshot := nodeSnapshot{Devices: nil}
-	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil, ManagedNodesPolicy{}); err != nil {
+	if err := reconciler.inventorySvc().Reconcile(context.Background(), node, snapshot, nil); err != nil {
 		t.Fatalf("reconcileNodeInventory returned error: %v", err)
 	}
 	if err := client.Get(context.Background(), types.NamespacedName{Name: "worker-empty"}, &v1alpha1.GPUNodeState{}); !apierrors.IsNotFound(err) {

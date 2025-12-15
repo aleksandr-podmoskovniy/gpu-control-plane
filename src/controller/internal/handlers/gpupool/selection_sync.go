@@ -129,12 +129,6 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 		}
 	}
 
-	capacityState := func(s v1alpha1.GPUDeviceState) bool {
-		return s == v1alpha1.GPUDeviceStateAssigned ||
-			s == v1alpha1.GPUDeviceStateReserved ||
-			s == v1alpha1.GPUDeviceStateInUse
-	}
-
 	var (
 		totalUnits int32
 		toUpdate   []v1alpha1.GPUDevice
@@ -147,11 +141,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 				toUpdate = append(toUpdate, dev)
 			}
 
-			// In pool capacity we consider only devices validated by DP:
-			// Assigned/Reserved/InUse. PendingAssignment does not add capacity (per ADR).
-			if !capacityState(dev.Status.State) {
-				continue
-			}
+			// Pool capacity is a static upper bound derived from assignment annotations,
+			// not a real-time availability signal. Runtime readiness (validator/device-plugin)
+			// is tracked separately via device states and pool conditions.
 			if pool.Spec.Resource.MaxDevicesPerNode != nil && takenOnNode >= *pool.Spec.Resource.MaxDevicesPerNode {
 				continue
 			}
@@ -179,6 +171,9 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 	}
 
 	pool.Status.Capacity.Total = totalUnits
+	// Runtime usage tracking is disabled (pod-driven usage removed).
+	pool.Status.Capacity.Available = totalUnits
+	pool.Status.Capacity.Used = 0
 
 	for i := range toUpdate {
 		dev := toUpdate[i]

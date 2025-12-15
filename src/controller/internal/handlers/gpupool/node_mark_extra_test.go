@@ -93,7 +93,7 @@ func TestSyncNodeAddsAndRemovesLabelsAndTaints(t *testing.T) {
 	}
 }
 
-func TestSyncNodeNoExecuteWhenDevicesGone(t *testing.T) {
+func TestSyncNodeClearsTaintsWhenDevicesGone(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}}
@@ -104,8 +104,8 @@ func TestSyncNodeNoExecuteWhenDevicesGone(t *testing.T) {
 	}
 	out := &corev1.Node{}
 	_ = cl.Get(context.Background(), types.NamespacedName{Name: "node1"}, out)
-	if len(out.Spec.Taints) != 1 || out.Spec.Taints[0].Effect != corev1.TaintEffectNoExecute {
-		t.Fatalf("expected NoExecute taint, got %+v", out.Spec.Taints)
+	if len(out.Spec.Taints) != 0 {
+		t.Fatalf("expected no taints, got %+v", out.Spec.Taints)
 	}
 }
 
@@ -329,7 +329,7 @@ func TestNodeMarkRemovesAltPrefixAndTaints(t *testing.T) {
 		}
 	}
 
-	// when devices gone and taintsEnabled true, alt prefix removed and NoExecute applied for primary key
+	// when devices gone and taintsEnabled true, both pool taints are removed
 	if err := h.syncNode(context.Background(), "node1", "cluster.gpu.deckhouse.io/pool", "gpu.deckhouse.io/pool", false, true); err != nil {
 		t.Fatalf("syncNode remove path: %v", err)
 	}
@@ -337,8 +337,8 @@ func TestNodeMarkRemovesAltPrefixAndTaints(t *testing.T) {
 	if _, ok := updated.Labels["cluster.gpu.deckhouse.io/pool"]; ok {
 		t.Fatalf("labels should be cleared when no devices")
 	}
-	if len(updated.Spec.Taints) != 1 || updated.Spec.Taints[0].Key != "cluster.gpu.deckhouse.io/pool" || updated.Spec.Taints[0].Effect != corev1.TaintEffectNoExecute {
-		t.Fatalf("expected primary NoExecute taint only, got %v", updated.Spec.Taints)
+	if len(updated.Spec.Taints) != 0 {
+		t.Fatalf("expected pool taints removed, got %v", updated.Spec.Taints)
 	}
 }
 
@@ -385,7 +385,7 @@ func TestSyncNodeWithoutAltPrefix(t *testing.T) {
 	}
 }
 
-func TestSyncNodeEvictsAndRemovesLabelsWhenDevicesGone(t *testing.T) {
+func TestSyncNodeRemovesLabelsWhenDevicesGone(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	node := &corev1.Node{
@@ -408,8 +408,8 @@ func TestSyncNodeEvictsAndRemovesLabelsWhenDevicesGone(t *testing.T) {
 	if _, ok := updated.Labels["cluster.gpu.deckhouse.io/pool"]; ok {
 		t.Fatalf("expected alt label removed")
 	}
-	if len(updated.Spec.Taints) != 1 || updated.Spec.Taints[0].Key != "gpu.deckhouse.io/pool" || updated.Spec.Taints[0].Effect != corev1.TaintEffectNoExecute {
-		t.Fatalf("expected NoExecute taint when devices gone, got %v", updated.Spec.Taints)
+	if len(updated.Spec.Taints) != 0 {
+		t.Fatalf("expected pool taints removed, got %v", updated.Spec.Taints)
 	}
 }
 

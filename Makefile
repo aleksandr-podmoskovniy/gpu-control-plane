@@ -37,6 +37,7 @@ MODULE_SDK ?= $(BIN_DIR)/module-sdk
 DMT ?= $(BIN_DIR)/dmt
 DEADCODE ?= $(BIN_DIR)/deadcode
 WERF ?= werf
+WERF_PLATFORM ?= linux/amd64
 
 export GOMODCACHE
 
@@ -130,7 +131,7 @@ docs:
 
 werf-build: ensure-module-sdk
 	@echo "==> werf build"
-	@$(WERF) build $(if $(MODULES_MODULE_SOURCE),--repo "$(MODULES_MODULE_SOURCE)") $(if $(MODULES_MODULE_TAG),--add-custom-tag "%image%-$(MODULES_MODULE_TAG)")
+	@$(WERF) build --platform=$(WERF_PLATFORM) $(if $(MODULES_MODULE_SOURCE),--repo "$(MODULES_MODULE_SOURCE)") $(if $(MODULES_MODULE_TAG),--add-custom-tag "%image%-$(MODULES_MODULE_TAG)")
 
 kubeconform:
 	@echo "==> kubeconform"

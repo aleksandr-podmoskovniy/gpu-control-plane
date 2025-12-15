@@ -72,7 +72,6 @@ func (c *cleanupService) DeleteInventory(ctx context.Context, nodeName string) e
 
 func (c *cleanupService) ClearMetrics(nodeName string) {
 	cpmetrics.InventoryDevicesDelete(nodeName)
-	cpmetrics.InventoryConditionDelete(nodeName, conditionManagedDisabled)
 	cpmetrics.InventoryConditionDelete(nodeName, conditionInventoryComplete)
 	for _, state := range knownDeviceStates {
 		cpmetrics.InventoryDeviceStateDelete(nodeName, string(state))

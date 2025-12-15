@@ -115,6 +115,8 @@ deckhouse-gpu-kernel-os
 {{- else }}
 {{ include "helm_lib_tolerations" (tuple . "any-node") }}
 {{- end }}
+- operator: Exists
+  effect: NoSchedule
 {{- end -}}
 
 {{- define "gpuControlPlane.isEnabled" -}}

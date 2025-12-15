@@ -25,6 +25,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 // DeviceStateSyncHandler keeps GPUDevice.state in sync with bootstrap readiness.
@@ -58,19 +59,17 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	if nodeName == "" {
 		return contracts.Result{}, nil
 	}
-	driverReady := !isConditionTrue(inventory, conditionDriverMissing)
-	toolkitReady := !isConditionTrue(inventory, conditionToolkitMissing)
-	componentReady := isConditionTrue(inventory, conditionGFDReady)
-	monitoringMissing := isConditionTrue(inventory, conditionMonitoringMissing)
-
-	infraReady := driverReady && toolkitReady && componentReady && !monitoringMissing
+	driverReady := isConditionTrue(inventory, conditionDriverReady)
+	toolkitReady := isConditionTrue(inventory, conditionToolkitReady)
+	monitoringReady := isConditionTrue(inventory, conditionMonitoringReady)
 
 	canFaultByInfra := isConditionTrue(inventory, conditionInventoryComplete)
 	degradedHard := canFaultByInfra && (!driverReady || !toolkitReady)
-	degradedMonitoring := canFaultByInfra && monitoringMissing
+	driverAndToolkitReady := driverReady && toolkitReady
+	infraReady := driverReady && toolkitReady && monitoringReady
 
 	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := h.client.List(ctx, deviceList, client.MatchingLabels{gpuDeviceNodeLabelKey: nodeName}); err != nil {
+	if err := h.client.List(ctx, deviceList, client.MatchingFields{indexer.GPUDeviceNodeField: nodeName}); err != nil {
 		return contracts.Result{}, fmt.Errorf("list devices on node %s: %w", nodeName, err)
 	}
 
@@ -81,14 +80,18 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	var errs []error
 	for i := range deviceList.Items {
 		device := &deviceList.Items[i]
-		target, mutate := desiredDeviceState(device, infraReady, degradedHard, degradedMonitoring)
+		target, mutate := desiredDeviceState(device, driverAndToolkitReady, infraReady, degradedHard)
 		if !mutate || device.Status.State == target {
 			continue
 		}
 
 		original := device.DeepCopy()
 		device.Status.State = target
-		if err := h.client.Status().Patch(ctx, device, client.MergeFrom(original)); err != nil {
+		patch := client.MergeFrom(original)
+		if original.GetResourceVersion() != "" {
+			patch = client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})
+		}
+		if err := h.client.Status().Patch(ctx, device, patch); err != nil {
 			errs = append(errs, fmt.Errorf("patch device %s: %w", device.Name, err))
 			continue
 		}
@@ -107,10 +110,9 @@ func isConditionTrue(inventory *v1alpha1.GPUNodeState, condType string) bool {
 	return false
 }
 
-func desiredDeviceState(device *v1alpha1.GPUDevice, infraReady, degradedHard, degradedMonitoring bool) (v1alpha1.GPUDeviceState, bool) {
+func desiredDeviceState(device *v1alpha1.GPUDevice, driverAndToolkitReady, infraReady, degradedHard bool) (v1alpha1.GPUDeviceState, bool) {
 	state := normalizeDeviceState(device.Status.State)
 	current := device.Status.State
-	degraded := degradedHard || degradedMonitoring
 
 	switch state {
 	case v1alpha1.GPUDeviceStateAssigned,
@@ -127,12 +129,15 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, infraReady, degradedHard, de
 		if degradedHard {
 			return v1alpha1.GPUDeviceStateFaulted, true
 		}
+		if driverAndToolkitReady && !infraReady {
+			return v1alpha1.GPUDeviceStateValidating, true
+		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateFaulted:
-		if degraded {
+		if degradedHard {
 			return state, state != current
 		}
-		if infraReady {
+		if driverAndToolkitReady {
 			return v1alpha1.GPUDeviceStateValidating, true
 		}
 		return state, state != current
@@ -145,10 +150,7 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, infraReady, degradedHard, de
 		}
 		return state, state != current
 	default:
-		if degradedHard {
-			return v1alpha1.GPUDeviceStateDiscovered, state != current
-		}
-		if infraReady {
+		if driverAndToolkitReady {
 			return v1alpha1.GPUDeviceStateValidating, true
 		}
 		return state, state != current

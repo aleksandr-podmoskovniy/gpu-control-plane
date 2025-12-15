@@ -229,7 +229,7 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 		hw.PCI.Class = strings.ToLower(entry.PCI.Class)
 	}
 	if entry.PCI.Address != "" && hw.PCI.Address == "" {
-		hw.PCI.Address = strings.ToLower(entry.PCI.Address)
+		hw.PCI.Address = canonicalizePCIAddress(entry.PCI.Address)
 	}
 	if entry.MIG.Capable {
 		hw.MIG.Capable = true

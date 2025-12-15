@@ -16,13 +16,13 @@ package bootstrap
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,8 +32,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -43,6 +45,7 @@ import (
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/reconciler"
@@ -52,12 +55,12 @@ import (
 const (
 	controllerName             = "gpu-bootstrap-controller"
 	cacheSyncTimeoutDuration   = 10 * time.Minute
-	conditionManagedDisabled   = "ManagedDisabled"
+	conditionInventoryComplete = "InventoryComplete"
+	conditionDriverReady       = "DriverReady"
+	conditionToolkitReady      = "ToolkitReady"
+	conditionMonitoringReady   = "MonitoringReady"
 	conditionReadyForPooling   = "ReadyForPooling"
-	conditionDriverMissing     = "DriverMissing"
-	conditionToolkitMissing    = "ToolkitMissing"
-	conditionMonitoringMissing = "MonitoringMissing"
-	conditionGFDReady          = "GFDReady"
+	conditionWorkloadsDegraded = "WorkloadsDegraded"
 )
 
 var managedComponentSet = func() map[string]struct{} {
@@ -70,17 +73,17 @@ var managedComponentSet = func() map[string]struct{} {
 
 var (
 	bootstrapPhases = []string{
-		"Disabled",
 		"Validating",
 		"Monitoring",
 		"Ready",
 	}
 	bootstrapConditionTypes = []string{
+		conditionInventoryComplete,
+		conditionDriverReady,
+		conditionToolkitReady,
+		conditionMonitoringReady,
 		conditionReadyForPooling,
-		conditionDriverMissing,
-		conditionToolkitMissing,
-		conditionMonitoringMissing,
-		conditionGFDReady,
+		conditionWorkloadsDegraded,
 	}
 )
 
@@ -122,13 +125,16 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	r.injectClient()
 	r.scheme = mgr.GetScheme()
 
-	if indexer := mgr.GetFieldIndexer(); indexer != nil {
-		if err := indexer.IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(obj client.Object) []string {
+	if fieldIndexer := mgr.GetFieldIndexer(); fieldIndexer != nil {
+		if err := fieldIndexer.IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(obj client.Object) []string {
 			if pod, ok := obj.(*corev1.Pod); ok && pod.Spec.NodeName != "" {
 				return []string{pod.Spec.NodeName}
 			}
 			return nil
 		}); err != nil {
+			return err
+		}
+		if err := indexer.IndexGPUDeviceByNode(ctx, fieldIndexer); err != nil {
 			return err
 		}
 	}
@@ -153,6 +159,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		if r.workloadWatcherFactory != nil {
 			ctrlBuilder = r.workloadWatcherFactory(cache, ctrlBuilder)
 		}
+		ctrlBuilder = r.attachDeviceWatcher(ctrlBuilder, cache)
 	}
 
 	return ctrlBuilder.Complete(r)
@@ -185,6 +192,12 @@ func (r *Reconciler) attachWorkloadWatcher(b controllerbuilder.Builder, c cache.
 	return b.WatchesRawSource(source.Kind(c, pod, handlerFunc))
 }
 
+func (r *Reconciler) attachDeviceWatcher(b controllerbuilder.Builder, c cache.Cache) controllerbuilder.Builder {
+	dev := &v1alpha1.GPUDevice{}
+	handlerFunc := handler.TypedEnqueueRequestsFromMapFunc(mapDeviceToInventory)
+	return b.WatchesRawSource(source.Kind(c, dev, handlerFunc, devicePredicates()))
+}
+
 func (r *Reconciler) mapModuleConfig(ctx context.Context, _ *unstructured.Unstructured) []reconcile.Request {
 	if r.store != nil && !r.store.Current().Enabled {
 		return nil
@@ -209,6 +222,54 @@ func mapWorkloadPodToInventory(_ context.Context, pod *corev1.Pod) []reconcile.R
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: pod.Spec.NodeName}}}
+}
+
+func mapDeviceToInventory(_ context.Context, dev *v1alpha1.GPUDevice) []reconcile.Request {
+	if dev == nil {
+		return nil
+	}
+
+	nodeName := strings.TrimSpace(dev.Status.NodeName)
+	if nodeName == "" && dev.Labels != nil {
+		nodeName = strings.TrimSpace(dev.Labels["gpu.deckhouse.io/node"])
+	}
+	if nodeName == "" && dev.Labels != nil {
+		nodeName = strings.TrimSpace(dev.Labels["kubernetes.io/hostname"])
+	}
+	if nodeName == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}}
+}
+
+func devicePredicates() predicate.TypedPredicate[*v1alpha1.GPUDevice] {
+	return predicate.TypedFuncs[*v1alpha1.GPUDevice]{
+		CreateFunc:  func(event.TypedCreateEvent[*v1alpha1.GPUDevice]) bool { return true },
+		DeleteFunc:  func(event.TypedDeleteEvent[*v1alpha1.GPUDevice]) bool { return true },
+		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUDevice]) bool { return false },
+		UpdateFunc: func(e event.TypedUpdateEvent[*v1alpha1.GPUDevice]) bool {
+			oldDev, newDev := e.ObjectOld, e.ObjectNew
+			if oldDev == nil || newDev == nil {
+				return true
+			}
+			return deviceChanged(oldDev, newDev)
+		},
+	}
+}
+
+func deviceChanged(oldDev, newDev *v1alpha1.GPUDevice) bool {
+	if oldDev.Status.State != newDev.Status.State || oldDev.Status.NodeName != newDev.Status.NodeName || oldDev.Status.Managed != newDev.Status.Managed {
+		return true
+	}
+	if (oldDev.Status.PoolRef == nil) != (newDev.Status.PoolRef == nil) {
+		return true
+	}
+	if oldDev.Status.PoolRef != nil && newDev.Status.PoolRef != nil {
+		if oldDev.Status.PoolRef.Name != newDev.Status.PoolRef.Name || oldDev.Status.PoolRef.Namespace != newDev.Status.PoolRef.Namespace {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -328,33 +389,23 @@ func (r *Reconciler) clearBootstrapMetrics(node string) {
 }
 
 func effectiveBootstrapPhase(inventory *v1alpha1.GPUNodeState) string {
-	if isManagedDisabled(inventory) {
-		return "Disabled"
-	}
 	if conditionTrue(inventory, conditionReadyForPooling) {
 		return "Ready"
 	}
-	if conditionTrue(inventory, conditionDriverMissing) || conditionTrue(inventory, conditionToolkitMissing) {
+	if !conditionTrue(inventory, conditionDriverReady) || !conditionTrue(inventory, conditionToolkitReady) {
 		return "Validating"
 	}
-	// Treat missing conditions as "unknown" (initial state), not as "Monitoring".
-	if conditionTrue(inventory, conditionMonitoringMissing) || conditionFalse(inventory, conditionGFDReady) {
+	if !conditionTrue(inventory, conditionMonitoringReady) {
 		return "Monitoring"
 	}
 	return "Validating"
 }
 
-func isManagedDisabled(inventory *v1alpha1.GPUNodeState) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled)
-	return cond != nil && cond.Status == metav1.ConditionTrue
-}
-
 func conditionTrue(inventory *v1alpha1.GPUNodeState, condType string) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, condType)
-	return cond != nil && cond.Status == metav1.ConditionTrue
-}
-
-func conditionFalse(inventory *v1alpha1.GPUNodeState, condType string) bool {
-	cond := apimeta.FindStatusCondition(inventory.Status.Conditions, condType)
-	return cond != nil && cond.Status == metav1.ConditionFalse
+	for _, cond := range inventory.Status.Conditions {
+		if cond.Type == condType {
+			return cond.Status == metav1.ConditionTrue
+		}
+	}
+	return false
 }

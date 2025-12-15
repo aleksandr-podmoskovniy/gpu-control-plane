@@ -71,5 +71,9 @@ func (r *Resource[T]) PatchStatus(ctx context.Context) error {
 	if isNilObject(r.current) || isNilObject(r.original) {
 		return errNilResource
 	}
-	return r.client.Status().Patch(ctx, r.current, client.MergeFrom(r.original))
+	patch := client.MergeFrom(r.original)
+	if r.original.GetResourceVersion() != "" {
+		patch = client.MergeFromWithOptions(r.original, client.MergeFromWithOptimisticLock{})
+	}
+	return r.client.Status().Patch(ctx, r.current, patch)
 }

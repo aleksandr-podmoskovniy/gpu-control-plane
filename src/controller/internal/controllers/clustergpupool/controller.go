@@ -16,9 +16,11 @@ package clustergpupool
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -124,6 +126,9 @@ func (r *Reconciler) attachPoolDependencyWatcher(c cache.Cache, b controllerbuil
 	dev := &v1alpha1.GPUDevice{}
 	b = b.WatchesRawSource(source.Kind(c, dev, handler.TypedEnqueueRequestsFromMapFunc(r.mapDevice), devicePredicates()))
 
+	pod := &corev1.Pod{}
+	b = b.WatchesRawSource(source.Kind(c, pod, handler.TypedEnqueueRequestsFromMapFunc(r.mapValidatorPod), validatorPodPredicates()))
+
 	return b
 }
 
@@ -151,6 +156,20 @@ func (r *Reconciler) mapDevice(ctx context.Context, dev *v1alpha1.GPUDevice) []r
 	return reqs
 }
 
+func (r *Reconciler) mapValidatorPod(_ context.Context, pod *corev1.Pod) []reconcile.Request {
+	if pod == nil || pod.Labels == nil {
+		return nil
+	}
+	if pod.Labels["app"] != "nvidia-operator-validator" {
+		return nil
+	}
+	poolName := strings.TrimSpace(pod.Labels["pool"])
+	if poolName == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: poolName}}}
+}
+
 func devicePredicates() predicate.TypedPredicate[*v1alpha1.GPUDevice] {
 	return predicate.TypedFuncs[*v1alpha1.GPUDevice]{
 		CreateFunc: func(e event.TypedCreateEvent[*v1alpha1.GPUDevice]) bool {
@@ -168,6 +187,54 @@ func devicePredicates() predicate.TypedPredicate[*v1alpha1.GPUDevice] {
 		DeleteFunc:  func(event.TypedDeleteEvent[*v1alpha1.GPUDevice]) bool { return true },
 		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUDevice]) bool { return false },
 	}
+}
+
+func validatorPodPredicates() predicate.TypedPredicate[*corev1.Pod] {
+	return predicate.TypedFuncs[*corev1.Pod]{
+		CreateFunc: func(e event.TypedCreateEvent[*corev1.Pod]) bool {
+			return isValidatorPoolPod(e.Object)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Pod]) bool {
+			oldPod, newPod := e.ObjectOld, e.ObjectNew
+			if oldPod == nil || newPod == nil {
+				return true
+			}
+			if !isValidatorPoolPod(newPod) {
+				return false
+			}
+			if !isValidatorPoolPod(oldPod) {
+				return true
+			}
+			if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+				return true
+			}
+			return podReady(oldPod) != podReady(newPod)
+		},
+		DeleteFunc:  func(e event.TypedDeleteEvent[*corev1.Pod]) bool { return isValidatorPoolPod(e.Object) },
+		GenericFunc: func(event.TypedGenericEvent[*corev1.Pod]) bool { return false },
+	}
+}
+
+func isValidatorPoolPod(pod *corev1.Pod) bool {
+	if pod == nil || pod.Labels == nil {
+		return false
+	}
+	if pod.Labels["app"] != "nvidia-operator-validator" {
+		return false
+	}
+	return strings.TrimSpace(pod.Labels["pool"]) != ""
+}
+
+func podReady(pod *corev1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 func deviceChanged(oldDev, newDev *v1alpha1.GPUDevice) bool {

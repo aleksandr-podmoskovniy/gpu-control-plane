@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/registry"
@@ -37,20 +36,12 @@ const (
 )
 
 type inventorySnapshot struct {
-	Name   string                  `json:"name"`
-	Status inventorySnapshotStatus `json:"status"`
+	Name   string         `json:"name"`
+	Status snapshotStatus `json:"status"`
 }
 
-type inventorySnapshotStatus struct {
-	Bootstrap inventoryBootstrapStatus `json:"bootstrap"`
-}
-
-type inventoryBootstrapStatus struct {
-	Phase             string          `json:"phase"`
-	Components        map[string]bool `json:"components"`
-	LastRun           *metav1.Time    `json:"lastRun"`
-	ValidatorRequired bool            `json:"validatorRequired"`
-	PendingDevices    []string        `json:"pendingDevices"`
+type snapshotStatus struct {
+	Conditions []metav1.Condition `json:"conditions"`
 }
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
@@ -79,10 +70,10 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 
 	nodes := map[string]map[string]any{}
 	componentNodes := map[string][]string{
-		settings.BootstrapComponentValidator:           {},
-		settings.BootstrapComponentGPUFeatureDiscovery: {},
-		settings.BootstrapComponentDCGM:                {},
-		settings.BootstrapComponentDCGMExporter:        {},
+		settings.BootstrapComponentValidator:           []string{},
+		settings.BootstrapComponentGPUFeatureDiscovery: []string{},
+		settings.BootstrapComponentDCGM:                []string{},
+		settings.BootstrapComponentDCGMExporter:        []string{},
 	}
 
 	for _, snap := range snaps {
@@ -95,40 +86,27 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		if nodeName == "" {
 			continue
 		}
-		state := payload.Status.Bootstrap
-		if state.Phase == "" && len(state.Components) == 0 && state.LastRun == nil {
-			continue
-		}
 
-		entry := map[string]any{}
-		if state.Phase != "" {
-			entry["phase"] = state.Phase
-		}
-		if len(state.Components) > 0 {
-			entry["components"] = copyComponents(state.Components)
-		}
-		if state.LastRun != nil && !state.LastRun.IsZero() {
-			entry["updatedAt"] = state.LastRun.Time.UTC().Format(time.RFC3339Nano)
-		}
-		if state.ValidatorRequired {
-			entry["validatorRequired"] = true
-		}
-		if len(state.PendingDevices) > 0 {
-			entry["pendingDevices"] = append([]string(nil), state.PendingDevices...)
-		}
-		if len(entry) == 0 {
-			continue
+		conds := payload.Status.Conditions
+
+		entry := map[string]any{
+			"inventoryComplete":  conditionTrue(conds, "InventoryComplete"),
+			"driverReady":        conditionTrue(conds, "DriverReady"),
+			"toolkitReady":       conditionTrue(conds, "ToolkitReady"),
+			"monitoringReady":    conditionTrue(conds, "MonitoringReady"),
+			"readyForPooling":    conditionTrue(conds, "ReadyForPooling"),
+			"workloadsDegraded":  conditionTrue(conds, "WorkloadsDegraded"),
 		}
 		nodes[nodeName] = entry
 
-		for component, enabled := range state.Components {
-			if !enabled {
-				continue
-			}
-			if _, ok := componentNodes[component]; !ok {
-				componentNodes[component] = []string{}
-			}
-			componentNodes[component] = append(componentNodes[component], nodeName)
+		// Stage 1: always run validator on nodes that have GPUNodeState.
+		componentNodes[settings.BootstrapComponentValidator] = append(componentNodes[settings.BootstrapComponentValidator], nodeName)
+
+		// Stage 2+: run discovery/monitoring only after driver/toolkit are ready.
+		if conditionTrue(conds, "DriverReady") && conditionTrue(conds, "ToolkitReady") {
+			componentNodes[settings.BootstrapComponentGPUFeatureDiscovery] = append(componentNodes[settings.BootstrapComponentGPUFeatureDiscovery], nodeName)
+			componentNodes[settings.BootstrapComponentDCGM] = append(componentNodes[settings.BootstrapComponentDCGM], nodeName)
+			componentNodes[settings.BootstrapComponentDCGMExporter] = append(componentNodes[settings.BootstrapComponentDCGMExporter], nodeName)
 		}
 	}
 
@@ -144,8 +122,10 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		sort.Strings(hostnames)
 		hash := hashStrings(hostnames)
 		componentHashes = append(componentHashes, fmt.Sprintf("%s:%s", component, hash))
+		nodesList := []string{}
+		nodesList = append(nodesList, hostnames...)
 		components[component] = map[string]any{
-			"nodes": append([]string(nil), hostnames...),
+			"nodes": nodesList,
 			"hash":  hash,
 		}
 	}
@@ -162,15 +142,14 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 	return nil
 }
 
-func copyComponents(components map[string]bool) map[string]bool {
-	if len(components) == 0 {
-		return nil
+func conditionTrue(conditions []metav1.Condition, condType string) bool {
+	for _, cond := range conditions {
+		if cond.Type != condType {
+			continue
+		}
+		return cond.Status == metav1.ConditionTrue
 	}
-	out := make(map[string]bool, len(components))
-	for key, value := range components {
-		out[key] = value
-	}
-	return out
+	return false
 }
 
 func hashStrings(items []string) string {

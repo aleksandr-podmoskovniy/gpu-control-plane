@@ -69,7 +69,7 @@ func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 	}
 }
 
-func TestNodeMarkAddsNoExecuteWhenEmpty(t *testing.T) {
+func TestNodeMarkRemovesLabelWhenEmpty(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)

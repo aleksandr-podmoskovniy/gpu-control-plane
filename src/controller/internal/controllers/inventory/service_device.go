@@ -74,6 +74,7 @@ func (s *deviceService) Reconcile(ctx context.Context, node *corev1.Node, snapsh
 
 	statusBefore := device.DeepCopy()
 	desiredInventoryID := buildInventoryID(node.Name, snapshot)
+	desiredPCIAddress := canonicalizePCIAddress(snapshot.PCIAddress)
 
 	if device.Status.NodeName != node.Name {
 		device.Status.NodeName = node.Name
@@ -87,11 +88,11 @@ func (s *deviceService) Reconcile(ctx context.Context, node *corev1.Node, snapsh
 	if device.Status.Hardware.PCI.Vendor != snapshot.Vendor ||
 		device.Status.Hardware.PCI.Device != snapshot.Device ||
 		device.Status.Hardware.PCI.Class != snapshot.Class ||
-		device.Status.Hardware.PCI.Address != snapshot.PCIAddress {
+		device.Status.Hardware.PCI.Address != desiredPCIAddress {
 		device.Status.Hardware.PCI.Vendor = snapshot.Vendor
 		device.Status.Hardware.PCI.Device = snapshot.Device
 		device.Status.Hardware.PCI.Class = snapshot.Class
-		device.Status.Hardware.PCI.Address = snapshot.PCIAddress
+		device.Status.Hardware.PCI.Address = desiredPCIAddress
 	}
 	if device.Status.Hardware.Product != snapshot.Product {
 		device.Status.Hardware.Product = snapshot.Product
@@ -108,6 +109,7 @@ func (s *deviceService) Reconcile(ctx context.Context, node *corev1.Node, snapsh
 	}
 
 	applyDetection(device, snapshot, detections)
+	device.Status.Hardware.PCI.Address = canonicalizePCIAddress(device.Status.Hardware.PCI.Address)
 
 	result, err := s.invokeHandlers(ctx, device)
 	if err != nil {
@@ -151,7 +153,7 @@ func (s *deviceService) createDevice(ctx context.Context, node *corev1.Node, sna
 	device.Status.Hardware.PCI.Vendor = snapshot.Vendor
 	device.Status.Hardware.PCI.Device = snapshot.Device
 	device.Status.Hardware.PCI.Class = snapshot.Class
-	device.Status.Hardware.PCI.Address = snapshot.PCIAddress
+	device.Status.Hardware.PCI.Address = canonicalizePCIAddress(snapshot.PCIAddress)
 	device.Status.Hardware.Product = snapshot.Product
 	device.Status.Hardware.UUID = snapshot.UUID
 	device.Status.Hardware.MIG = snapshot.MIG
@@ -159,6 +161,7 @@ func (s *deviceService) createDevice(ctx context.Context, node *corev1.Node, sna
 	device.Status.AutoAttach = approval.AutoAttach(managed, labelsForDevice(snapshot, nodeLabels))
 
 	applyDetection(device, snapshot, detections)
+	device.Status.Hardware.PCI.Address = canonicalizePCIAddress(device.Status.Hardware.PCI.Address)
 
 	result, err := s.invokeHandlers(ctx, device)
 	if err != nil {

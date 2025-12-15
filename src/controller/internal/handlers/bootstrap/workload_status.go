@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/go-logr/logr"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -27,64 +26,43 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/validation"
 )
 
 const (
-	conditionReadyForPooling    = "ReadyForPooling"
-	conditionDriverMissing      = "DriverMissing"
-	conditionToolkitMissing     = "ToolkitMissing"
-	conditionMonitoringMissing  = "MonitoringMissing"
-	conditionGFDReady           = "GFDReady"
-	conditionManagedDisabled    = "ManagedDisabled"
-	conditionInventoryComplete  = "InventoryComplete"
-	conditionInfraDegraded      = "InfraDegraded"
-	conditionDegradedWorkloads  = "DegradedWorkloads"
-	reasonAllChecksPassed       = "AllChecksPassed"
-	reasonNoDevices             = "NoDevices"
-	reasonNodeDisabled          = "NodeDisabled"
-	reasonDriverNotDetected     = "DriverNotDetected"
-	reasonDriverDetected        = "DriverDetected"
-	reasonToolkitNotReady       = "ToolkitNotReady"
-	reasonToolkitReady          = "ToolkitReady"
-	reasonComponentPending      = "ComponentPending"
-	reasonMonitoringUnhealthy   = "MonitoringUnhealthy"
-	reasonMonitoringHealthy     = "MonitoringHealthy"
-	reasonComponentHealthy      = "ComponentHealthy"
-	reasonInventoryPending      = "InventoryPending"
-	reasonDevicesPending        = "DevicesPending"
-	reasonDevicesFaulted        = "DevicesFaulted"
-	reasonInfraDegraded         = "InfrastructureDegraded"
-	defaultNotReadyRequeueDelay = 15 * time.Second
-	defaultReadyRequeueDelay    = time.Minute
+	conditionInventoryComplete = "InventoryComplete"
+	conditionDriverReady       = "DriverReady"
+	conditionToolkitReady      = "ToolkitReady"
+	conditionMonitoringReady   = "MonitoringReady"
+	conditionReadyForPooling   = "ReadyForPooling"
+	conditionWorkloadsDegraded = "WorkloadsDegraded"
 
-	gpuDeviceNodeLabelKey = "gpu.deckhouse.io/node"
+	reasonReady               = "Ready"
+	reasonNoDevices           = "NoDevices"
+	reasonInventoryIncomplete = "InventoryIncomplete"
+	reasonDriverNotReady      = "DriverNotReady"
+	reasonToolkitNotReady     = "ToolkitNotReady"
+	reasonMonitoringNotReady  = "MonitoringNotReady"
+	reasonDevicesFaulted      = "DevicesFaulted"
+	reasonPendingDevices      = "PendingDevices"
+	reasonWorkloadsDegraded   = "WorkloadsDegraded"
+	reasonWorkloadsHealthy    = "WorkloadsHealthy"
 )
 
-var (
-	appGPUFeatureDiscovery = meta.AppName(meta.ComponentGPUFeatureDiscovery)
-	appValidator           = meta.AppName(meta.ComponentValidator)
-	appDCGM                = meta.AppName(meta.ComponentDCGM)
-	appDCGMExporter        = meta.AppName(meta.ComponentDCGMExporter)
-)
-
-// WorkloadStatusHandler evaluates health of bootstrap workloads on a node and updates inventory conditions.
+// WorkloadStatusHandler evaluates health of bootstrap workloads on a node and updates GPUNodeState conditions.
 type WorkloadStatusHandler struct {
 	log    logr.Logger
 	client client.Client
-	clock  func() time.Time
 }
 
 // NewWorkloadStatusHandler creates handler that checks bootstrap workloads.
 func NewWorkloadStatusHandler(log logr.Logger) *WorkloadStatusHandler {
-	return &WorkloadStatusHandler{
-		log:   log,
-		clock: time.Now,
-	}
+	return &WorkloadStatusHandler{log: log}
 }
 
+// SetClient injects Kubernetes client after manager initialisation.
 func (h *WorkloadStatusHandler) SetClient(cl client.Client) {
 	h.client = cl
 }
@@ -94,153 +72,130 @@ func (h *WorkloadStatusHandler) Name() string {
 }
 
 func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
-	valStatus, valPresent := validation.StatusFromContext(ctx)
-	nodeName := inventory.Spec.NodeName
-	if nodeName == "" {
-		nodeName = inventory.Name
-	}
-	if nodeName == "" {
-		return contracts.Result{}, nil
-	}
 	if h.client == nil {
 		return contracts.Result{}, fmt.Errorf("workload-status handler: client is not configured")
 	}
 
-	h.log.V(2).Info("checking bootstrap workloads", "node", nodeName)
-
-	componentStatuses := h.buildComponentStatuses(valStatus, valPresent)
-	validatorStatus := componentStatuses[appValidator]
-	gfdStatus := componentStatuses[appGPUFeatureDiscovery]
-	dcgmStatus := componentStatuses[appDCGM]
-	exporterStatus := componentStatuses[appDCGMExporter]
-
-	validatorReady := validatorStatus.Ready
-	gfdReady := gfdStatus.Ready
-	dcgmReady := dcgmStatus.Ready
-	exporterReady := exporterStatus.Ready
-
-	driverReady := valStatus.DriverReady
-	toolkitReady := valStatus.ToolkitReady
-	monitoringReady := valStatus.MonitoringReady
-	if !valPresent {
-		driverReady = validatorReady
-		toolkitReady = validatorReady
-		monitoringReady = dcgmReady && exporterReady
+	nodeName := strings.TrimSpace(inventory.Spec.NodeName)
+	if nodeName == "" {
+		nodeName = strings.TrimSpace(inventory.Name)
 	}
+	if nodeName == "" {
+		return contracts.Result{}, nil
+	}
+
+	valStatus, valPresent := validation.StatusFromContext(ctx)
+	validatorMessage := strings.TrimSpace(valStatus.Message)
+	if !valPresent && validatorMessage == "" {
+		validatorMessage = "validator status unavailable"
+	}
+
+	driverReady := valPresent && valStatus.DriverReady
+	toolkitReady := valPresent && valStatus.ToolkitReady
+	monitoringReady := valPresent && valStatus.GFDReady && valStatus.DCGMReady && valStatus.DCGMExporterReady
 
 	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := h.client.List(ctx, deviceList, client.MatchingLabels{gpuDeviceNodeLabelKey: nodeName}); err != nil {
+	if err := h.client.List(ctx, deviceList, client.MatchingFields{indexer.GPUDeviceNodeField: nodeName}); err != nil {
 		return contracts.Result{}, fmt.Errorf("list GPUDevices for bootstrap status: %w", err)
 	}
-	nodeDevices := deviceList.Items
-	devicesPresent := len(nodeDevices) > 0
-	stateCounters := deviceCounters(nodeDevices)
 
-	pendingIDs := pendingDeviceIDs(nodeDevices)
+	devicesPresent := len(deviceList.Items) > 0
+	stateCounters := deviceCounters(deviceList.Items)
+
+	pendingIDs := pendingDeviceIDs(deviceList.Items)
 	pendingDevices := len(pendingIDs)
-	componentHealthy := gfdReady && validatorReady
-
 	inventoryComplete := isInventoryComplete(inventory)
-	throttledPending := []string(nil)
 
-	requeue := defaultReadyRequeueDelay
+	infraReady := driverReady && toolkitReady && monitoringReady
+	hasWorkloads := (stateCounters[v1alpha1.GPUDeviceStateAssigned] +
+		stateCounters[v1alpha1.GPUDeviceStateReserved] +
+		stateCounters[v1alpha1.GPUDeviceStateInUse]) > 0
+	workloadsDegraded := !infraReady && hasWorkloads
+
 	conditionsChanged := false
+	conditionsChanged = setCondition(
+		inventory,
+		conditionDriverReady,
+		driverReady,
+		boolReason(driverReady, conditionDriverReady, reasonDriverNotReady),
+		conditionMessage(driverReady, "driver is ready", validatorMessage),
+	) || conditionsChanged
+	conditionsChanged = setCondition(
+		inventory,
+		conditionToolkitReady,
+		toolkitReady,
+		boolReason(toolkitReady, conditionToolkitReady, reasonToolkitNotReady),
+		conditionMessage(toolkitReady, "toolkit is ready", validatorMessage),
+	) || conditionsChanged
+	conditionsChanged = setCondition(
+		inventory,
+		conditionMonitoringReady,
+		monitoringReady,
+		boolReason(monitoringReady, conditionMonitoringReady, reasonMonitoringNotReady),
+		conditionMessage(monitoringReady, "monitoring is ready", validatorMessage),
+	) || conditionsChanged
 
-	conditionsChanged = setCondition(inventory, conditionGFDReady, componentHealthy, boolReason(componentHealthy, reasonComponentHealthy, reasonComponentPending), h.componentMessage(componentHealthy, gfdStatus, validatorStatus)) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionDriverMissing, !driverReady, boolReason(driverReady, reasonDriverDetected, reasonDriverNotDetected), driverMessage(driverReady, validatorStatus)) || conditionsChanged
-	conditionsChanged = setCondition(inventory, conditionToolkitMissing, !toolkitReady, boolReason(toolkitReady, reasonToolkitReady, reasonToolkitNotReady), toolkitMessage(toolkitReady, validatorStatus)) || conditionsChanged
+	conditionsChanged = setCondition(
+		inventory,
+		conditionWorkloadsDegraded,
+		workloadsDegraded,
+		boolReason(workloadsDegraded, reasonWorkloadsDegraded, reasonWorkloadsHealthy),
+		workloadsDegradedMessage(hasWorkloads, workloadsDegraded),
+	) || conditionsChanged
 
-	monitoringMissing := !monitoringReady
-	monitoringHealthy := monitoringReady
-	monitoringMsg := monitoringMessage(monitoringReady, dcgmStatus, exporterStatus)
-	conditionsChanged = setCondition(inventory, conditionMonitoringMissing, monitoringMissing, boolReason(monitoringReady, reasonMonitoringHealthy, reasonMonitoringUnhealthy), monitoringMsg) || conditionsChanged
-
-	infraDegraded := !driverReady || !toolkitReady || monitoringMissing
-	degradedWorkloads := infraDegraded && (stateCounters[v1alpha1.GPUDeviceStateAssigned]+stateCounters[v1alpha1.GPUDeviceStateReserved]+stateCounters[v1alpha1.GPUDeviceStateInUse]) > 0
-	infraMessage := "Infrastructure components are healthy"
-	if infraDegraded {
-		infraMessage = "Driver/toolkit or monitoring components require attention"
-	}
-	conditionsChanged = setCondition(inventory, conditionInfraDegraded, infraDegraded, reasonInfraDegraded, infraMessage) || conditionsChanged
-	if degradedWorkloads {
-		infraMessage = "Workloads are running while infrastructure is degraded"
-	} else if infraDegraded {
-		infraMessage = "Infrastructure degraded; workloads not running on node"
-	}
-	conditionsChanged = setCondition(inventory, conditionDegradedWorkloads, degradedWorkloads, reasonInfraDegraded, infraMessage) || conditionsChanged
-
-	nodeReady, readyReason, readyMessage := h.evaluateReadyForPooling(devicesPresent, inventory, inventoryComplete, driverReady, toolkitReady, componentHealthy, monitoringHealthy, stateCounters, pendingDevices, throttledPending)
+	nodeReady, readyReason, readyMessage := evaluateReadyForPooling(
+		devicesPresent,
+		inventoryComplete,
+		driverReady,
+		toolkitReady,
+		monitoringReady,
+		stateCounters,
+		pendingDevices,
+		pendingIDs,
+		validatorMessage,
+	)
 	conditionsChanged = setCondition(inventory, conditionReadyForPooling, nodeReady, readyReason, readyMessage) || conditionsChanged
-
-	if !nodeReady {
-		requeue = defaultNotReadyRequeueDelay
-	}
 
 	if conditionsChanged {
 		h.log.Info("updated bootstrap conditions", "node", nodeName, "ready", nodeReady)
 	}
 
-	return contracts.Result{RequeueAfter: requeue}, nil
+	return contracts.Result{}, nil
 }
 
-type componentStatus struct {
-	Ready   bool
-	Message string
+func workloadsDegradedMessage(hasWorkloads bool, degraded bool) string {
+	if !hasWorkloads {
+		return "no GPU workloads detected on node"
+	}
+	if degraded {
+		return "GPU workloads are running while infrastructure is not ready"
+	}
+	return "GPU workloads are running on node"
 }
 
-func (h *WorkloadStatusHandler) buildComponentStatuses(status validation.Result, present bool) map[string]componentStatus {
-	componentStatuses := map[string]componentStatus{
-		appGPUFeatureDiscovery: {Ready: status.GFDReady},
-		appValidator:           {Ready: status.DriverReady && status.ToolkitReady},
-		appDCGM:                {Ready: status.DCGMReady},
-		appDCGMExporter:        {Ready: status.DCGMExporterReady},
-	}
-
-	message := status.Message
-	if message == "" && !status.Ready {
-		if present {
-			message = "validation workloads not ready"
-		} else {
-			message = "validator status unavailable"
-		}
-	}
-	for key, st := range componentStatuses {
-		if !st.Ready {
-			st.Message = message
-		}
-		componentStatuses[key] = st
-	}
-
-	return componentStatuses
-}
-
-func (h *WorkloadStatusHandler) evaluateReadyForPooling(devicesPresent bool, inventory *v1alpha1.GPUNodeState, inventoryComplete, driverReady, toolkitReady, componentReady, monitoringHealthy bool, stateCounters map[v1alpha1.GPUDeviceState]int32, pendingDevices int, throttled []string) (bool, string, string) {
+func evaluateReadyForPooling(devicesPresent, inventoryComplete, driverReady, toolkitReady, monitoringReady bool, stateCounters map[v1alpha1.GPUDeviceState]int32, pendingDevices int, pendingIDs []string, validatorMessage string) (bool, string, string) {
 	if !devicesPresent {
 		return false, reasonNoDevices, "GPU devices are not detected on the node"
 	}
-
-	if cond := apimeta.FindStatusCondition(inventory.Status.Conditions, conditionManagedDisabled); cond != nil && cond.Status == metav1.ConditionTrue {
-		return false, reasonNodeDisabled, "Node is marked as disabled for GPU management"
+	if !inventoryComplete {
+		return false, reasonInventoryIncomplete, "inventory data is incomplete"
 	}
-
-	switch {
-	case !inventoryComplete:
-		return false, reasonInventoryPending, "Inventory data is incomplete, waiting for inventory controller"
-	case pendingDevices > 0:
-		return false, reasonDevicesPending, pendingDevicesMessage(pendingDevices, throttled)
-	case !driverReady:
-		return false, reasonDriverNotDetected, "NVIDIA driver version has not been reported yet"
-	case !toolkitReady:
-		return false, reasonToolkitNotReady, "CUDA toolkit installation is not finished"
-	case !componentReady:
-		return false, reasonComponentPending, "Bootstrap workloads are still initialising"
-	case !monitoringHealthy:
-		return false, reasonMonitoringUnhealthy, "DCGM exporter is not ready"
-	case stateCounters[v1alpha1.GPUDeviceStateFaulted] > 0:
+	if stateCounters[v1alpha1.GPUDeviceStateFaulted] > 0 {
 		return false, reasonDevicesFaulted, fmt.Sprintf("%d device(s) are faulted", stateCounters[v1alpha1.GPUDeviceStateFaulted])
-	default:
-		return true, reasonAllChecksPassed, "All bootstrap checks passed"
 	}
+	if pendingDevices > 0 {
+		return false, reasonPendingDevices, pendingDevicesMessage(pendingDevices, pendingIDs)
+	}
+	if !driverReady {
+		return false, reasonDriverNotReady, conditionMessage(false, "driver is ready", validatorMessage)
+	}
+	if !toolkitReady {
+		return false, reasonToolkitNotReady, conditionMessage(false, "toolkit is ready", validatorMessage)
+	}
+	if !monitoringReady {
+		return false, reasonMonitoringNotReady, conditionMessage(false, "monitoring is ready", validatorMessage)
+	}
+	return true, reasonReady, "all bootstrap checks passed"
 }
 
 func setCondition(inventory *v1alpha1.GPUNodeState, condType string, status bool, reason, message string) bool {
@@ -273,62 +228,26 @@ func boolReason(ok bool, success, failure string) string {
 	return failure
 }
 
-func driverMessage(ok bool, validator componentStatus) string {
+func conditionMessage(ok bool, okMessage, notReadyDetails string) string {
 	if ok {
-		return "Driver validation succeeded"
+		return okMessage
 	}
-	if validator.Message != "" {
-		return fmt.Sprintf("Validator pending: %s", validator.Message)
+	if notReadyDetails != "" {
+		return notReadyDetails
 	}
-	return "Validator pod has not completed yet"
+	return "not ready"
 }
 
-func toolkitMessage(ok bool, validator componentStatus) string {
-	if ok {
-		return "CUDA toolkit validation completed"
-	}
-	if validator.Message != "" {
-		return fmt.Sprintf("Toolkit validation pending: %s", validator.Message)
-	}
-	return "Toolkit validation is still running"
-}
-
-func monitoringMessage(ok bool, dcgm, exporter componentStatus) string {
-	if ok {
-		return "DCGM exporter is ready"
-	}
-	if !dcgm.Ready {
-		return fmt.Sprintf("DCGM hostengine pending: %s", dcgm.Message)
-	}
-	if !exporter.Ready {
-		return fmt.Sprintf("DCGM exporter pending: %s", exporter.Message)
-	}
-	return "DCGM exporter is not ready"
-}
-
-func (h *WorkloadStatusHandler) componentMessage(ok bool, gfd, validator componentStatus) string {
-	if ok {
-		return "Bootstrap workloads are ready"
-	}
-	if !gfd.Ready {
-		return fmt.Sprintf("GPU Feature Discovery pending: %s", gfd.Message)
-	}
-	if !validator.Ready {
-		return fmt.Sprintf("Validator pending: %s", validator.Message)
-	}
-	return "Bootstrap workloads are still running"
-}
-
-func pendingDevicesMessage(total int, throttled []string) string {
+func pendingDevicesMessage(total int, pendingIDs []string) string {
 	base := "GPU devices require validation"
 	if total == 1 {
 		base = "GPU device requires validation"
 	}
 	message := fmt.Sprintf("%d %s", total, base)
-	if len(throttled) == 0 {
+	if len(pendingIDs) == 0 {
 		return message
 	}
-	return fmt.Sprintf("%s; manual intervention required for %s", message, strings.Join(throttled, ", "))
+	return fmt.Sprintf("%s (%s)", message, strings.Join(pendingIDs, ", "))
 }
 
 func pendingDeviceIDs(devices []v1alpha1.GPUDevice) []string {
@@ -368,3 +287,4 @@ func deviceCounters(devices []v1alpha1.GPUDevice) map[v1alpha1.GPUDeviceState]in
 	}
 	return counters
 }
+

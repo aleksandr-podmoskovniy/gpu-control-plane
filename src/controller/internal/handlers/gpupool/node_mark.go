@@ -151,7 +151,8 @@ func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey, altPo
 			}
 		}
 
-		// Default taint policy: apply NoSchedule when devices present; when devices gone, apply NoExecute to evict remaining pods of this pool.
+		// Default taint policy: apply NoSchedule when devices present; when devices are gone, remove the taint.
+		// This keeps bootstrap workloads running on GPU nodes even when pools are reconfigured.
 		if taintsEnabled {
 			var desiredTaints []corev1.Taint
 			if hasDevices {
@@ -159,12 +160,6 @@ func (h *NodeMarkHandler) syncNode(ctx context.Context, nodeName, poolKey, altPo
 					Key:    poolKey,
 					Value:  poolValue,
 					Effect: corev1.TaintEffectNoSchedule,
-				}}
-			} else {
-				desiredTaints = []corev1.Taint{{
-					Key:    poolKey,
-					Value:  poolValue,
-					Effect: corev1.TaintEffectNoExecute,
 				}}
 			}
 

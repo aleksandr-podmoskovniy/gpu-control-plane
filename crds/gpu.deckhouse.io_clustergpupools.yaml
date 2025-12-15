@@ -325,9 +325,21 @@ spec:
               capacity:
                 description: Capacity summarises total capacity inside the pool.
                 properties:
+                  available:
+                    description: Available is currently available pool capacity expressed
+                      in declared units. Currently the system does not track runtime
+                      usage, so Available == Total.
+                    format: int32
+                    type: integer
                   total:
                     description: Total is total pool capacity expressed in declared
                       units.
+                    format: int32
+                    type: integer
+                  used:
+                    description: Used is the capacity currently allocated to workloads.
+                      Currently the system does not track runtime usage, so Used
+                      is always 0.
                     format: int32
                     type: integer
                 type: object

@@ -44,13 +44,11 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 	deps.Inventory.Register(inventory.NewDeviceStateHandler(log.WithName("inventory.device-state")))
 	deps.Bootstrap.Register(bootstrap.NewWorkloadStatusHandler(log.WithName("bootstrap.workload-status")))
 	deps.Bootstrap.Register(bootstrap.NewDeviceStateSyncHandler(log.WithName("bootstrap.device-state-sync")))
-	deps.Bootstrap.Register(bootstrap.NewNodeReadinessHandler(log.WithName("bootstrap.node-readiness")))
 	deps.Pool.Register(gpupool.NewCompatibilityCheckHandler())
 	if deps.Client != nil {
 		deps.Pool.Register(gpupool.NewConfigCheckHandler(deps.Client))
 		deps.Pool.Register(gpupool.NewSelectionSyncHandler(log.WithName("gpupool.selection-sync"), deps.Client))
 		deps.Pool.Register(gpupool.NewNodeMarkHandler(log.WithName("gpupool.node-mark"), deps.Client))
-		deps.Pool.Register(gpupool.NewDPValidationHandler(log.WithName("gpupool.dp-validation"), deps.Client))
 	}
 	if deps.Client != nil {
 		renderCfg := gpupool.RenderConfig{}
@@ -59,6 +57,7 @@ func RegisterDefaults(log logr.Logger, deps *Handlers) {
 			renderCfg.CustomTolerationKeys = state.Settings.Placement.CustomTolerationKeys
 		}
 		deps.Pool.Register(gpupool.NewRendererHandler(log.WithName("gpupool.renderer"), deps.Client, renderCfg))
+		deps.Pool.Register(gpupool.NewDPValidationHandler(log.WithName("gpupool.dp-validation"), deps.Client))
 	}
 	deps.Admission.Register(admission.NewPoolValidationHandler(log.WithName("admission.pool-validation")))
 }

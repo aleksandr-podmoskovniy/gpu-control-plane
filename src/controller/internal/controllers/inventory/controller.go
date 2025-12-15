@@ -61,11 +61,8 @@ const (
 	controllerName           = "gpu-inventory-controller"
 	cacheSyncTimeoutDuration = 10 * time.Minute
 
-	conditionManagedDisabled   = "ManagedDisabled"
 	conditionInventoryComplete = "InventoryComplete"
 
-	reasonNodeManagedEnabled  = "NodeManaged"
-	reasonNodeManagedDisabled = "NodeMarkedDisabled"
 	reasonInventorySynced     = "InventorySynced"
 	reasonNoDevicesDiscovered = "NoDevicesDiscovered"
 	reasonNodeFeatureMissing  = "NodeFeatureMissing"
@@ -264,13 +261,13 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		NewQueue:                reconciler.NewNamedQueue(reconciler.UsePriorityQueue()),
 	}
 
-	ctrlBuilder := deps.builder.
-		Named(controllerName).
-		For(&corev1.Node{}, builder.WithPredicates(predicates)).
-		Owns(&v1alpha1.GPUDevice{}).
-		Owns(&v1alpha1.GPUNodeState{}).
-		WatchesRawSource(deps.nodeFeatureSource).
-		WithOptions(options)
+		ctrlBuilder := deps.builder.
+			Named(controllerName).
+			For(&corev1.Node{}, builder.WithPredicates(predicates)).
+			Owns(&v1alpha1.GPUDevice{}, builder.MatchEveryOwner).
+			Owns(&v1alpha1.GPUNodeState{}, builder.MatchEveryOwner).
+			WatchesRawSource(deps.nodeFeatureSource).
+			WithOptions(options)
 
 	if deps.cache != nil && r.moduleWatcherFactory != nil {
 		ctrlBuilder = r.moduleWatcherFactory(deps.cache, ctrlBuilder)
@@ -426,7 +423,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 
 	ctrlResult := ctrl.Result{}
-	if err := r.inventorySvc().Reconcile(ctx, node, nodeSnapshot, reconciledDevices, managedPolicy); err != nil {
+	if err := r.inventorySvc().Reconcile(ctx, node, nodeSnapshot, reconciledDevices); err != nil {
 		return ctrl.Result{}, err
 	}
 	r.inventorySvc().UpdateDeviceMetrics(node.Name, reconciledDevices)

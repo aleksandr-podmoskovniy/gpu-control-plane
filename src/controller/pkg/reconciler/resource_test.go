@@ -32,7 +32,7 @@ func TestResourcePatchStatus(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{Name: "pool", ResourceVersion: "1"},
 		Status: v1alpha1.GPUPoolStatus{
 			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
 		},
@@ -61,6 +61,31 @@ func TestResourcePatchStatus(t *testing.T) {
 	// original copy must stay untouched
 	if resource.Original().Status.Capacity.Total != 1 {
 		t.Fatalf("expected original snapshot preserved, got %d", resource.Original().Status.Capacity.Total)
+	}
+}
+
+func TestResourcePatchStatusWithoutResourceVersion(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+		},
+	}
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha1.GPUPool{}).
+		WithObjects(pool.DeepCopy()).
+		Build()
+
+	resource := NewResource(pool, cl)
+	pool.Status.Capacity.Total = 5
+
+	if err := resource.PatchStatus(context.Background()); err != nil {
+		t.Fatalf("patch status failed: %v", err)
 	}
 }
 

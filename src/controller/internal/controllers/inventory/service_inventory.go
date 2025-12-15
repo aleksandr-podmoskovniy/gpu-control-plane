@@ -16,7 +16,6 @@ package inventory
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -33,7 +32,7 @@ import (
 )
 
 type InventoryService interface {
-	Reconcile(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error
+	Reconcile(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice) error
 	UpdateDeviceMetrics(nodeName string, devices []*v1alpha1.GPUDevice)
 }
 
@@ -51,7 +50,7 @@ func newInventoryService(c client.Client, scheme *runtimeScheme, recorder eventR
 	}
 }
 
-func (s *inventoryService) Reconcile(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice, managedPolicy ManagedNodesPolicy) error {
+func (s *inventoryService) Reconcile(ctx context.Context, node *corev1.Node, snapshot nodeSnapshot, devices []*v1alpha1.GPUDevice) error {
 	inventory := &v1alpha1.GPUNodeState{}
 	err := s.client.Get(ctx, types.NamespacedName{Name: node.Name}, inventory)
 	if apierrors.IsNotFound(err) {
@@ -100,29 +99,7 @@ func (s *inventoryService) Reconcile(ctx context.Context, node *corev1.Node, sna
 	}
 
 	resource := reconciler.NewResource(inventory, s.client)
-
-	labelKey := managedPolicy.LabelKey
-	if labelKey == "" {
-		labelKey = defaultManagedNodeLabelKey
-	}
-	managedMessage := "node managed by module"
-	managedReason := reasonNodeManagedEnabled
-	if !snapshot.Managed {
-		managedMessage = fmt.Sprintf("node is marked with %s=false", labelKey)
-		managedReason = reasonNodeManagedDisabled
-	}
 	condBuilder := conditions.New(&inventory.Status.Conditions)
-	prevManaged := condBuilder.Find(conditionManagedDisabled)
-	managedCond := metav1.Condition{
-		Type:               conditionManagedDisabled,
-		Status:             boolToConditionStatus(!snapshot.Managed),
-		Reason:             managedReason,
-		Message:            managedMessage,
-		ObservedGeneration: inventory.Generation,
-	}
-	managedChanged := prevManaged == nil || prevManaged.Status != managedCond.Status || prevManaged.Reason != managedCond.Reason || prevManaged.Message != managedCond.Message
-	condBuilder.Set(managedCond)
-	cpmetrics.InventoryConditionSet(node.Name, conditionManagedDisabled, !snapshot.Managed)
 
 	inventoryComplete := snapshot.FeatureDetected && len(snapshot.Devices) > 0
 	inventoryReason := reasonInventorySynced
@@ -147,9 +124,6 @@ func (s *inventoryService) Reconcile(ctx context.Context, node *corev1.Node, sna
 	condBuilder.Set(completeCond)
 	cpmetrics.InventoryConditionSet(node.Name, conditionInventoryComplete, inventoryComplete)
 
-	if managedChanged {
-		s.recorder.Eventf(node, corev1.EventTypeNormal, eventInventoryChanged, "Condition %s changed to %t (%s)", conditionManagedDisabled, !snapshot.Managed, managedReason)
-	}
 	if inventoryChanged {
 		eventType := corev1.EventTypeNormal
 		if !inventoryComplete {
