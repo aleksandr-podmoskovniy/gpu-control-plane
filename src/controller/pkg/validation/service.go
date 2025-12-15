@@ -81,7 +81,7 @@ func (v *workloadValidator) Status(ctx context.Context, nodeName string) (Result
 		return result, err
 	}
 
-	validatorReady := hasReadyPod(pods.Items, v.cfg.ValidatorApp)
+	validatorReady := hasReadyBootstrapValidator(pods.Items, v.cfg.ValidatorApp)
 	gfdReady := hasReadyPod(pods.Items, v.cfg.GFDApp)
 	dcgmReady := hasReadyPod(pods.Items, v.cfg.DCGMApp)
 	exporterReady := hasReadyPod(pods.Items, v.cfg.DCGMExporterApp)
@@ -111,6 +111,25 @@ func (v *workloadValidator) Status(ctx context.Context, nodeName string) (Result
 	}
 
 	return result, nil
+}
+
+func hasReadyBootstrapValidator(pods []corev1.Pod, app string) bool {
+	for i := range pods {
+		p := &pods[i]
+		if p.Labels["app"] != app {
+			continue
+		}
+		// Exclude per-pool validator DaemonSets (app is shared) from bootstrap readiness.
+		if strings.TrimSpace(p.Labels["pool"]) != "" {
+			continue
+		}
+		for _, cond := range p.Status.Conditions {
+			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (v *workloadValidator) listPods(ctx context.Context, nodeName string) (*corev1.PodList, error) {

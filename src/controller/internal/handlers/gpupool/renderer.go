@@ -16,7 +16,9 @@ package gpupool
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sort"
@@ -195,6 +197,11 @@ func (h *RendererHandler) reconcileDevicePlugin(ctx context.Context, pool *v1alp
 	}
 
 	ds := h.devicePluginDaemonSet(ctx, pool)
+	configHash := sha256Hex(cm.Data["config.yaml"])
+	if ds.Spec.Template.Annotations == nil {
+		ds.Spec.Template.Annotations = map[string]string{}
+	}
+	ds.Spec.Template.Annotations["gpu.deckhouse.io/device-plugin-config-hash"] = configHash
 	if err := h.createOrUpdate(ctx, ds, pool); err != nil {
 		return fmt.Errorf("reconcile device-plugin DaemonSet: %w", err)
 	}
@@ -265,7 +272,8 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 	gpus := make([]map[string]any, 0, len(patterns))
 	if len(patterns) == 0 {
 		gpus = append(gpus, map[string]any{
-			"pattern": "*",
+			// Avoid exposing all GPUs when device identifiers are not available yet.
+			"pattern": "^$",
 			"name":    resourceName,
 		})
 	} else {
@@ -301,6 +309,11 @@ func (h *RendererHandler) devicePluginConfigMap(ctx context.Context, pool *v1alp
 		},
 		Data: map[string]string{"config.yaml": string(data)},
 	}
+}
+
+func sha256Hex(data string) string {
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
 }
 
 func (h *RendererHandler) timeSlicingReplicas(pool *v1alpha1.GPUPool) int32 {

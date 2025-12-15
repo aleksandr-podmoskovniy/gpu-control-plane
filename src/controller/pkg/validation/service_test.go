@@ -91,6 +91,38 @@ func TestValidatorStatusReadyWhenAllComponentsPresent(t *testing.T) {
 	}
 }
 
+func TestValidatorStatusIgnoresPoolScopedValidatorPods(t *testing.T) {
+	scheme := clientgoscheme.Scheme
+	cfg := applyDefaults(Config{})
+
+	pods := []client.Object{
+		newReadyPodWithLabels(
+			"validator-pool-a",
+			"node-1",
+			moduleLabelValue,
+			cfg.ValidatorApp,
+			corev1.ConditionTrue,
+			map[string]string{"pool": "pool-a"},
+		),
+	}
+
+	client := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithIndex(&corev1.Pod{}, nodeNameField, indexPodByNodeName).
+		WithObjects(pods...).
+		Build()
+
+	validator := NewValidator(client, Config{})
+
+	status, err := validator.Status(context.Background(), "node-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.DriverReady || status.ToolkitReady {
+		t.Fatalf("expected driver/toolkit to be false for pool-scoped validator pods, got %+v", status)
+	}
+}
+
 func TestValidatorStatusIgnoresNotFoundErrors(t *testing.T) {
 	scheme := clientgoscheme.Scheme
 	base := clientfake.NewClientBuilder().WithScheme(scheme).Build()
@@ -223,6 +255,20 @@ func newReadyPod(name, node, module, app string, status corev1.ConditionStatus) 
 			}},
 		},
 	}
+}
+
+func newReadyPodWithLabels(name, node, module, app string, status corev1.ConditionStatus, extraLabels map[string]string) *corev1.Pod {
+	pod := newReadyPod(name, node, module, app, status)
+	if extraLabels == nil {
+		return pod
+	}
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+	for k, v := range extraLabels {
+		pod.Labels[k] = v
+	}
+	return pod
 }
 
 func indexPodByNodeName(obj client.Object) []string {

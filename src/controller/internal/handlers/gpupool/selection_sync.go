@@ -73,35 +73,29 @@ func (h *SelectionSyncHandler) HandlePool(ctx context.Context, pool *v1alpha1.GP
 	}
 	// Collect devices explicitly assigned to this pool via annotation and matching selectors.
 	assigned := make([]v1alpha1.GPUDevice, 0)
-	for i := range assignedDevices.Items {
-		dev := assignedDevices.Items[i]
-		if dev.Annotations[assignmentKey] != pool.Name {
-			continue
+		for i := range assignedDevices.Items {
+			dev := assignedDevices.Items[i]
+			if dev.Annotations[assignmentKey] != pool.Name {
+				continue
 		}
 		if isDeviceIgnored(&dev) {
 			continue
 		}
 
-		nodeName := strings.TrimSpace(dev.Status.NodeName)
-		if nodeName == "" {
-			nodeName = strings.TrimSpace(dev.Labels["kubernetes.io/hostname"])
+			nodeName := deviceNodeName(&dev)
+			if nodeName == "" {
+				continue
+			}
+			assigned = append(assigned, dev)
 		}
-		if nodeName == "" {
-			continue
-		}
-		assigned = append(assigned, dev)
-	}
 	assigned = FilterDevices(assigned, pool.Spec.DeviceSelector)
 
 	// Group by node and sort deterministically to apply maxDevicesPerNode.
-	byNode := map[string][]v1alpha1.GPUDevice{}
-	for _, dev := range assigned {
-		nodeName := strings.TrimSpace(dev.Status.NodeName)
-		if nodeName == "" {
-			nodeName = strings.TrimSpace(dev.Labels["kubernetes.io/hostname"])
+		byNode := map[string][]v1alpha1.GPUDevice{}
+		for _, dev := range assigned {
+			nodeName := deviceNodeName(&dev)
+			byNode[nodeName] = append(byNode[nodeName], dev)
 		}
-		byNode[nodeName] = append(byNode[nodeName], dev)
-	}
 	for node := range byNode {
 		sort.Slice(byNode[node], func(i, j int) bool {
 			return deviceSortKey(byNode[node][i]) < deviceSortKey(byNode[node][j])

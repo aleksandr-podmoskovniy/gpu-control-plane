@@ -25,6 +25,7 @@ const (
 	clusterPoolResourcePrefix    = "cluster.gpu.deckhouse.io"
 
 	deviceIgnoreKey = "gpu.deckhouse.io/ignore"
+	deviceNodeLabelKey = "gpu.deckhouse.io/node"
 
 	namespacedAssignmentAnnotation = "gpu.deckhouse.io/assignment"
 	clusterAssignmentAnnotation    = "cluster.gpu.deckhouse.io/assignment"
@@ -61,6 +62,24 @@ func isDeviceIgnored(dev *v1alpha1.GPUDevice) bool {
 		return false
 	}
 	return strings.EqualFold(dev.Labels[deviceIgnoreKey], "true")
+}
+
+func deviceNodeName(dev *v1alpha1.GPUDevice) string {
+	if dev == nil {
+		return ""
+	}
+	if nodeName := strings.TrimSpace(dev.Status.NodeName); nodeName != "" {
+		return nodeName
+	}
+	if dev.Labels != nil {
+		if nodeName := strings.TrimSpace(dev.Labels[deviceNodeLabelKey]); nodeName != "" {
+			return nodeName
+		}
+		if nodeName := strings.TrimSpace(dev.Labels["kubernetes.io/hostname"]); nodeName != "" {
+			return nodeName
+		}
+	}
+	return ""
 }
 
 func poolRefMatchesPool(pool *v1alpha1.GPUPool, ref *v1alpha1.GPUPoolReference) bool {

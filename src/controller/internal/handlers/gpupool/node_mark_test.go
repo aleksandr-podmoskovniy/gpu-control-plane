@@ -33,8 +33,8 @@ func TestNodeMarkAddsLabelWithoutTaint(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	_ = v1alpha1.AddToScheme(scheme)
 
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
-		WithScheme(scheme)).
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme))).
 		WithObjects(
 			&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1"}},
 			&v1alpha1.GPUDevice{
@@ -75,8 +75,8 @@ func TestNodeMarkRemovesLabelWhenEmpty(t *testing.T) {
 	_ = v1alpha1.AddToScheme(scheme)
 
 	key := poolLabelKey(&v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}})
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
-		WithScheme(scheme)).
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme))).
 		WithObjects(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{key: "pool-a"}}}).
 		Build()
 
@@ -109,8 +109,8 @@ func TestNodeMarkRemovesTaintWhenDisabled(t *testing.T) {
 
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a"}}
 	existingTaint := corev1.Taint{Key: poolLabelKey(pool), Value: "pool-a", Effect: corev1.TaintEffectNoSchedule}
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().
-		WithScheme(scheme)).
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().
+		WithScheme(scheme))).
 		WithObjects(
 			&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{poolLabelKey(pool): "pool-a"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{existingTaint}}},
 			&v1alpha1.GPUDevice{

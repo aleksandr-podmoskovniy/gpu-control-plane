@@ -104,6 +104,17 @@ var nodeFeatureSourceBuilder = func(cache cache.Cache) source.SyncingSource {
 	)
 }
 
+var nodeStateSourceBuilder = func(cache cache.Cache) source.SyncingSource {
+	obj := &v1alpha1.GPUNodeState{}
+
+	return source.Kind(
+		cache,
+		obj,
+		handler.TypedEnqueueRequestsFromMapFunc(mapNodeStateToNode),
+		nodeStatePredicates(),
+	)
+}
+
 type setupDependencies struct {
 	client            client.Client
 	scheme            *runtime.Scheme
@@ -111,11 +122,16 @@ type setupDependencies struct {
 	indexer           client.FieldIndexer
 	cache             cache.Cache
 	nodeFeatureSource source.SyncingSource
+	nodeStateSource   source.SyncingSource
 	builder           controllerbuilder.Builder
 }
 
 func defaultNodeFeatureSource(cache cache.Cache) source.SyncingSource {
 	return nodeFeatureSourceBuilder(cache)
+}
+
+func defaultNodeStateSource(cache cache.Cache) source.SyncingSource {
+	return nodeStateSourceBuilder(cache)
 }
 
 type Reconciler struct {
@@ -129,6 +145,7 @@ type Reconciler struct {
 	resyncMu                 sync.RWMutex
 	builderFactory           func(ctrl.Manager) controllerbuilder.Builder
 	nodeFeatureSourceFactory func(cache.Cache) source.SyncingSource
+	nodeStateSourceFactory   func(cache.Cache) source.SyncingSource
 	moduleWatcherFactory     func(cache.Cache, controllerbuilder.Builder) controllerbuilder.Builder
 	store                    *config.ModuleConfigStore
 	fallbackManaged          ManagedNodesPolicy
@@ -197,6 +214,7 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfi
 		handlers:                 handlers,
 		builderFactory:           controllerbuilder.NewManagedBy,
 		nodeFeatureSourceFactory: defaultNodeFeatureSource,
+		nodeStateSourceFactory:   defaultNodeStateSource,
 		store:                    store,
 		fallbackManaged:          managed,
 		fallbackApproval:         approval,
@@ -217,6 +235,9 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 	if r.nodeFeatureSourceFactory == nil {
 		r.nodeFeatureSourceFactory = defaultNodeFeatureSource
 	}
+	if r.nodeStateSourceFactory == nil {
+		r.nodeStateSourceFactory = defaultNodeStateSource
+	}
 	cache := mgr.GetCache()
 	deps := setupDependencies{
 		client:            mgr.GetClient(),
@@ -225,6 +246,7 @@ func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) err
 		indexer:           mgr.GetFieldIndexer(),
 		cache:             cache,
 		nodeFeatureSource: r.nodeFeatureSourceFactory(cache),
+		nodeStateSource:   r.nodeStateSourceFactory(cache),
 		builder:           r.builderFactory(mgr),
 	}
 	return r.setupWithDependencies(ctx, deps)
@@ -261,13 +283,16 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		NewQueue:                reconciler.NewNamedQueue(reconciler.UsePriorityQueue()),
 	}
 
-		ctrlBuilder := deps.builder.
-			Named(controllerName).
-			For(&corev1.Node{}, builder.WithPredicates(predicates)).
-			Owns(&v1alpha1.GPUDevice{}, builder.MatchEveryOwner).
-			Owns(&v1alpha1.GPUNodeState{}, builder.MatchEveryOwner).
-			WatchesRawSource(deps.nodeFeatureSource).
-			WithOptions(options)
+	ctrlBuilder := deps.builder.
+		Named(controllerName).
+		For(&corev1.Node{}, builder.WithPredicates(predicates)).
+		WatchesRawSource(deps.nodeFeatureSource).
+		WithOptions(options)
+
+	// Recreate inventories on manual deletion without subscribing to all status updates.
+	if deps.cache != nil && deps.nodeStateSource != nil {
+		ctrlBuilder = ctrlBuilder.WatchesRawSource(deps.nodeStateSource)
+	}
 
 	if deps.cache != nil && r.moduleWatcherFactory != nil {
 		ctrlBuilder = r.moduleWatcherFactory(deps.cache, ctrlBuilder)
@@ -277,24 +302,20 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 }
 
 func (r *Reconciler) requeueAllNodes(ctx context.Context) []reconcile.Request {
-	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := r.client.List(ctx, deviceList); err != nil {
+	nodeList := &corev1.NodeList{}
+	if err := r.client.List(ctx, nodeList, client.MatchingLabels{"gpu.deckhouse.io/present": "true"}); err != nil {
 		if r.log.GetSink() != nil {
-			r.log.Error(err, "list GPUDevices to resync after module config change")
+			r.log.Error(err, "list GPU nodes to resync after module config change")
 		}
 		return nil
 	}
-	uniqueNodes := make(map[string]struct{}, len(deviceList.Items))
-	for i := range deviceList.Items {
-		nodeName := deviceList.Items[i].Status.NodeName
+	requests := make([]reconcile.Request, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		nodeName := nodeList.Items[i].Name
 		if nodeName == "" {
 			continue
 		}
-		uniqueNodes[nodeName] = struct{}{}
-	}
-	requests := make([]reconcile.Request, 0, len(uniqueNodes))
-	for node := range uniqueNodes {
-		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: node}})
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: nodeName}})
 	}
 	sort.Slice(requests, func(i, j int) bool {
 		return requests[i].Name < requests[j].Name
@@ -548,6 +569,27 @@ func mapNodeFeatureToNode(ctx context.Context, feature *nfdv1alpha1.NodeFeature)
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}}
+}
+
+func mapNodeStateToNode(ctx context.Context, state *v1alpha1.GPUNodeState) []reconcile.Request {
+	_ = ctx
+	if state == nil {
+		return nil
+	}
+	nodeName := strings.TrimSpace(state.Name)
+	if nodeName == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}}
+}
+
+func nodeStatePredicates() predicate.TypedPredicate[*v1alpha1.GPUNodeState] {
+	return predicate.TypedFuncs[*v1alpha1.GPUNodeState]{
+		CreateFunc:  func(event.TypedCreateEvent[*v1alpha1.GPUNodeState]) bool { return false },
+		UpdateFunc:  func(event.TypedUpdateEvent[*v1alpha1.GPUNodeState]) bool { return false },
+		DeleteFunc:  func(event.TypedDeleteEvent[*v1alpha1.GPUNodeState]) bool { return true },
+		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUNodeState]) bool { return false },
+	}
 }
 
 func boolToConditionStatus(value bool) metav1.ConditionStatus {

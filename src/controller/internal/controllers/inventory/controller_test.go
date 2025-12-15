@@ -2807,11 +2807,8 @@ func TestSetupWithDependencies(t *testing.T) {
 	if indexer.lastField != deviceNodeIndexKey {
 		t.Fatalf("expected index field %q, got %q", deviceNodeIndexKey, indexer.lastField)
 	}
-	if len(builder.forObjects) != 1 || len(builder.ownedObjects) != 2 {
+	if len(builder.forObjects) != 1 || len(builder.ownedObjects) != 0 {
 		t.Fatalf("unexpected builder registrations: for=%d owns=%d", len(builder.forObjects), len(builder.ownedObjects))
-	}
-	if !builder.ownsMatchEvery[0] || !builder.ownsMatchEvery[1] {
-		t.Fatalf("expected Owns() to use MatchEveryOwner for all owned objects, got %#v", builder.ownsMatchEvery)
 	}
 	if len(builder.watchedSources) != 1 || builder.watchedSources[0] != fakeSource {
 		t.Fatalf("expected node feature source to be passed to builder, got %d watchers", len(builder.watchedSources))
@@ -2835,15 +2832,10 @@ func TestSetupWithDependencies(t *testing.T) {
 
 func TestRequeueAllNodes(t *testing.T) {
 	scheme := newTestScheme(t)
-	deviceA := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev-a"},
-		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-a"},
-	}
-	deviceB := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev-b"},
-		Status:     v1alpha1.GPUDeviceStatus{NodeName: "node-b"},
-	}
-	reconciler := &Reconciler{client: newTestClient(scheme, deviceA, deviceB)}
+	nodeA := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Labels: map[string]string{"gpu.deckhouse.io/present": "true"}}}
+	nodeB := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-b", Labels: map[string]string{"gpu.deckhouse.io/present": "true"}}}
+	nodeC := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-c", Labels: map[string]string{"gpu.deckhouse.io/present": "false"}}}
+	reconciler := &Reconciler{client: newTestClient(scheme, nodeA, nodeB, nodeC)}
 
 	reqs := reconciler.requeueAllNodes(context.Background())
 	if len(reqs) != 2 {
@@ -2856,13 +2848,10 @@ func TestRequeueAllNodes(t *testing.T) {
 		}
 	}
 
-	withEmpty := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev-empty"},
-		Status:     v1alpha1.GPUDeviceStatus{NodeName: ""},
-	}
-	reconciler = &Reconciler{client: newTestClient(scheme, deviceA, deviceB, withEmpty)}
+	nodeNoLabel := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-no-label"}}
+	reconciler = &Reconciler{client: newTestClient(scheme, nodeA, nodeB, nodeC, nodeNoLabel)}
 	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 2 {
-		t.Fatalf("expected empty node to be skipped, got %v", reqs)
+		t.Fatalf("expected nodes without present=true to be skipped, got %v", reqs)
 	}
 }
 
@@ -2882,7 +2871,7 @@ func TestRequeueAllNodesEmptyList(t *testing.T) {
 	reconciler := &Reconciler{client: newTestClient(scheme)}
 	reqs := reconciler.requeueAllNodes(context.Background())
 	if len(reqs) != 0 {
-		t.Fatalf("expected no requests for empty device list, got %v", reqs)
+		t.Fatalf("expected no requests for empty node list, got %v", reqs)
 	}
 
 	reconciler.log = testr.New(t)
@@ -2890,26 +2879,13 @@ func TestRequeueAllNodesEmptyList(t *testing.T) {
 	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
 		t.Fatalf("expected error branch to return empty slice, got %v", reqs)
 	}
-
-	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev-no-node"},
-		Status:     v1alpha1.GPUDeviceStatus{NodeName: ""},
-	}
-	reconciler = &Reconciler{client: newTestClient(scheme, device)}
-	if reqs := reconciler.requeueAllNodes(context.Background()); len(reqs) != 0 {
-		t.Fatalf("expected devices without nodeName to be skipped, got %v", reqs)
-	}
 }
 
 func TestMapModuleConfigRequeuesNodes(t *testing.T) {
 	scheme := newTestScheme(t)
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-map"}}
-	device := &v1alpha1.GPUDevice{
-		ObjectMeta: metav1.ObjectMeta{Name: "dev-map"},
-		Status:     v1alpha1.GPUDeviceStatus{NodeName: node.Name},
-	}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-map", Labels: map[string]string{"gpu.deckhouse.io/present": "true"}}}
 	reconciler := &Reconciler{
-		client: newTestClient(scheme, node, device),
+		client: newTestClient(scheme, node),
 	}
 
 	reqs := reconciler.mapModuleConfig(context.Background(), nil)

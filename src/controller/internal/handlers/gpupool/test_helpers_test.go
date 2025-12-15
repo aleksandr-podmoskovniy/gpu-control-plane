@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -126,4 +127,30 @@ func withPoolDeviceIndexes(builder *fake.ClientBuilder) *fake.ClientBuilder {
 	})
 
 	return builder
+}
+
+func withNodeTaintIndexes(builder *fake.ClientBuilder) *fake.ClientBuilder {
+	if builder == nil {
+		return nil
+	}
+
+	return builder.WithIndex(&corev1.Node{}, indexer.NodeTaintKeyField, func(obj client.Object) []string {
+		node, ok := obj.(*corev1.Node)
+		if !ok || len(node.Spec.Taints) == 0 {
+			return nil
+		}
+		seen := make(map[string]struct{}, len(node.Spec.Taints))
+		keys := make([]string, 0, len(node.Spec.Taints))
+		for _, taint := range node.Spec.Taints {
+			if taint.Key == "" {
+				continue
+			}
+			if _, ok := seen[taint.Key]; ok {
+				continue
+			}
+			seen[taint.Key] = struct{}{}
+			keys = append(keys, taint.Key)
+		}
+		return keys
+	})
 }

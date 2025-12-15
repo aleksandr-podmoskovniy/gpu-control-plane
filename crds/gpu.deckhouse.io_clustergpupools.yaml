@@ -22,7 +22,20 @@ spec:
     singular: clustergpupool
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.capacity.total
+      name: Total
+      type: integer
+    - jsonPath: .status.capacity.available
+      name: Available
+      type: integer
+    - jsonPath: .status.capacity.used
+      name: Used
+      type: integer
+    - jsonPath: .spec.backend
+      name: Backend
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed

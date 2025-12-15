@@ -29,6 +29,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers/gpupool"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/indexer"
 )
 
 const (
@@ -68,14 +69,36 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 	}
 
 	assignmentSet := namespacedPool != "" || clusterPool != ""
-	assignmentChanged := req.Operation == admv1.Create && assignmentSet
-	if req.Operation == admv1.Update {
+	assignmentChanged := false
+	switch req.Operation {
+	case admv1.Create:
 		assignmentChanged = assignmentSet
-	}
-	if req.Operation == admv1.Update && len(req.OldObject.Raw) > 0 {
-		oldDevice := &v1alpha1.GPUDevice{}
-		if err := h.decoder.DecodeRaw(req.OldObject, oldDevice); err != nil {
-			return cradmission.Errored(http.StatusUnprocessableEntity, err)
+		case admv1.Update:
+			oldDevice := &v1alpha1.GPUDevice{}
+			if len(req.OldObject.Raw) > 0 {
+				if err := h.decoder.DecodeRaw(req.OldObject, oldDevice); err != nil {
+					return cradmission.Errored(http.StatusUnprocessableEntity, err)
+				}
+			} else if h.client != nil {
+				name := strings.TrimSpace(req.Name)
+				if name == "" {
+					name = strings.TrimSpace(device.Name)
+				}
+				if name == "" {
+					assignmentChanged = false
+					break
+				}
+				// Some update paths might omit oldObject; fall back to the stored object to diff assignment.
+				if err := h.client.Get(ctx, client.ObjectKey{Name: name}, oldDevice); err != nil {
+					if apierrors.IsNotFound(err) {
+						assignmentChanged = false
+						break
+					}
+				return cradmission.Errored(http.StatusInternalServerError, err)
+			}
+		} else {
+			assignmentChanged = false
+			break
 		}
 
 		oldNamespacedPool := strings.TrimSpace(oldDevice.Annotations[namespacedAssignmentAnnotation])
@@ -143,8 +166,14 @@ func resolveNamespacedPoolByName(ctx context.Context, c client.Client, name stri
 	}
 
 	list := &v1alpha1.GPUPoolList{}
-	if err := c.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list GPUPools: %w", err)
+	if err := c.List(ctx, list, client.MatchingFields{indexer.GPUPoolNameField: name}); err != nil {
+		// Fake client requires explicit indexes; fall back to full scan in tests and defensive scenarios.
+		if !isMissingIndexError(err) {
+			return nil, fmt.Errorf("list GPUPools by name: %w", err)
+		}
+		if err := c.List(ctx, list); err != nil {
+			return nil, fmt.Errorf("list GPUPools: %w", err)
+		}
 	}
 
 	var matches []v1alpha1.GPUPool
@@ -167,4 +196,13 @@ func resolveNamespacedPoolByName(ctx context.Context, c client.Client, name stri
 		return nil, fmt.Errorf("assigned pool %q is ambiguous (found in namespaces: %s)", name, strings.Join(namespaces, ", "))
 	}
 	return &matches[0], nil
+}
+
+func isMissingIndexError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// controller-runtime fake client returns a plain error string for missing indexes.
+	msg := err.Error()
+	return strings.Contains(msg, "no index with name") && strings.Contains(msg, "has been registered")
 }

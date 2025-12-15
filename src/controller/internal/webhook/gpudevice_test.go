@@ -52,7 +52,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	decoder := cradmission.NewDecoder(scheme)
 	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
 
-	device := &v1alpha1.GPUDevice{
+	oldDevice := &v1alpha1.GPUDevice{
 		TypeMeta:   metav1TypeMeta("GPUDevice"),
 		ObjectMeta: metav1ObjectMeta("dev-a", ""),
 		Status: v1alpha1.GPUDeviceStatus{
@@ -60,11 +60,15 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 			State:       v1alpha1.GPUDeviceStateReady,
 		},
 	}
+	device := oldDevice.DeepCopy()
 	device.Annotations = map[string]string{namespacedAssignmentAnnotation: "pool-a"}
+	oldRaw, _ := json.Marshal(oldDevice)
 	raw, _ := json.Marshal(device)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Update,
 		Object:    runtime.RawExtension{Raw: raw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+		Name:      device.Name,
 	}}
 
 	resp := validator.Handle(context.Background(), req)
@@ -90,13 +94,15 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 		t.Fatalf("expected denial for missing pool, got %+v", resp.Result)
 	}
 
-	// No annotation -> allowed.
-	delete(device.Annotations, namespacedAssignmentAnnotation)
-	raw, _ = json.Marshal(device)
+	// Remove assignment -> allowed.
+	assignedRaw := req.Object.Raw
+	deviceWithoutAssignment := oldDevice.DeepCopy()
+	raw, _ = json.Marshal(deviceWithoutAssignment)
 	req.Object = runtime.RawExtension{Raw: raw}
+	req.OldObject = runtime.RawExtension{Raw: assignedRaw}
 	resp = validator.Handle(context.Background(), req)
 	if !resp.Allowed {
-		t.Fatalf("expected allowed when no assignment annotation")
+		t.Fatalf("expected allowed when assignment removed")
 	}
 
 	// Decode error returns 422
@@ -124,6 +130,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	device.Status.State = v1alpha1.GPUDeviceStateFaulted
 	raw, _ = json.Marshal(device)
 	req.Object = runtime.RawExtension{Raw: raw}
+	req.OldObject = runtime.RawExtension{Raw: oldRaw}
 	resp = validator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial for non-ready state")
@@ -134,6 +141,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 	device.Labels = map[string]string{"gpu.deckhouse.io/ignore": "true"}
 	raw, _ = json.Marshal(device)
 	req.Object = runtime.RawExtension{Raw: raw}
+	req.OldObject = runtime.RawExtension{Raw: oldRaw}
 	resp = validator.Handle(context.Background(), req)
 	if resp.Allowed {
 		t.Fatalf("expected denial for ignored device")
@@ -194,6 +202,34 @@ func TestGPUDeviceAssignmentValidatorAllowsUpdateWhenAssignmentUnchanged(t *test
 	}
 }
 
+func TestGPUDeviceAssignmentValidatorAllowsUpdateWhenOldObjectMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	decoder := cradmission.NewDecoder(scheme)
+	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, cl)
+
+	device := &v1alpha1.GPUDevice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "dev-a",
+			Annotations: map[string]string{namespacedAssignmentAnnotation: "pool-a"},
+		},
+		Status: v1alpha1.GPUDeviceStatus{State: v1alpha1.GPUDeviceStatePendingAssignment},
+	}
+	raw, _ := json.Marshal(device)
+
+	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
+		Operation: admv1.Update,
+		Object:    runtime.RawExtension{Raw: raw},
+		// OldObject is intentionally omitted to emulate update paths where it is not provided.
+	}}
+	resp := validator.Handle(context.Background(), req)
+	if !resp.Allowed {
+		t.Fatalf("expected update without oldObject to be allowed, got %+v", resp.Result)
+	}
+}
+
 func TestGPUDeviceAssignmentValidatorAmbiguousPoolName(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
@@ -221,9 +257,13 @@ func TestGPUDeviceAssignmentValidatorAmbiguousPoolName(t *testing.T) {
 		},
 	}
 	raw, _ := json.Marshal(device)
+	oldDevice := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev-a"}}
+	oldRaw, _ := json.Marshal(oldDevice)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Update,
 		Object:    runtime.RawExtension{Raw: raw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+		Name:      device.Name,
 	}}
 	resp := validator.Handle(context.Background(), req)
 	if resp.Allowed || resp.Result == nil || resp.Result.Code != http.StatusForbidden {
@@ -259,9 +299,13 @@ func TestGPUDeviceAssignmentValidatorClusterPool(t *testing.T) {
 		},
 	}
 	raw, _ := json.Marshal(device)
+	oldDevice := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev-a"}}
+	oldRaw, _ := json.Marshal(oldDevice)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Update,
 		Object:    runtime.RawExtension{Raw: raw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+		Name:      device.Name,
 	}}
 	resp := validator.Handle(context.Background(), req)
 	if !resp.Allowed {

@@ -38,7 +38,7 @@ type nodeListCallErrorClient struct {
 func (c *nodeListCallErrorClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if _, ok := list.(*corev1.NodeList); ok {
 		c.nodeListCall++
-		if c.nodeListCall == 2 {
+		if c.nodeListCall == 3 {
 			return c.err
 		}
 	}
@@ -87,7 +87,7 @@ func TestHandlePoolDeviceLoopBranchesAndAltListItems(t *testing.T) {
 		},
 	}
 
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).
 		WithObjects(node1, node2, node3, devIgnored, devMismatch, devHostnameFallback, devNoNodeInfo).
 		Build()
 
@@ -126,7 +126,7 @@ func TestHandlePoolNodeListError(t *testing.T) {
 			PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
-	base := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(device).Build()
+	base := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).WithObjects(device).Build()
 	badRequest := apierrors.NewBadRequest("node list failed")
 	cl := &listErrorClient{Client: base, errs: map[string]error{"*v1.NodeList": badRequest}}
 
@@ -147,7 +147,7 @@ func TestHandlePoolAltListError(t *testing.T) {
 			PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
-	base := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(device).Build()
+	base := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).WithObjects(device).Build()
 
 	cl := &nodeListCallErrorClient{Client: base, err: apierrors.NewBadRequest("alt list failed")}
 	h := NewNodeMarkHandler(testr.New(t), cl)

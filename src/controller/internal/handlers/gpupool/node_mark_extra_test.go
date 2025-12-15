@@ -121,7 +121,7 @@ func TestHandlePoolTaintsDisabled(t *testing.T) {
 			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
 	enabled := false
 	pool := &v1alpha1.GPUPool{
@@ -172,7 +172,7 @@ func TestHandlePoolPropagatesSyncError(t *testing.T) {
 			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
-	base := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
+	base := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), &failingUpdateClient{Client: base})
 	pool := &v1alpha1.GPUPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
@@ -249,7 +249,7 @@ func TestHandlePoolWithStatuses(t *testing.T) {
 			PoolRef:  &v1alpha1.GPUPoolReference{Name: "pool"},
 		},
 	}
-	cl := withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme)).WithObjects(node, device).Build()
+	cl := withNodeTaintIndexes(withPoolDeviceIndexes(fake.NewClientBuilder().WithScheme(scheme))).WithObjects(node, device).Build()
 	h := NewNodeMarkHandler(testr.New(t), cl)
 
 	pool := &v1alpha1.GPUPool{

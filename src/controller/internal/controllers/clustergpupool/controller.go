@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -242,6 +243,12 @@ func deviceChanged(oldDev, newDev *v1alpha1.GPUDevice) bool {
 		return true
 	}
 	if oldDev.Status.State != newDev.Status.State || oldDev.Status.NodeName != newDev.Status.NodeName {
+		return true
+	}
+	if oldDev.Status.Hardware.UUID != newDev.Status.Hardware.UUID {
+		return true
+	}
+	if !equality.Semantic.DeepEqual(oldDev.Status.Hardware.MIG, newDev.Status.Hardware.MIG) {
 		return true
 	}
 	if (oldDev.Status.PoolRef == nil) != (newDev.Status.PoolRef == nil) {

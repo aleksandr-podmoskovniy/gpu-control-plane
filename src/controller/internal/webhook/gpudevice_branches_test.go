@@ -47,9 +47,13 @@ func TestGPUDeviceAssignmentValidatorClusterPoolNotFoundAndMismatch(t *testing.T
 		},
 	}
 	raw, _ := json.Marshal(device)
+	oldDevice := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: device.Name}}
+	oldRaw, _ := json.Marshal(oldDevice)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{
 		Operation: admv1.Update,
 		Object:    runtime.RawExtension{Raw: raw},
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+		Name:      device.Name,
 	}}
 
 	validator := newGPUDeviceAssignmentValidator(testr.New(t), decoder, fake.NewClientBuilder().WithScheme(scheme).Build())

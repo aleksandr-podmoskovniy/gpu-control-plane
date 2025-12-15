@@ -16,7 +16,20 @@ spec:
     singular: gpupool
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.capacity.total
+      name: Total
+      type: integer
+    - jsonPath: .status.capacity.available
+      name: Available
+      type: integer
+    - jsonPath: .status.capacity.used
+      name: Used
+      type: integer
+    - jsonPath: .spec.backend
+      name: Backend
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: GPUPool defines a logical pool of GPU capacity exposed to workloads.

@@ -17,6 +17,7 @@ package indexer
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
@@ -33,6 +34,8 @@ const (
 	GPUDeviceClusterAssignmentField = "metadata.annotations.cluster.gpu.deckhouse.io/assignment"
 	// GPUPoolNameField indexes namespaced GPUPools by metadata.name (cluster-unique by policy).
 	GPUPoolNameField = "metadata.name"
+	// NodeTaintKeyField indexes Nodes by spec.taints.key for taint cleanup operations.
+	NodeTaintKeyField = "spec.taints.key"
 )
 
 // IndexGPUDeviceByNode registers a field indexer that maps GPUDevices to their node names.
@@ -108,5 +111,34 @@ func IndexGPUPoolByName(ctx context.Context, idx client.FieldIndexer) error {
 			return nil
 		}
 		return []string{pool.Name}
+	})
+}
+
+// IndexNodeByTaintKey registers a field indexer that maps Nodes to taint keys present on them.
+func IndexNodeByTaintKey(ctx context.Context, idx client.FieldIndexer) error {
+	if idx == nil {
+		return nil
+	}
+	return idx.IndexField(ctx, &corev1.Node{}, NodeTaintKeyField, func(obj client.Object) []string {
+		node, ok := obj.(*corev1.Node)
+		if !ok || len(node.Spec.Taints) == 0 {
+			return nil
+		}
+		seen := make(map[string]struct{}, len(node.Spec.Taints))
+		keys := make([]string, 0, len(node.Spec.Taints))
+		for _, taint := range node.Spec.Taints {
+			if taint.Key == "" {
+				continue
+			}
+			if _, ok := seen[taint.Key]; ok {
+				continue
+			}
+			seen[taint.Key] = struct{}{}
+			keys = append(keys, taint.Key)
+		}
+		if len(keys) == 0 {
+			return nil
+		}
+		return keys
 	})
 }

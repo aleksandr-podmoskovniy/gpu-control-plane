@@ -197,12 +197,17 @@ type GPUNodeStateList struct {
 	Items           []GPUNodeState `json:"items"`
 }
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// GPUPool defines a logical pool of GPU capacity exposed to workloads.
-type GPUPool struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// +kubebuilder:object:root=true
+	// +kubebuilder:subresource:status
+	// +kubebuilder:resource:path=gpupools,scope=Namespaced,shortName=gpupool;gpup,categories=deckhouse;gpu
+	// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
+	// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
+	// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
+	// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
+	// GPUPool defines a logical pool of GPU capacity exposed to workloads.
+	type GPUPool struct {
+		metav1.TypeMeta   `json:",inline"`
+		metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec declares desired rules for selecting and slicing devices.
 	Spec GPUPoolSpec `json:"spec,omitempty"`
@@ -305,18 +310,22 @@ type GPUPoolTaintSpec struct {
 
 type GPUPoolStatus struct {
 	// Capacity summarises total capacity inside the pool.
-	Capacity GPUPoolCapacityStatus `json:"capacity,omitempty"`
+	Capacity GPUPoolCapacityStatus `json:"capacity"`
 	// Conditions surfaces pool-level status conditions.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:path=clustergpupools,scope=Cluster,shortName=cgpupool;cgpu,categories=deckhouse;gpu
-// ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
-type ClusterGPUPool struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	// +kubebuilder:object:root=true
+	// +kubebuilder:subresource:status
+	// +kubebuilder:resource:path=clustergpupools,scope=Cluster,shortName=cgpupool;cgpu,categories=deckhouse;gpu
+	// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
+	// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
+	// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
+	// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
+	// ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
+	type ClusterGPUPool struct {
+		metav1.TypeMeta   `json:",inline"`
+		metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec declares desired rules for selecting and slicing devices.
 	Spec GPUPoolSpec `json:"spec,omitempty"`
@@ -334,13 +343,13 @@ type ClusterGPUPoolList struct {
 
 type GPUPoolCapacityStatus struct {
 	// Total is total pool capacity expressed in declared units.
-	Total int32 `json:"total,omitempty"`
+	Total int32 `json:"total"`
 	// Available is currently available pool capacity expressed in declared units.
 	// Currently the system does not track runtime usage, so Available == Total.
-	Available int32 `json:"available,omitempty"`
+	Available int32 `json:"available"`
 	// Used is the capacity currently allocated to workloads.
 	// Currently the system does not track runtime usage, so Used is always 0.
-	Used int32 `json:"used,omitempty"`
+	Used int32 `json:"used"`
 }
 
 // +kubebuilder:object:root=true

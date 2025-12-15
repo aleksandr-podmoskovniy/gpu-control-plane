@@ -248,8 +248,8 @@ func TestSetupWithManagerIndexesFieldsWhenIndexerProvided(t *testing.T) {
 	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
 		t.Fatalf("SetupWithManager failed: %v", err)
 	}
-	if idx.calls != 4 {
-		t.Fatalf("expected 4 index registrations, got %d", idx.calls)
+	if idx.calls != 5 {
+		t.Fatalf("expected 5 index registrations, got %d", idx.calls)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestSetupWithManagerPropagatesIndexerError(t *testing.T) {
 	scheme := newScheme(t)
 	cl := clientfake.NewClientBuilder().WithScheme(scheme).Build()
 
-	for _, failAt := range []int{1, 2, 3, 4} {
+	for _, failAt := range []int{1, 2, 3, 4, 5} {
 		t.Run("failAt="+time.Duration(failAt).String(), func(t *testing.T) {
 			idx := &stubFieldIndexer{err: errors.New("index fail"), failAt: failAt}
 			mgr := newFakeManager(cl, scheme)

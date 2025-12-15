@@ -59,23 +59,20 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	if err := h.client.List(ctx, devices, client.MatchingFields{indexer.GPUDevicePoolRefNameField: pool.Name}); err != nil {
 		return contracts.Result{}, err
 	}
-	for i := range devices.Items {
-		dev := &devices.Items[i]
-		if isDeviceIgnored(dev) {
-			continue
+		for i := range devices.Items {
+			dev := &devices.Items[i]
+			if isDeviceIgnored(dev) {
+				continue
+			}
+			if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
+				continue
+			}
+			nodeName := deviceNodeName(dev)
+			if nodeName == "" {
+				continue
+			}
+			nodesWithDevices[nodeName]++
 		}
-		if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
-			continue
-		}
-		nodeName := dev.Status.NodeName
-		if nodeName == "" {
-			nodeName = dev.Labels["kubernetes.io/hostname"]
-		}
-		if nodeName == "" {
-			continue
-		}
-		nodesWithDevices[nodeName]++
-	}
 
 	nodesToSync := make(map[string]struct{}, len(nodesWithDevices))
 	for nodeName := range nodesWithDevices {
@@ -91,6 +88,14 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 		nodesToSync[nodeList.Items[i].Name] = struct{}{}
 	}
 
+	taintedNodes := &corev1.NodeList{}
+	if err := h.client.List(ctx, taintedNodes, client.MatchingFields{indexer.NodeTaintKeyField: poolKey}); err != nil {
+		return contracts.Result{}, err
+	}
+	for i := range taintedNodes.Items {
+		nodesToSync[taintedNodes.Items[i].Name] = struct{}{}
+	}
+
 	if altPoolKey != "" {
 		altList := &corev1.NodeList{}
 		if err := h.client.List(ctx, altList, client.MatchingLabels{altPoolKey: poolValue}); err != nil {
@@ -98,6 +103,14 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 		}
 		for i := range altList.Items {
 			nodesToSync[altList.Items[i].Name] = struct{}{}
+		}
+
+		altTainted := &corev1.NodeList{}
+		if err := h.client.List(ctx, altTainted, client.MatchingFields{indexer.NodeTaintKeyField: altPoolKey}); err != nil {
+			return contracts.Result{}, err
+		}
+		for i := range altTainted.Items {
+			nodesToSync[altTainted.Items[i].Name] = struct{}{}
 		}
 	}
 

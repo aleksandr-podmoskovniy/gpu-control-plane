@@ -102,19 +102,16 @@ func (h *DPValidationHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPU
 	}
 
 	changed := false
-	for i := range devices.Items {
-		dev := &devices.Items[i]
-		if dev.Annotations[assignmentKey] != pool.Name {
-			continue
-		}
-		node := dev.Status.NodeName
-		if node == "" {
-			node = dev.Labels["kubernetes.io/hostname"]
-		}
-		if node == "" {
-			continue
-		}
-		target := dev.Status.State
+		for i := range devices.Items {
+			dev := &devices.Items[i]
+			if dev.Annotations[assignmentKey] != pool.Name {
+				continue
+			}
+			node := deviceNodeName(dev)
+			if node == "" {
+				continue
+			}
+			target := dev.Status.State
 		switch dev.Status.State {
 		case v1alpha1.GPUDeviceStatePendingAssignment:
 			if readyNodes[node] {
