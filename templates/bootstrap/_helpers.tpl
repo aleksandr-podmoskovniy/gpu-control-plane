@@ -85,15 +85,16 @@ false
     {{- $nodes = $stateNodes -}}
   {{- end -}}
 {{- end -}}
+{{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) }}
 - key: kubernetes.io/hostname
   operator: In
   values:
-{{- if and (kindIs "slice" $nodes) (gt (len $nodes) 0) }}
 {{- range $nodes }}
     - {{ . | quote }}
 {{- end }}
 {{- else }}
-    - "gpu-control-plane-no-nodes"
+- key: gpu-control-plane.deckhouse.io/no-nodes
+  operator: Exists
 {{- end }}
 {{- end -}}
 

@@ -171,6 +171,94 @@ func TestPodValidatorDeniesWhenCapacityExceeded(t *testing.T) {
 	}
 }
 
+func TestPodValidatorAllowsWhenCapacityIsZero(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "gpu-team",
+		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
+	}}
+	clusterPool := &v1alpha1.ClusterGPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "shared"},
+		Spec:       v1alpha1.GPUPoolSpec{},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity:   v1alpha1.GPUPoolCapacityStatus{Total: 0},
+			Conditions: []metav1.Condition{{Type: "Configured", Status: metav1.ConditionTrue}},
+		},
+	}
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceName("cluster.gpu.deckhouse.io/shared"): resource.MustParse("1")},
+				},
+			}},
+		},
+	}
+	raw, _ := json.Marshal(pod)
+	req := cradmission.Request{
+		AdmissionRequest: admv1.AdmissionRequest{
+			Object: runtime.RawExtension{Raw: raw, Object: &pod},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, clusterPool).Build()
+	v := newPodValidator(testr.New(t), cl)
+	resp := v.Handle(context.Background(), req)
+	if !resp.Allowed {
+		t.Fatalf("expected allowed when capacity is zero, got %v", resp.Result)
+	}
+}
+
+func TestPodValidatorDeniesWhenPoolNotConfigured(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   "gpu-team",
+		Labels: map[string]string{"gpu.deckhouse.io/enabled": "true"},
+	}}
+	pool := &v1alpha1.GPUPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "gpu-team"},
+		Status: v1alpha1.GPUPoolStatus{
+			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
+			Conditions: []metav1.Condition{{
+				Type:    "Configured",
+				Status:  metav1.ConditionFalse,
+				Reason:  "NameCollision",
+				Message: "pool configuration is invalid",
+			}},
+		},
+	}
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "gpu-team"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceName("gpu.deckhouse.io/pool-a"): resource.MustParse("1")},
+				},
+			}},
+		},
+	}
+	raw, _ := json.Marshal(pod)
+	req := cradmission.Request{
+		AdmissionRequest: admv1.AdmissionRequest{
+			Object: runtime.RawExtension{Raw: raw, Object: &pod},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, pool).Build()
+	v := newPodValidator(testr.New(t), cl)
+	resp := v.Handle(context.Background(), req)
+	if resp.Allowed {
+		t.Fatalf("expected denial when pool is not configured")
+	}
+}
+
 func TestRequestedResourcesUsesInitContainerMax(t *testing.T) {
 	pool := poolRequest{name: "pool-a", keyPrefix: localPoolResourcePrefix}
 

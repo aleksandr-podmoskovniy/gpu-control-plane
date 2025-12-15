@@ -371,13 +371,13 @@ func TestSelectionSyncNodeSelectorHappyPath(t *testing.T) {
 		t.Fatalf("expected capacity only from eligible nodes, got %+v", pool.Status.Capacity)
 	}
 
-	updated1 := &v1alpha1.GPUDevice{}
-	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated1); err != nil {
-		t.Fatalf("get dev1: %v", err)
-	}
-	if updated1.Status.PoolRef == nil || updated1.Status.PoolRef.Name != "pool" || updated1.Status.State != v1alpha1.GPUDeviceStatePendingAssignment {
-		t.Fatalf("expected dev1 assigned to pool, got %+v", updated1.Status)
-	}
+		updated1 := &v1alpha1.GPUDevice{}
+		if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev1"}, updated1); err != nil {
+			t.Fatalf("get dev1: %v", err)
+		}
+		if updated1.Status.PoolRef == nil || updated1.Status.PoolRef.Name != "pool" || updated1.Status.State != v1alpha1.GPUDeviceStateAssigned {
+			t.Fatalf("expected dev1 assigned to pool, got %+v", updated1.Status)
+		}
 
 	updated2 := &v1alpha1.GPUDevice{}
 	if err := cl.Get(context.Background(), client.ObjectKey{Name: "dev2"}, updated2); err != nil {

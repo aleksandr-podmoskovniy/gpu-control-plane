@@ -167,7 +167,12 @@ type GPUDeviceList struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=gpunodestates,scope=Cluster,categories=deckhouse;gpu
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.nodeName`
+// +kubebuilder:printcolumn:name="Inventory",type=string,JSONPath=`.status.conditions[?(@.type=="InventoryComplete")].status`
+// +kubebuilder:printcolumn:name="Driver",type=string,JSONPath=`.status.conditions[?(@.type=="DriverReady")].status`
+// +kubebuilder:printcolumn:name="Toolkit",type=string,JSONPath=`.status.conditions[?(@.type=="ToolkitReady")].status`
+// +kubebuilder:printcolumn:name="Monitoring",type=string,JSONPath=`.status.conditions[?(@.type=="MonitoringReady")].status`
 // +kubebuilder:printcolumn:name="ReadyForPooling",type=string,JSONPath=`.status.conditions[?(@.type=="ReadyForPooling")].status`
+// +kubebuilder:printcolumn:name="Degraded",type=string,JSONPath=`.status.conditions[?(@.type=="WorkloadsDegraded")].status`
 // GPUNodeState aggregates GPU-related state for a Kubernetes node.
 type GPUNodeState struct {
 	metav1.TypeMeta   `json:",inline"`

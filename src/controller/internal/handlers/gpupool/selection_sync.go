@@ -225,7 +225,7 @@ func needsAssignmentUpdate(dev v1alpha1.GPUDevice, poolName, poolNamespace strin
 	} else if strings.TrimSpace(ref.Namespace) != "" && ref.Namespace != poolNamespace {
 		return true
 	}
-	if dev.Status.State == v1alpha1.GPUDeviceStateReady || dev.Status.State == v1alpha1.GPUDeviceStatePendingAssignment {
+	if dev.Status.State == v1alpha1.GPUDeviceStateReady {
 		return true
 	}
 	return false
@@ -246,8 +246,8 @@ func (h *SelectionSyncHandler) assignDeviceWithRetry(ctx context.Context, name, 
 			ref.Namespace = poolNamespace
 		}
 		current.Status.PoolRef = ref
-		// Do not transition to Assigned without DP validator: Ready/Assigned -> PendingAssignment.
-		if current.Status.State == v1alpha1.GPUDeviceStateReady || current.Status.State == v1alpha1.GPUDeviceStateAssigned {
+		// Do not transition to Assigned without DP validator: Ready -> PendingAssignment.
+		if current.Status.State == v1alpha1.GPUDeviceStateReady {
 			current.Status.State = v1alpha1.GPUDeviceStatePendingAssignment
 		}
 		if err := h.client.Status().Patch(ctx, current, client.MergeFrom(orig)); err != nil {

@@ -1,4 +1,16 @@
-# Baseline bootstrap section is present but empty.
+# Baseline bootstrap section is present but has no nodes selected for components.
+# NOTE: Helm values are merged deeply; this file intentionally overrides the
+# component node lists to empty slices (instead of setting bootstrap: {}), so
+# templates exercise the "no nodes" scheduling path.
 gpuControlPlane:
   internal:
-    bootstrap: {}
+    bootstrap:
+      components:
+        validator:
+          nodes: []
+        gpu-feature-discovery:
+          nodes: []
+        dcgm:
+          nodes: []
+        dcgm-exporter:
+          nodes: []

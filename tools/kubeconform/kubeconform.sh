@@ -150,7 +150,10 @@ if [[ ! -d schemas ]]; then
 fi
 
 HELM_RENDER=helm-template-render.yaml
-"${HELM_BIN}" template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel > "${HELM_RENDER}"
+{
+  "${HELM_BIN}" template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml --devel
+  "${HELM_BIN}" template gpu-control-plane ../.. -f ../../fixtures/module-values.yaml -f ../../fixtures/bootstrap-states/00-empty.yaml --devel
+} > "${HELM_RENDER}"
 
 cat "${HELM_RENDER}" | _kubeconform -verbose -strict \
   -kubernetes-version 1.30.0 \

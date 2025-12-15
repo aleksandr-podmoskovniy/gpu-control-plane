@@ -23,8 +23,23 @@ spec:
     - jsonPath: .spec.nodeName
       name: Node
       type: string
+    - jsonPath: .status.conditions[?(@.type=="InventoryComplete")].status
+      name: Inventory
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="DriverReady")].status
+      name: Driver
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="ToolkitReady")].status
+      name: Toolkit
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="MonitoringReady")].status
+      name: Monitoring
+      type: string
     - jsonPath: .status.conditions[?(@.type=="ReadyForPooling")].status
       name: ReadyForPooling
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="WorkloadsDegraded")].status
+      name: Degraded
       type: string
     name: v1alpha1
     schema:

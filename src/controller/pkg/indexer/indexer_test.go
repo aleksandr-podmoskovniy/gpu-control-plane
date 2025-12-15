@@ -189,6 +189,16 @@ func TestIndexersHandleNilIndexerAndPropagateErrors(t *testing.T) {
 	}
 }
 
+func TestIndexGPUDeviceByNodeIgnoresIndexerConflict(t *testing.T) {
+	idx := &capturingFieldIndexer{err: errors.New("indexer conflict: map[field:status.nodeName:{}]")}
+	if err := IndexGPUDeviceByNode(context.Background(), idx); err != nil {
+		t.Fatalf("expected conflict to be ignored, got %v", err)
+	}
+	if idx.calls != 1 {
+		t.Fatalf("expected indexer called once, got %d", idx.calls)
+	}
+}
+
 func TestIndexGPUDeviceByPoolRefNameSkipsEmptyPoolName(t *testing.T) {
 	idx := &capturingFieldIndexer{}
 	if err := IndexGPUDeviceByPoolRefName(context.Background(), idx); err != nil {

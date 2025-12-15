@@ -16,6 +16,7 @@ package indexer
 
 import (
 	"context"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,18 +39,32 @@ const (
 	NodeTaintKeyField = "spec.taints.key"
 )
 
+func isIndexerConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	// controller-runtime cache returns a plain error when the index has already been registered.
+	return strings.Contains(err.Error(), "indexer conflict")
+}
+
 // IndexGPUDeviceByNode registers a field indexer that maps GPUDevices to their node names.
 func IndexGPUDeviceByNode(ctx context.Context, idx client.FieldIndexer) error {
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceNodeField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceNodeField, func(obj client.Object) []string {
 		dev, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || dev.Status.NodeName == "" {
 			return nil
 		}
 		return []string{dev.Status.NodeName}
-	})
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // IndexGPUDeviceByPoolRefName registers a field indexer that maps GPUDevices to their poolRef names.
@@ -57,13 +72,19 @@ func IndexGPUDeviceByPoolRefName(ctx context.Context, idx client.FieldIndexer) e
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDevicePoolRefNameField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDevicePoolRefNameField, func(obj client.Object) []string {
 		dev, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || dev.Status.PoolRef == nil || dev.Status.PoolRef.Name == "" {
 			return nil
 		}
 		return []string{dev.Status.PoolRef.Name}
-	})
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // IndexGPUDeviceByNamespacedAssignment registers a field indexer that maps GPUDevices to namespaced assignment annotation values.
@@ -71,7 +92,7 @@ func IndexGPUDeviceByNamespacedAssignment(ctx context.Context, idx client.FieldI
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceNamespacedAssignmentField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceNamespacedAssignmentField, func(obj client.Object) []string {
 		dev, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || dev.Annotations == nil {
 			return nil
@@ -80,7 +101,13 @@ func IndexGPUDeviceByNamespacedAssignment(ctx context.Context, idx client.FieldI
 			return []string{value}
 		}
 		return nil
-	})
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // IndexGPUDeviceByClusterAssignment registers a field indexer that maps GPUDevices to cluster assignment annotation values.
@@ -88,7 +115,7 @@ func IndexGPUDeviceByClusterAssignment(ctx context.Context, idx client.FieldInde
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceClusterAssignmentField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &v1alpha1.GPUDevice{}, GPUDeviceClusterAssignmentField, func(obj client.Object) []string {
 		dev, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || dev.Annotations == nil {
 			return nil
@@ -97,7 +124,13 @@ func IndexGPUDeviceByClusterAssignment(ctx context.Context, idx client.FieldInde
 			return []string{value}
 		}
 		return nil
-	})
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // IndexGPUPoolByName registers a field indexer that maps namespaced GPUPools to their names.
@@ -105,13 +138,19 @@ func IndexGPUPoolByName(ctx context.Context, idx client.FieldIndexer) error {
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &v1alpha1.GPUPool{}, GPUPoolNameField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &v1alpha1.GPUPool{}, GPUPoolNameField, func(obj client.Object) []string {
 		pool, ok := obj.(*v1alpha1.GPUPool)
 		if !ok || pool.Name == "" {
 			return nil
 		}
 		return []string{pool.Name}
-	})
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // IndexNodeByTaintKey registers a field indexer that maps Nodes to taint keys present on them.
@@ -119,7 +158,7 @@ func IndexNodeByTaintKey(ctx context.Context, idx client.FieldIndexer) error {
 	if idx == nil {
 		return nil
 	}
-	return idx.IndexField(ctx, &corev1.Node{}, NodeTaintKeyField, func(obj client.Object) []string {
+	if err := idx.IndexField(ctx, &corev1.Node{}, NodeTaintKeyField, func(obj client.Object) []string {
 		node, ok := obj.(*corev1.Node)
 		if !ok || len(node.Spec.Taints) == 0 {
 			return nil
@@ -138,7 +177,13 @@ func IndexNodeByTaintKey(ctx context.Context, idx client.FieldIndexer) error {
 		}
 		if len(keys) == 0 {
 			return nil
+			}
+			return keys
+	}); err != nil {
+		if isIndexerConflict(err) {
+			return nil
 		}
-		return keys
-	})
+		return err
+	}
+	return nil
 }

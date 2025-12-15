@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	cradmission "sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -72,10 +73,15 @@ func (v *podValidator) Handle(ctx context.Context, req cradmission.Request) crad
 	}
 
 	// Static sanity check only: requested <= capacity.total (no dynamic availability tracking).
-	// Skip the check for pools that were not reconciled yet (status not initialised).
-	if apimeta.FindStatusCondition(pool.Status.Conditions, "Configured") != nil {
+	// Skip the check when the pool has not been configured yet or reports zero capacity.
+	// Zero capacity is not treated as a hard admission error: the scheduler/device-plugin remain the source of truth.
+	cond := apimeta.FindStatusCondition(pool.Status.Conditions, "Configured")
+	if cond != nil && cond.Status == metav1.ConditionFalse {
+		return cradmission.Denied(fmt.Sprintf("GPU pool %s is not configured: %s", poolRef.keyPrefix+poolRef.name, cond.Message))
+	}
+	if cond != nil && cond.Status == metav1.ConditionTrue {
 		total := int64(pool.Status.Capacity.Total)
-		if requested > total {
+		if total > 0 && requested > total {
 			return cradmission.Denied(fmt.Sprintf("requested %d units of %s but pool capacity is %d", requested, poolRef.keyPrefix+poolRef.name, total))
 		}
 	}

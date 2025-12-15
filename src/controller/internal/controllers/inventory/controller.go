@@ -445,6 +445,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 
 	ctrlResult := ctrl.Result{}
 	if err := r.inventorySvc().Reconcile(ctx, node, nodeSnapshot, reconciledDevices); err != nil {
+		if apierrors.IsConflict(err) {
+			// GPUNodeState.status is updated by multiple controllers; conflicts are expected and handled by requeue.
+			return ctrl.Result{Requeue: true}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	r.inventorySvc().UpdateDeviceMetrics(node.Name, reconciledDevices)
