@@ -26,6 +26,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/gpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/inventory"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/poolusage"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 )
 
@@ -46,7 +47,9 @@ var (
 	newPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
 		return gpupool.New(log, cfg, store, handlers), nil
 	}
-	newClusterPoolController func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error)
+	newClusterPoolController  func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error)
+	newPoolUsageController    func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore) (setupController, error)
+	newClusterUsageController func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore) (setupController, error)
 )
 
 type Dependencies struct {
@@ -62,6 +65,16 @@ func ensureRegistries(deps *Dependencies) {
 	if newClusterPoolController == nil {
 		newClusterPoolController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore, handlers []contracts.PoolHandler) (setupController, error) {
 			return clustergpupool.New(log, cfg, store, handlers), nil
+		}
+	}
+	if newPoolUsageController == nil {
+		newPoolUsageController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore) (setupController, error) {
+			return poolusage.NewGPUPoolUsage(log, cfg, store), nil
+		}
+	}
+	if newClusterUsageController == nil {
+		newClusterUsageController = func(log logr.Logger, cfg config.ControllerConfig, store *config.ModuleConfigStore) (setupController, error) {
+			return poolusage.NewClusterGPUPoolUsage(log, cfg, store), nil
 		}
 	}
 	if deps.InventoryHandlers == nil {
@@ -99,6 +112,12 @@ func Register(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfi
 		},
 		func() (setupController, error) {
 			return newClusterPoolController(deps.Logger.WithName("cluster-gpupool"), cfg.GPUPool, deps.ModuleConfigStore, deps.PoolHandlers.List())
+		},
+		func() (setupController, error) {
+			return newPoolUsageController(deps.Logger.WithName("gpupool.usage"), cfg.GPUPool, deps.ModuleConfigStore)
+		},
+		func() (setupController, error) {
+			return newClusterUsageController(deps.Logger.WithName("cluster-gpupool.usage"), cfg.GPUPool, deps.ModuleConfigStore)
 		},
 	}
 

@@ -106,12 +106,16 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	origBoot := newBootstrapController
 	origPool := newPoolController
 	origClusterPool := newClusterPoolController
+	origPoolUsage := newPoolUsageController
+	origClusterUsage := newClusterUsageController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
 		newClusterPoolController = origClusterPool
+		newPoolUsageController = origPoolUsage
+		newClusterUsageController = origClusterUsage
 	})
 
 	moduleStub := &stubSetupController{}
@@ -119,6 +123,8 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	bootStub := &stubSetupController{}
 	poolStub := &stubSetupController{}
 	clusterPoolStub := &stubSetupController{}
+	poolUsageStub := &stubSetupController{}
+	clusterUsageStub := &stubSetupController{}
 
 	newModuleConfigController = func(logr.Logger, *config.ModuleConfigStore) (setupController, error) {
 		return moduleStub, nil
@@ -135,6 +141,12 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 	newClusterPoolController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore, []contracts.PoolHandler) (setupController, error) {
 		return clusterPoolStub, nil
 	}
+	newPoolUsageController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore) (setupController, error) {
+		return poolUsageStub, nil
+	}
+	newClusterUsageController = func(logr.Logger, config.ControllerConfig, *config.ModuleConfigStore) (setupController, error) {
+		return clusterUsageStub, nil
+	}
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
 	deps := Dependencies{Logger: testr.New(t)}
@@ -148,6 +160,8 @@ func TestRegisterInvokesAllControllers(t *testing.T) {
 		"bootstrap":    bootStub,
 		"gpupool":      poolStub,
 		"clusterpool":  clusterPoolStub,
+		"poolusage":    poolUsageStub,
+		"clusterusage": clusterUsageStub,
 	}
 	for name, stub := range expectedCalls {
 		if stub.called != 1 {
@@ -162,12 +176,16 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 	origBoot := newBootstrapController
 	origPool := newPoolController
 	origClusterPool := newClusterPoolController
+	origPoolUsage := newPoolUsageController
+	origClusterUsage := newClusterUsageController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
 		newClusterPoolController = origClusterPool
+		newPoolUsageController = origPoolUsage
+		newClusterUsageController = origClusterUsage
 	})
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
@@ -271,6 +289,9 @@ func TestRegisterPropagatesConstructorErrors(t *testing.T) {
 			newInventoryController = origInv
 			newBootstrapController = origBoot
 			newPoolController = origPool
+			newClusterPoolController = origClusterPool
+			newPoolUsageController = origPoolUsage
+			newClusterUsageController = origClusterUsage
 
 			tc.configure(t)
 			err := Register(context.Background(), nil, config.ControllersConfig{}, store, Dependencies{Logger: testr.New(t)})
@@ -286,11 +307,17 @@ func TestRegisterPropagatesSetupErrors(t *testing.T) {
 	origInv := newInventoryController
 	origBoot := newBootstrapController
 	origPool := newPoolController
+	origClusterPool := newClusterPoolController
+	origPoolUsage := newPoolUsageController
+	origClusterUsage := newClusterUsageController
 	t.Cleanup(func() {
 		newModuleConfigController = origModule
 		newInventoryController = origInv
 		newBootstrapController = origBoot
 		newPoolController = origPool
+		newClusterPoolController = origClusterPool
+		newPoolUsageController = origPoolUsage
+		newClusterUsageController = origClusterUsage
 	})
 
 	store := config.NewModuleConfigStore(moduleconfigpkg.DefaultState())
@@ -379,6 +406,9 @@ func TestRegisterPropagatesSetupErrors(t *testing.T) {
 			newInventoryController = origInv
 			newBootstrapController = origBoot
 			newPoolController = origPool
+			newClusterPoolController = origClusterPool
+			newPoolUsageController = origPoolUsage
+			newClusterUsageController = origClusterUsage
 
 			tc.configure(t)
 

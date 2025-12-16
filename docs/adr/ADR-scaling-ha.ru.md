@@ -55,18 +55,27 @@ Admission webhooks в controller-runtime **не требуют leader election**
 - Pod webhooks не должны быть кластер‑глобальными без необходимости: **mutating и validating Pod webhooks** ограничиваем `namespaceSelector`, а правила «Pod с GPU‑ресурсами разрешён только в enabled namespace» выносим в **ValidatingAdmissionPolicy (CEL)**, потому что selectors не умеют матчить `resources.limits`.
 - отказоустойчивость webhooks не должна блокировать весь кластер (fail‑policy на Pod webhook’ах должен быть обоснован и ограничен по scope).
 
-### 3) Пулы: детерминированная capacity, без pod-driven usage
+### 3) Пулы: детерминированная capacity + pod-derived usage (только observability)
 
 Финальная семантика:
 
-- pool‑контроллер считает только **детерминированную capacity** из состава устройств пула и настроек нарезки (`unit/slices/MIG`).
-- расчёт `Used/Available` по Pod’ам (и любые `List Pods`) из control-plane убирается.
+- `pool-controller` считает **детерминированную** `status.capacity.total` из состава устройств пула и настроек нарезки (`unit/slices/MIG`).
+- `status.capacity.used/available` — **информационные** поля для UI/наблюдаемости:
+  - `used` считается как сумма запросов (`resources.*`) у **уже назначенных на ноды** Pod’ов, которые запрашивают ресурс пула;
+  - `available = max(0, total-used)`;
+  - эти значения могут лагать и **не являются** «истиной» для планировщика.
 - admission **не выполняет** динамическую проверку «available прямо сейчас», но делает **статические** проверки:
   - запрошен не более чем один pool‑ресурс (один Pod → один пул),
-  - пул существует и включён для namespace,
+  - namespace включён (гейт),
   - запрошено не больше, чем `pool.status.capacity.total` (если total уже известен).
 
-Причина: динамическая «доступность» — это зона scheduler/ResourceQuota и не может быть корректно и дёшево вычислена в контроллере пула при больших масштабах.
+Как избегаем O(cluster):
+
+- mutating Pod webhook добавляет лейблы `gpu-control-plane.deckhouse.io/pool` + `gpu-control-plane.deckhouse.io/pool-scope`;
+- cache менеджера подписывается на Pod’ы **во всех namespace’ах** только по label‑selector (а не на весь кластер);
+- отдельные лёгкие usage‑контроллеры пересчитывают `used/available` по Pod’ам **только своего пула**.
+
+Причина: динамическая «доступность» и фактическое выделение — зона scheduler/device-plugin/ResourceQuota. В control-plane нам нужны лишь детерминированные инварианты и прозрачный статус.
 
 ### 4) DevicePlugin backend: единый node-agent вместо per-pool DaemonSet
 
@@ -130,12 +139,12 @@ Admission webhooks в controller-runtime **не требуют leader election**
 Минусы/стоимость:
 
 - node-agent — отдельная существенная подсистема (образ, RBAC, протокол получения конфигурации),
-- необходимо переопределить семантику pool status и admission (отказ от `used/available` и динамических проверок «available прямо сейчас»),
+- необходимо переопределить семантику pool status и admission (`used/available` — только observability; отказ от динамических проверок «available прямо сейчас»),
 - потребуется удалить per-pool workload рендеринг из control-plane после внедрения node-agent (без требований совместимости).
 
 ## План внедрения (без совместимости)
 
-1. Довести pool reconcile и admission до «статической» семантики (без `List Pods`, без `used/available`, с индексами/селективными list).
+1. Довести pool reconcile и admission до «статической» семантики (без O(cluster) `List Pods`; `used/available` — только через label‑filtered Pod cache, без влияния на admission).
 2. Зафиксировать минимальный CRD (без телеметрии) и выровнять контроллеры/вебхуки под него.
 3. Внедрить `gpu-node-agent` и перенести на него node‑side (регистрация ресурсов, MIG/time-slicing, валидатор).
 4. Удалить per-pool DaemonSet/ConfigMap рендеринг из контроллеров.

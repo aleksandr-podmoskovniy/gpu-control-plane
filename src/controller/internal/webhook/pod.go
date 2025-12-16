@@ -30,6 +30,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/podlabels"
 )
 
 const (
@@ -89,6 +90,9 @@ func (m *podMutator) Handle(ctx context.Context, req cradmission.Request) cradmi
 		}
 	}
 
+	if err := ensurePoolUsageLabels(pod, poolRef); err != nil {
+		return cradmission.Denied(err.Error())
+	}
 	if err := ensurePoolNodeSelector(pod, poolKey, poolRef.name); err != nil {
 		return cradmission.Denied(err.Error())
 	}
@@ -141,6 +145,26 @@ func ensurePoolNodeSelector(pod *corev1.Pod, poolKey, pool string) error {
 		return fmt.Errorf("nodeSelector %q already set to %q", poolKey, existing)
 	}
 	pod.Spec.NodeSelector[poolKey] = pool
+	return nil
+}
+
+func ensurePoolUsageLabels(pod *corev1.Pod, pool poolRequest) error {
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+	if existing, ok := pod.Labels[podlabels.PoolNameKey]; ok && existing != pool.name {
+		return fmt.Errorf("label %q already set to %q", podlabels.PoolNameKey, existing)
+	}
+	pod.Labels[podlabels.PoolNameKey] = pool.name
+
+	scope := podlabels.PoolScopeNamespaced
+	if pool.keyPrefix == clusterPoolResourcePrefix {
+		scope = podlabels.PoolScopeCluster
+	}
+	if existing, ok := pod.Labels[podlabels.PoolScopeKey]; ok && existing != scope {
+		return fmt.Errorf("label %q already set to %q", podlabels.PoolScopeKey, existing)
+	}
+	pod.Labels[podlabels.PoolScopeKey] = scope
 	return nil
 }
 

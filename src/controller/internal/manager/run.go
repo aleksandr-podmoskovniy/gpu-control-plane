@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -39,6 +41,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/podlabels"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/webhook"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
@@ -80,6 +83,12 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 			"key", metricsOpts.KeyName)
 	}
 
+	podReq, err := labels.NewRequirement(podlabels.PoolNameKey, selection.Exists, nil)
+	if err != nil {
+		return fmt.Errorf("build pod cache label selector: %w", err)
+	}
+	gpuPodSelector := labels.NewSelector().Add(*podReq)
+
 	options := manager.Options{
 		Metrics:                metricsOpts,
 		HealthProbeBindAddress: ":8081",
@@ -87,7 +96,11 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Pod{}: {
 					Namespaces: map[string]cache.Config{
+						// Control-plane workloads (validator, GFD, etc.) live here and must be fully cached.
 						meta.WorkloadsNamespace: {},
+						// Workload pods across the cluster are cached only when they request GPU resources
+						// and were labeled by the mutating webhook.
+						cache.AllNamespaces: {LabelSelector: gpuPodSelector},
 					},
 				},
 			},

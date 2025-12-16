@@ -421,10 +421,12 @@ spec:
     - `unit` (`Card` | `MIG`)
     - при `unit=MIG` пул описывает **один** MIG профиль (без смешивания разных профилей внутри одного пула)
     - `slicesPerUnit` (>=1) как единственная декларация oversubscription/time-slicing для ресурса пула
+    - семантика ёмкости: `Card` → `кол-во GPU * slicesPerUnit`, `MIG` → `кол-во MIG-партиций выбранного профиля * slicesPerUnit` (Pod запрашивает единицы именно в этих «юнитах»)
+    - mixed‑профили MIG на одной карте в рамках одного пула не поддерживаем: если нужны разные профили — делаем разные пулы (и распределяем карты между пулами через `*/assignment`)
   - `nodeSelector`, `deviceSelector` (immutable), `scheduling` (taints/strategy) — по необходимости
 - `status`:
   - `capacity.total`
-  - **без** `used/available` (динамическая доступность — зона scheduler/ResourceQuota)
+  - `capacity.used/available` — информационные поля (по назначенным Pod’ам), admission по ним не принимает решений
   - `conditions[]` (пример: `Supported`, `Misconfigured`, `Configured`)
 
 ### Примечание про отсутствие миграции
@@ -900,7 +902,8 @@ stateDiagram-v2
 
 `status`:
 
-- `status.capacity.total` — агрегированная ёмкость пула (без `used/available`).
+- `status.capacity.total` — агрегированная ёмкость пула.
+- `status.capacity.used/available` — информационная оценка по назначенным Pod’ам (scheduler/device-plugin остаются источником истины).
 - `status.conditions` — агрегированные условия пула (например `Supported`, `Configured`).
 
 ##### Операции с пулом и картами

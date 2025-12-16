@@ -202,17 +202,17 @@ type GPUNodeStateList struct {
 	Items           []GPUNodeState `json:"items"`
 }
 
-	// +kubebuilder:object:root=true
-	// +kubebuilder:subresource:status
-	// +kubebuilder:resource:path=gpupools,scope=Namespaced,shortName=gpupool;gpup,categories=deckhouse;gpu
-	// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
-	// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
-	// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
-	// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
-	// GPUPool defines a logical pool of GPU capacity exposed to workloads.
-	type GPUPool struct {
-		metav1.TypeMeta   `json:",inline"`
-		metav1.ObjectMeta `json:"metadata,omitempty"`
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:path=gpupools,scope=Namespaced,shortName=gpupool;gpup,categories=deckhouse;gpu
+// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
+// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
+// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
+// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
+// GPUPool defines a logical pool of GPU capacity exposed to workloads.
+type GPUPool struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec declares desired rules for selecting and slicing devices.
 	Spec GPUPoolSpec `json:"spec,omitempty"`
@@ -320,17 +320,17 @@ type GPUPoolStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-	// +kubebuilder:object:root=true
-	// +kubebuilder:subresource:status
-	// +kubebuilder:resource:path=clustergpupools,scope=Cluster,shortName=cgpupool;cgpu,categories=deckhouse;gpu
-	// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
-	// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
-	// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
-	// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
-	// ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
-	type ClusterGPUPool struct {
-		metav1.TypeMeta   `json:",inline"`
-		metav1.ObjectMeta `json:"metadata,omitempty"`
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:path=clustergpupools,scope=Cluster,shortName=cgpupool;cgpu,categories=deckhouse;gpu
+// +kubebuilder:printcolumn:name="Total",type=integer,JSONPath=`.status.capacity.total`
+// +kubebuilder:printcolumn:name="Available",type=integer,JSONPath=`.status.capacity.available`
+// +kubebuilder:printcolumn:name="Used",type=integer,JSONPath=`.status.capacity.used`
+// +kubebuilder:printcolumn:name="Backend",type=string,JSONPath=`.spec.backend`
+// ClusterGPUPool defines a cluster-wide pool of GPU capacity exposed to workloads.
+type ClusterGPUPool struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec declares desired rules for selecting and slicing devices.
 	Spec GPUPoolSpec `json:"spec,omitempty"`
@@ -350,10 +350,11 @@ type GPUPoolCapacityStatus struct {
 	// Total is total pool capacity expressed in declared units.
 	Total int32 `json:"total"`
 	// Available is currently available pool capacity expressed in declared units.
-	// Currently the system does not track runtime usage, so Available == Total.
+	// It is an informational signal derived from scheduled Pods that request the pool resource.
+	// The Kubernetes scheduler remains the source of truth for placement/availability decisions.
 	Available int32 `json:"available"`
 	// Used is the capacity currently allocated to workloads.
-	// Currently the system does not track runtime usage, so Used is always 0.
+	// It is computed as a sum of requested units for scheduled Pods that request the pool resource.
 	Used int32 `json:"used"`
 }
 
