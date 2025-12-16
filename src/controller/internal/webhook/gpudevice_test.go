@@ -57,6 +57,10 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 		ObjectMeta: metav1ObjectMeta("dev-a", ""),
 		Status: v1alpha1.GPUDeviceStatus{
 			InventoryID: "inv-1",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				UUID: "GPU-uuid-1",
+				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
+			},
 			State:       v1alpha1.GPUDeviceStateReady,
 		},
 	}
@@ -254,6 +258,10 @@ func TestGPUDeviceAssignmentValidatorAmbiguousPoolName(t *testing.T) {
 		Status: v1alpha1.GPUDeviceStatus{
 			State:       v1alpha1.GPUDeviceStateReady,
 			InventoryID: "inv-1",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				UUID: "GPU-uuid-1",
+				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
+			},
 		},
 	}
 	raw, _ := json.Marshal(device)
@@ -296,6 +304,10 @@ func TestGPUDeviceAssignmentValidatorClusterPool(t *testing.T) {
 		Status: v1alpha1.GPUDeviceStatus{
 			State:       v1alpha1.GPUDeviceStateReady,
 			InventoryID: "inv-1",
+			Hardware: v1alpha1.GPUDeviceHardware{
+				UUID: "GPU-uuid-1",
+				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
+			},
 		},
 	}
 	raw, _ := json.Marshal(device)
@@ -357,7 +369,13 @@ func TestGPUDeviceValidatorClientError(t *testing.T) {
 			Name:        "dev",
 			Annotations: map[string]string{clusterAssignmentAnnotation: "pool"},
 		},
-		Status: v1alpha1.GPUDeviceStatus{State: v1alpha1.GPUDeviceStateReady},
+		Status: v1alpha1.GPUDeviceStatus{
+			State: v1alpha1.GPUDeviceStateReady,
+			Hardware: v1alpha1.GPUDeviceHardware{
+				UUID: "GPU-uuid-1",
+				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
+			},
+		},
 	}
 	raw, _ := json.Marshal(device)
 	req := cradmission.Request{AdmissionRequest: admv1.AdmissionRequest{

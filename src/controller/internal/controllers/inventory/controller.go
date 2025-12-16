@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	moduleconfigctrl "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
@@ -288,6 +289,18 @@ func (r *Reconciler) setupWithDependencies(ctx context.Context, deps setupDepend
 		For(&corev1.Node{}, builder.WithPredicates(predicates)).
 		WatchesRawSource(deps.nodeFeatureSource).
 		WithOptions(options)
+
+	// Trigger reconciliation when GFD pods become Ready so that detection data (UUID/PCI address)
+	// is collected even when inventory is otherwise event-driven.
+	if deps.cache != nil {
+		pod := &corev1.Pod{}
+		ctrlBuilder = ctrlBuilder.WatchesRawSource(source.Kind(
+			deps.cache,
+			pod,
+			handler.TypedEnqueueRequestsFromMapFunc(mapGFDPodToNode),
+			gfdPodPredicates(),
+		))
+	}
 
 	// Recreate inventories on manual deletion without subscribing to all status updates.
 	if deps.cache != nil && deps.nodeStateSource != nil {
@@ -587,6 +600,18 @@ func mapNodeStateToNode(ctx context.Context, state *v1alpha1.GPUNodeState) []rec
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}}
 }
 
+func mapGFDPodToNode(ctx context.Context, pod *corev1.Pod) []reconcile.Request {
+	_ = ctx
+	if pod == nil {
+		return nil
+	}
+	nodeName := strings.TrimSpace(pod.Spec.NodeName)
+	if nodeName == "" {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}}
+}
+
 func nodeStatePredicates() predicate.TypedPredicate[*v1alpha1.GPUNodeState] {
 	return predicate.TypedFuncs[*v1alpha1.GPUNodeState]{
 		CreateFunc:  func(event.TypedCreateEvent[*v1alpha1.GPUNodeState]) bool { return false },
@@ -594,6 +619,44 @@ func nodeStatePredicates() predicate.TypedPredicate[*v1alpha1.GPUNodeState] {
 		DeleteFunc:  func(event.TypedDeleteEvent[*v1alpha1.GPUNodeState]) bool { return true },
 		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUNodeState]) bool { return false },
 	}
+}
+
+func gfdPodPredicates() predicate.TypedPredicate[*corev1.Pod] {
+	gfdApp := meta.AppName(meta.ComponentGPUFeatureDiscovery)
+	return predicate.TypedFuncs[*corev1.Pod]{
+		CreateFunc: func(e event.TypedCreateEvent[*corev1.Pod]) bool {
+			pod := e.Object
+			return isGFDPod(pod, gfdApp) && pod.Spec.NodeName != "" && pod.Status.PodIP != "" && isPodReady(pod)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*corev1.Pod]) bool {
+			oldPod, newPod := e.ObjectOld, e.ObjectNew
+			if newPod == nil {
+				return true
+			}
+			if !isGFDPod(newPod, gfdApp) {
+				return false
+			}
+			if oldPod == nil || !isGFDPod(oldPod, gfdApp) {
+				return true
+			}
+			if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+				return true
+			}
+			if oldPod.Status.PodIP != newPod.Status.PodIP {
+				return true
+			}
+			return isPodReady(oldPod) != isPodReady(newPod)
+		},
+		DeleteFunc:  func(event.TypedDeleteEvent[*corev1.Pod]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*corev1.Pod]) bool { return false },
+	}
+}
+
+func isGFDPod(pod *corev1.Pod, gfdApp string) bool {
+	if pod == nil || pod.Labels == nil {
+		return false
+	}
+	return pod.Namespace == meta.WorkloadsNamespace && pod.Labels["app"] == gfdApp
 }
 
 func boolToConditionStatus(value bool) metav1.ConditionStatus {

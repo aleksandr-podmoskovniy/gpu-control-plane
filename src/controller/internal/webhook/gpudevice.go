@@ -122,6 +122,10 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 		return cradmission.Denied(fmt.Sprintf("device state must be Ready, got %s", device.Status.State))
 	}
 
+	if strings.TrimSpace(device.Status.Hardware.UUID) == "" || strings.TrimSpace(device.Status.Hardware.PCI.Address) == "" {
+		return cradmission.Denied("device inventory is incomplete (uuid/pci address), wait for inventory sync")
+	}
+
 	if clusterPool != "" {
 		pool := &v1alpha1.ClusterGPUPool{}
 		if err := h.client.Get(ctx, client.ObjectKey{Name: clusterPool}, pool); err != nil {

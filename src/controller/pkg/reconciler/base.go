@@ -29,6 +29,8 @@ import (
 // ErrStopChain is a sentinel error allowing handlers to stop further execution.
 var ErrStopChain = errors.New("stop handler chain execution")
 
+const conflictRequeueAfter = 50 * time.Millisecond
+
 type (
 	// Named marks handlers that expose human readable name for logging.
 	Named interface {
@@ -115,7 +117,7 @@ func (b *Base[H]) Reconcile(ctx context.Context) (contracts.Result, error) {
 			goto finalize // skip remaining handlers
 		case k8serrors.IsConflict(err):
 			handlerLog.V(1).Info("conflict occurred during handler execution", "err", err)
-			res = MergeResults(res, contracts.Result{RequeueAfter: 100 * time.Microsecond})
+			res = MergeResults(res, contracts.Result{RequeueAfter: conflictRequeueAfter})
 		default:
 			handlerLog.Error(err, "handler failed")
 			errs = errors.Join(errs, err)
@@ -133,7 +135,7 @@ finalize:
 		switch {
 		case k8serrors.IsConflict(err):
 			log.V(1).Info("conflict occurred during resource update", "err", err)
-			result = MergeResults(result, contracts.Result{RequeueAfter: 100 * time.Microsecond})
+			result = MergeResults(result, contracts.Result{RequeueAfter: conflictRequeueAfter})
 		default:
 			log.Error(err, "failed to persist resource changes")
 			errs = errors.Join(errs, err)

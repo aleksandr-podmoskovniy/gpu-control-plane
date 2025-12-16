@@ -155,8 +155,8 @@ func TestReconcileHandlerConflictRequestsRequeue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 100*time.Microsecond {
-		t.Fatalf("expected conflict to set 100µs requeue, got %s", result.RequeueAfter)
+	if result.RequeueAfter != conflictRequeueAfter {
+		t.Fatalf("expected conflict to set %s requeue, got %s", conflictRequeueAfter, result.RequeueAfter)
 	}
 }
 
@@ -177,8 +177,8 @@ func TestReconcileUpdateConflictRequestsRequeue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 100*time.Microsecond {
-		t.Fatalf("expected conflict to set 100µs requeue, got %s", result.RequeueAfter)
+	if result.RequeueAfter != conflictRequeueAfter {
+		t.Fatalf("expected conflict to set %s requeue, got %s", conflictRequeueAfter, result.RequeueAfter)
 	}
 }
 

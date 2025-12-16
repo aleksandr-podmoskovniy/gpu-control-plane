@@ -63,8 +63,6 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	toolkitReady := isConditionTrue(inventory, conditionToolkitReady)
 	monitoringReady := isConditionTrue(inventory, conditionMonitoringReady)
 
-	canFaultByInfra := isConditionTrue(inventory, conditionInventoryComplete)
-	degradedHard := canFaultByInfra && (!driverReady || !toolkitReady)
 	driverAndToolkitReady := driverReady && toolkitReady
 	infraReady := driverReady && toolkitReady && monitoringReady
 
@@ -80,7 +78,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 	var errs []error
 	for i := range deviceList.Items {
 		device := &deviceList.Items[i]
-		target, mutate := desiredDeviceState(device, driverAndToolkitReady, infraReady, degradedHard)
+		target, mutate := desiredDeviceState(device, driverAndToolkitReady, infraReady)
 		if !mutate || device.Status.State == target {
 			continue
 		}
@@ -110,7 +108,7 @@ func isConditionTrue(inventory *v1alpha1.GPUNodeState, condType string) bool {
 	return false
 }
 
-func desiredDeviceState(device *v1alpha1.GPUDevice, driverAndToolkitReady, infraReady, degradedHard bool) (v1alpha1.GPUDeviceState, bool) {
+func desiredDeviceState(device *v1alpha1.GPUDevice, driverAndToolkitReady, infraReady bool) (v1alpha1.GPUDeviceState, bool) {
 	state := normalizeDeviceState(device.Status.State)
 	current := device.Status.State
 
@@ -121,35 +119,23 @@ func desiredDeviceState(device *v1alpha1.GPUDevice, driverAndToolkitReady, infra
 		// Pool controllers own these transitions.
 		return state, state != current
 	case v1alpha1.GPUDeviceStatePendingAssignment:
-		if degradedHard {
-			return v1alpha1.GPUDeviceStateFaulted, true
-		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateReady:
-		if degradedHard {
-			return v1alpha1.GPUDeviceStateFaulted, true
-		}
-		if driverAndToolkitReady && !infraReady {
-			return v1alpha1.GPUDeviceStateValidating, true
-		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateFaulted:
-		if degradedHard {
-			return state, state != current
-		}
 		if driverAndToolkitReady {
 			return v1alpha1.GPUDeviceStateValidating, true
 		}
 		return state, state != current
 	case v1alpha1.GPUDeviceStateValidating:
-		if degradedHard {
-			return v1alpha1.GPUDeviceStateFaulted, true
-		}
 		if infraReady {
 			return v1alpha1.GPUDeviceStateReady, true
 		}
 		return state, state != current
 	default:
+		if infraReady {
+			return v1alpha1.GPUDeviceStateReady, true
+		}
 		if driverAndToolkitReady {
 			return v1alpha1.GPUDeviceStateValidating, true
 		}

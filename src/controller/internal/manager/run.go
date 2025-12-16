@@ -24,14 +24,18 @@ import (
 	"runtime"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/bootstrap/meta"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/controllers"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/handlers"
@@ -79,6 +83,15 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	options := manager.Options{
 		Metrics:                metricsOpts,
 		HealthProbeBindAddress: ":8081",
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Pod{}: {
+					Namespaces: map[string]cache.Config{
+						meta.WorkloadsNamespace: {},
+					},
+				},
+			},
+		},
 		WebhookServer: crwebhook.NewServer(crwebhook.Options{
 			Port:    9443,
 			CertDir: "/var/lib/gpu-control-plane/tls",
