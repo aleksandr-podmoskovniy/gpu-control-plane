@@ -1,0 +1,95 @@
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $ns := include "gpuControlPlane.namespace" . }}
+{{- $kubeVersion := coalesce .Values.global.discovery.kubernetesVersion .Values.global.clusterConfiguration.kubernetesVersion "" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 2 }}
+  name: {{ include "gpuControlPlane.controllerName" . }}-validator
+webhooks:
+  - name: gpupool.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    rules:
+      - apiGroups:   ["gpu.deckhouse.io"]
+        apiVersions: ["v1alpha1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["gpupools"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.controllerName" . }}
+        path: /validate-gpu-deckhouse-io-v1alpha1-gpupool
+        port: 443
+      caBundle: |
+        {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
+  - name: clustergpupool.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    rules:
+      - apiGroups:   ["gpu.deckhouse.io"]
+        apiVersions: ["v1alpha1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["clustergpupools"]
+        scope:       "Cluster"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.controllerName" . }}
+        path: /validate-gpu-deckhouse-io-v1alpha1-clustergpupool
+        port: 443
+      caBundle: |
+        {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
+  - name: gpudevice.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    rules:
+      - apiGroups:   ["gpu.deckhouse.io"]
+        apiVersions: ["v1alpha1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["gpudevices"]
+        scope:       "Cluster"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.controllerName" . }}
+        path: /validate-gpu-deckhouse-io-v1alpha1-gpudevice
+        port: 443
+      caBundle: |
+        {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
+  - name: pod.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    {{- if and $kubeVersion (semverCompare ">=1.26.0" $kubeVersion) }}
+    namespaceSelector:
+      matchExpressions:
+        - key: gpu.deckhouse.io/enabled
+          operator: In
+          values: ["true"]
+    {{- end }}
+    objectSelector:
+      matchExpressions:
+        - key: module
+          operator: NotIn
+          values: ["gpu-control-plane", "deckhouse"]
+    rules:
+      - apiGroups:   [""]
+        apiVersions: ["v1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["pods"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.controllerName" . }}
+        path: /validate-v1-pod
+        port: 443
+      caBundle: |
+        {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}
+{{- end }}

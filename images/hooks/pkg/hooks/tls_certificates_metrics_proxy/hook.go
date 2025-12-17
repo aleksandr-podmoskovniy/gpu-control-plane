@@ -56,5 +56,5 @@ var _ = tlscertificate.RegisterInternalTLSHookEM(tlscertificate.GenSelfSignedTLS
 	}),
 	FullValuesPathPrefix: settings.InternalMetricsCertPath,
 	CommonCAValuesPath:   settings.InternalRootCAPath,
-	BeforeHookCheck:       beforeHookCheck,
+	BeforeHookCheck:      beforeHookCheck,
 })

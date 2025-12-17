@@ -22,13 +22,13 @@ const (
 	ModuleQueue        = "modules/" + ModuleName
 	ConfigRoot         = ModuleValuesName
 
-	ControllerAppName           = ModuleName + "-controller"
-	ControllerCertCN            = "gpu-control-plane-controller"
-	ControllerTLSSecretName     = "gpu-control-plane-controller-tls"
-	RootCASecretName            = "gpu-control-plane-ca"
-	MetricsProxyCertCN          = "gpu-control-plane-metrics"
-	MetricsTLSSecretName        = "gpu-control-plane-controller-metrics-tls"
-	MonitoringNamespace         = "d8-monitoring"
+	ControllerAppName       = ModuleName + "-controller"
+	ControllerCertCN        = "gpu-control-plane-controller"
+	ControllerTLSSecretName = "gpu-control-plane-controller-tls"
+	RootCASecretName        = "gpu-control-plane-ca"
+	MetricsProxyCertCN      = "gpu-control-plane-metrics"
+	MetricsTLSSecretName    = "gpu-control-plane-controller-metrics-tls"
+	MonitoringNamespace     = "d8-monitoring"
 
 	NodeFeatureRuleName       = "deckhouse-gpu-kernel-os"
 	NFDDependencyErrorMessage = "Module gpu-control-plane requires the node-feature-discovery module to be enabled"

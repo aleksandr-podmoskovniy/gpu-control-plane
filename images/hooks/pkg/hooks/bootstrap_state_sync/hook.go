@@ -90,12 +90,12 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		conds := payload.Status.Conditions
 
 		entry := map[string]any{
-			"inventoryComplete":  conditionTrue(conds, "InventoryComplete"),
-			"driverReady":        conditionTrue(conds, "DriverReady"),
-			"toolkitReady":       conditionTrue(conds, "ToolkitReady"),
-			"monitoringReady":    conditionTrue(conds, "MonitoringReady"),
-			"readyForPooling":    conditionTrue(conds, "ReadyForPooling"),
-			"workloadsDegraded":  conditionTrue(conds, "WorkloadsDegraded"),
+			"inventoryComplete": conditionTrue(conds, "InventoryComplete"),
+			"driverReady":       conditionTrue(conds, "DriverReady"),
+			"toolkitReady":      conditionTrue(conds, "ToolkitReady"),
+			"monitoringReady":   conditionTrue(conds, "MonitoringReady"),
+			"readyForPooling":   conditionTrue(conds, "ReadyForPooling"),
+			"workloadsDegraded": conditionTrue(conds, "WorkloadsDegraded"),
 		}
 		nodes[nodeName] = entry
 

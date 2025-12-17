@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/managed-by: "Helm"
     prometheus.deckhouse.io/rules-watcher-enabled: "true"
 ---
-# Source: gpu-control-plane/templates/controller/policies.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/policies.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -29,7 +29,7 @@ spec:
     matchLabels:
       app: gpu-control-plane-controller
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -53,7 +53,7 @@ metadata:
 imagePullSecrets:
   - name: gpu-control-plane-module-registry
 ---
-# Source: gpu-control-plane/templates/controller/secret.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -69,7 +69,7 @@ data:
   tls.crt: Q09OVFJPTExFUi1DUlQ=
   tls.key: Q09OVFJPTExFUi1LRVk=
 ---
-# Source: gpu-control-plane/templates/controller/secret.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -142,7 +142,7 @@ metadata:
   name: kube-rbac-proxy-ca.crt
   namespace: d8-gpu-control-plane
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -213,7 +213,7 @@ rules:
       - get
       - delete
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -268,7 +268,7 @@ rules:
       - gpu-control-plane-controller
     verbs: ["get"]
 ---
-# Source: gpu-control-plane/templates/controller/service-metrics.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/service-metrics.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -287,7 +287,7 @@ spec:
   selector:
     app: gpu-control-plane-controller
 ---
-# Source: gpu-control-plane/templates/controller/service.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -306,7 +306,7 @@ spec:
       protocol: TCP
       targetPort: https-metrics
 ---
-# Source: gpu-control-plane/templates/controller/deployment.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:

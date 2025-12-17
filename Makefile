@@ -15,9 +15,9 @@
 SHELL := /bin/bash
 
 ROOT := $(CURDIR)
-CONTROLLER_DIR := $(ROOT)/src/controller
+CONTROLLER_DIR := $(ROOT)/images/gpu-control-plane-artifact
 KUBE_API_REWRITER_DIR := $(ROOT)/images/kube-api-rewriter
-GFD_EXTENDER_DIR := $(ROOT)/src/gfd-extender
+GFD_EXTENDER_DIR := $(ROOT)/images/gfd-extender
 GOMODCACHE := $(ROOT)/.cache/gomod
 BIN_DIR := $(ROOT)/.bin
 COVERAGE_DIR := $(ROOT)/artifacts/coverage
@@ -80,7 +80,7 @@ tidy: cache
 controller-build: cache
 	@echo "==> go build (controller)"
 	@mkdir -p $(BIN_DIR)
-	@cd $(CONTROLLER_DIR) && $(GO) build -o $(BIN_DIR)/gpu-control-plane-controller ./cmd/main.go
+	@cd $(CONTROLLER_DIR) && $(GO) build -o $(BIN_DIR)/gpu-control-plane-controller ./cmd/gpu-control-plane-controller
 
 controller-test: cache coverage-dir
 	@echo "==> go test (controller)"
@@ -142,10 +142,18 @@ helm-template:
 	@cd tools/helm-tests && ./helm-template.sh
 
 deadcode: ensure-deadcode
-	@echo "==> deadcode (go.work modules)"
-	@$(DEADCODE) ./src/controller/... ./pkg/... ./images/hooks/... ./images/kube-api-rewriter/... ./images/pre-delete-hook/...
-	@echo "==> deadcode (linux-only modules)"
-	@GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(DEADCODE) ./src/gfd-extender/...
+	@echo "==> deadcode (controller)"
+	@cd $(CONTROLLER_DIR) && $(DEADCODE) ./...
+	@echo "==> deadcode (api)"
+	@cd $(ROOT)/api && $(DEADCODE) ./...
+	@echo "==> deadcode (hooks)"
+	@cd $(ROOT)/images/hooks && $(DEADCODE) ./...
+	@echo "==> deadcode (kube-api-rewriter)"
+	@cd $(KUBE_API_REWRITER_DIR) && $(DEADCODE) ./...
+	@echo "==> deadcode (pre-delete-hook)"
+	@cd $(ROOT)/images/pre-delete-hook && $(DEADCODE) ./...
+	@echo "==> deadcode (gfd-extender, linux-only)"
+	@cd $(GFD_EXTENDER_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(DEADCODE) ./...
 
 e2e:
 	@echo "==> e2e (kind or target cluster)"

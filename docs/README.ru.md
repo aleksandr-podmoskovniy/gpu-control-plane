@@ -187,9 +187,10 @@ hostengine/exporter, watchdog, validator) на управляемых GPU-нод
 
 - `openapi/values.yaml` — схема внутренних значений, используемых хуками и Helm.
 - `openapi/config-values.yaml` — публичная схема для документации ModuleConfig.
+- `api/` — Go-типы CRD, общие для компонентов модуля.
 - `images/hooks/pkg/hooks` — исходники хуков, собираемых в бинарь
   `gpu-control-plane-module-hooks`.
-- `src/controller` — код контроллера инвентаризации и вспомогательных
+- `images/gpu-control-plane-artifact` — код контроллера инвентаризации и вспомогательных
   обработчиков.
 - `templates/` — Helm-манифесты, которые разворачивает addon-operator.
 - `images/` — `werf.inc.yaml` с описанием сборки образов контроллера, хуков и bundle.

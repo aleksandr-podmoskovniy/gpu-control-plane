@@ -97,7 +97,7 @@ make test
 make verify
 
 # Только тесты контроллера
-cd src/controller && go test ./... -cover
+cd images/gpu-control-plane-artifact && go test ./... -cover
 ```
 
 Дополнительная developer-документация размещается в директории `docs/`

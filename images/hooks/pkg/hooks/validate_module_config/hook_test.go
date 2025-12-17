@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/pkg/moduleconfig"
+	moduleconfig "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
 	pkg "github.com/deckhouse/module-sdk/pkg"
 	"github.com/deckhouse/module-sdk/pkg/patchable-values"
 	"github.com/deckhouse/module-sdk/pkg/utils"

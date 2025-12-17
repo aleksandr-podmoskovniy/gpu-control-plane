@@ -189,9 +189,10 @@ The background rescan interval can be adjusted via
 
 - `openapi/values.yaml` – internal values schema used by hooks and templates.
 - `openapi/config-values.yaml` – public schema rendered into documentation.
+- `api/` – Go types for module CRDs shared across components.
 - `images/hooks/pkg/hooks` – module-sdk hooks compiled into the
   `gpu-control-plane-module-hooks` binary.
-- `src/controller` – Go sources of the inventory controller and supporting
+- `images/gpu-control-plane-artifact` – Go sources of the inventory controller and supporting
   handlers.
 - `templates/` – Helm manifests rendered by modules-operator/addon-operator.
 - `images/` – `werf.inc.yaml` descriptors for controller, hooks and bundle

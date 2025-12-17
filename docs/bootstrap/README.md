@@ -45,7 +45,7 @@
 3. **DCGM exporter**
 
    - Отдельный образ c distroless.
-   - Helm: Deployment/DaemonSet + Service + ServiceMonitor (используем `templates/controller/scrapeconfig.yaml` как reference).
+   - Helm: Deployment/DaemonSet + Service + ServiceMonitor (используем `templates/gpu-control-plane-controller/service-monitor.yaml` как reference).
    - Значения: порты, labels, аннотации ServiceMonitor; включение/отключение — через `ModuleConfig.spec.settings.bootstrap.dcgmExporter.enabled` (и общие настройки мониторинга модуля).
 
 4. **Связка с bootstrap-контроллером**

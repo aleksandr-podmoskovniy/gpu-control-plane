@@ -44,11 +44,11 @@ run_go_test() {
   shift || true
 
   case "${pkg}" in
-    images/hooks/*)
+    images/hooks|images/hooks/*)
       (cd "${ROOT}/images/hooks" && GO111MODULE=on go test "./${pkg#images/hooks/}" "$@")
       ;;
-    src/controller/*)
-      (cd "${ROOT}/src/controller" && GO111MODULE=on go test "./${pkg#src/controller/}" "$@")
+    images/gpu-control-plane-artifact|images/gpu-control-plane-artifact/*)
+      (cd "${ROOT}/images/gpu-control-plane-artifact" && GO111MODULE=on go test "./${pkg#images/gpu-control-plane-artifact/}" "$@")
       ;;
     *)
       (cd "${ROOT}" && GO111MODULE=on go test "${pkg}" "$@")

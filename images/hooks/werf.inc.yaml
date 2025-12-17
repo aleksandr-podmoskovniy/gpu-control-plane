@@ -19,28 +19,27 @@ final: false
 fromImage: builder/src
 git:
   - add: {{ .ModuleDir }}/images/hooks
-    to: /app/images/hooks
+    to: /src/images/hooks
     stageDependencies:
       install:
-        - images/hooks/go.mod
-        - images/hooks/go.sum
-      setup:
-        - images/hooks/**
-  - add: {{ .ModuleDir }}/pkg
-    to: /app/pkg
+        - "**/*"
+  - add: {{ .ModuleDir }}/images/gpu-control-plane-artifact
+    to: /src/images/gpu-control-plane-artifact
     stageDependencies:
       install:
-        - pkg/go.mod
-        - pkg/go.sum
-      setup:
-        - pkg/**
+        - "**/*"
+  - add: {{ .ModuleDir }}/api
+    to: /src/api
+    stageDependencies:
+      install:
+        - "**/*"
 ---
 image: {{ .ModuleNamePrefix }}go-hooks-artifact
 final: false
 fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/golang-alt-svace-1.24.10" }}
 import:
   - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
-    add: /app
+    add: /src
     to: /app
     before: install
 mount:

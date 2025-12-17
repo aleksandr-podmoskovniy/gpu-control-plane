@@ -1,0 +1,184 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $bootstrap := $moduleValues.bootstrap | default dict }}
+{{- $runtime := $moduleValues.runtime | default dict }}
+{{- $controllerRuntime := $runtime.controller | default dict }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 2 }}
+  name: {{ include "gpuControlPlane.controllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+spec:
+  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 2 $controllerRuntime.replicas) 1) }}
+  {{- if (include "helm_lib_ha_enabled" .) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      {{- include "gpuControlPlane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "gpuControlPlane.controllerName" . }}
+        component: controller
+        module: {{ include "gpuControlPlane.moduleName" . }}
+      annotations:
+        {{- include "gpuControlPlane.podAnnotations" . | nindent 8 }}
+    spec:
+      {{ include "helm_lib_pod_anti_affinity_for_ha" (list . (dict "app" (include "gpuControlPlane.controllerName" .))) | nindent 6 }}
+      serviceAccountName: {{ include "gpuControlPlane.controllerName" . }}
+      containers:
+        {{- include "kube_api_rewriter.sidecar_container" (tuple .) | nindent 8 }}
+        - name: {{ include "gpuControlPlane.controllerName" . }}
+          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          image: {{ include "helm_lib_module_image" (list . "gpuControlPlaneController" (include "gpuControlPlane.moduleName" .)) }}
+          imagePullPolicy: IfNotPresent
+          {{- $args := default (list) $controllerRuntime.extraArgs }}
+          {{- if $args }}
+          args:
+            {{- range $arg := $args }}
+            - {{ $arg | quote }}
+            {{- end }}
+          {{- end }}
+          env:
+            - name: LEADER_ELECTION
+              value: {{ if (include "helm_lib_ha_enabled" .) }}"true"{{ else }}"false"{{ end }}
+            - name: LEADER_ELECTION_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LEADER_ELECTION_ID
+              value: {{ include "gpuControlPlane.controllerName" . }}-leader-election
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_PATH
+              value: /etc/gpu-control-plane/config.yaml
+            {{- include "kube_api_rewriter.kubeconfig_env" . | nindent 12 }}
+            - name: METRICS_BIND_ADDRESS
+              value: 127.0.0.1:8080
+            - name: NVIDIA_DEVICE_PLUGIN_IMAGE
+              value: {{ include "helm_lib_module_image" (list . "nvidiaDevicePlugin" (include "gpuControlPlane.moduleName" .)) }}
+            - name: NVIDIA_MIG_MANAGER_IMAGE
+              value: {{ include "helm_lib_module_image" (list . "nvidiaMigManager" (include "gpuControlPlane.moduleName" .)) }}
+            - name: NVIDIA_VALIDATOR_IMAGE
+              value: {{ include "helm_lib_module_image" (list . "gpuValidator" (include "gpuControlPlane.moduleName" .)) }}
+            - name: DEFAULT_MIG_STRATEGY
+              value: {{ default "none" ($bootstrap.migStrategy | default "none") | lower | quote }}
+            {{- range $item := default (list) $controllerRuntime.env }}
+            - name: {{ $item.name }}
+              {{- if hasKey $item "valueFrom" }}
+              valueFrom:
+                {{- toYaml $item.valueFrom | nindent 16 }}
+              {{- else if hasKey $item "value" }}
+              value: {{ $item.value | quote }}
+              {{- else }}
+              value: ""
+              {{- end }}
+            {{- end }}
+          volumeMounts:
+            - name: controller-tls
+              mountPath: /var/lib/gpu-control-plane/tls
+              readOnly: true
+            - name: controller-config
+              mountPath: /etc/gpu-control-plane
+              readOnly: true
+            {{- include "kube_api_rewriter.kubeconfig_volume_mount" . | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: {{ include "gpuControlPlane.metricsPort" . | int }}
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: webhooks
+              containerPort: 9443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- $resources := $controllerRuntime.resources | default dict }}
+            {{- if $resources }}
+            {{- toYaml $resources | nindent 12 }}
+            {{- else }}
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 50Mi
+            limits:
+              memory: 256Mi
+            {{- end }}
+        {{- $kubeRbacProxySettings := dict }}
+        {{- $_ := set $kubeRbacProxySettings "runAsUserNobody" false }}
+        {{- $_ := set $kubeRbacProxySettings "ignorePaths" "/proxy/healthz,/proxy/readyz" }}
+        {{- $_ := set $kubeRbacProxySettings "upstreams" (list
+              (dict
+                "upstream" "http://127.0.0.1:8080/metrics"
+                "path" "/metrics"
+                "name" (include "gpuControlPlane.controllerName" .)
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/metrics"
+                "path" "/proxy/metrics"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/healthz"
+                "path" "/proxy/healthz"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+              (dict
+                "upstream" "http://127.0.0.1:9090/readyz"
+                "path" "/proxy/readyz"
+                "name" "kube-api-rewriter"
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+            ) }}
+        {{- include "kube_rbac_proxy.sidecar_container" (tuple . $kubeRbacProxySettings) | nindent 8 }}
+      {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      {{- if $controllerRuntime.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $controllerRuntime.nodeSelector | nindent 8 }}
+      {{- else }}
+      {{ include "gpuControlPlane.defaultNodeSelector" (list .) | nindent 6 }}
+      {{- end }}
+      {{- if $controllerRuntime.tolerations }}
+      tolerations:
+        {{- toYaml $controllerRuntime.tolerations | nindent 8 }}
+      {{- else }}
+      {{ include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      {{- end }}
+      {{ include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
+      volumes:
+        - name: controller-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.controllerTLSSecretName" . }}
+        - name: controller-config
+          configMap:
+            name: {{ include "gpuControlPlane.controllerConfigName" . }}
+        - name: kube-rbac-proxy-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.metricsTLSSecretName" . }}
+        {{- include "kube_api_rewriter.kubeconfig_volume" . | nindent 8 }}
+{{- end }}

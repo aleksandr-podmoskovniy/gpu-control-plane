@@ -58,7 +58,7 @@ deckhouse-gpu-kernel-os
 {{- end -}}
 
 {{- define "gpuControlPlane.podAnnotations" -}}
-{{- toYaml (dict "kubectl.kubernetes.io/default-container" "controller") -}}
+{{- toYaml (dict "kubectl.kubernetes.io/default-container" (include "gpuControlPlane.controllerName" .)) -}}
 {{- end -}}
 
 {{- define "gpuControlPlane.defaultNodeSelector" -}}

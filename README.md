@@ -105,7 +105,7 @@ make test
 make verify
 
 # Controller tests only
-cd src/controller && go test ./... -cover
+cd images/gpu-control-plane-artifact && go test ./... -cover
 ````
 
 Additional developer documentation (both EN/RU) is located in `docs/README.md`

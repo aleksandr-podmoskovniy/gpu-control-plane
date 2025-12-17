@@ -47,7 +47,7 @@ spec:
     matchLabels:
       app: gpu-control-plane-dcgm
 ---
-# Source: gpu-control-plane/templates/controller/policies.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/policies.yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -113,7 +113,7 @@ metadata:
     app: "gpu-control-plane-validator"
     component: "validator"
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -137,7 +137,7 @@ metadata:
 imagePullSecrets:
   - name: gpu-control-plane-module-registry
 ---
-# Source: gpu-control-plane/templates/controller/secret.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -153,7 +153,7 @@ data:
   tls.crt: Q09OVFJPTExFUi1DUlQ=
   tls.key: Q09OVFJPTExFUi1LRVk=
 ---
-# Source: gpu-control-plane/templates/controller/secret.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -256,7 +256,7 @@ rules:
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -365,7 +365,7 @@ subjects:
     name: gpu-control-plane-validator
     namespace: d8-gpu-control-plane
 ---
-# Source: gpu-control-plane/templates/controller/rbac.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -553,7 +553,7 @@ spec:
     app: gpu-control-plane-dcgm-exporter
   type: ClusterIP
 ---
-# Source: gpu-control-plane/templates/controller/service-metrics.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/service-metrics.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -572,7 +572,7 @@ spec:
   selector:
     app: gpu-control-plane-controller
 ---
-# Source: gpu-control-plane/templates/controller/service.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -1116,7 +1116,7 @@ spec:
             path: /dev/char
             type: Directory
 ---
-# Source: gpu-control-plane/templates/controller/deployment.yaml
+# Source: gpu-control-plane/templates/gpu-control-plane-controller/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
