@@ -627,7 +627,7 @@ func (h *RendererHandler) migManagerConfigMap(pool *v1alpha1.GPUPool) *corev1.Co
 		"version": 1,
 		"mig-configs": []map[string]any{
 			{
-				"name":    "default",
+				"name": "default",
 				"devices": []map[string]any{{
 					"pciBusId":   "all",
 					"migEnabled": true,

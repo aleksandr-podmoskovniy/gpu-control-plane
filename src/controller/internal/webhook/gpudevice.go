@@ -73,27 +73,27 @@ func (h *gpuDeviceAssignmentValidator) Handle(ctx context.Context, req cradmissi
 	switch req.Operation {
 	case admv1.Create:
 		assignmentChanged = assignmentSet
-		case admv1.Update:
-			oldDevice := &v1alpha1.GPUDevice{}
-			if len(req.OldObject.Raw) > 0 {
-				if err := h.decoder.DecodeRaw(req.OldObject, oldDevice); err != nil {
-					return cradmission.Errored(http.StatusUnprocessableEntity, err)
-				}
-			} else if h.client != nil {
-				name := strings.TrimSpace(req.Name)
-				if name == "" {
-					name = strings.TrimSpace(device.Name)
-				}
-				if name == "" {
+	case admv1.Update:
+		oldDevice := &v1alpha1.GPUDevice{}
+		if len(req.OldObject.Raw) > 0 {
+			if err := h.decoder.DecodeRaw(req.OldObject, oldDevice); err != nil {
+				return cradmission.Errored(http.StatusUnprocessableEntity, err)
+			}
+		} else if h.client != nil {
+			name := strings.TrimSpace(req.Name)
+			if name == "" {
+				name = strings.TrimSpace(device.Name)
+			}
+			if name == "" {
+				assignmentChanged = false
+				break
+			}
+			// Some update paths might omit oldObject; fall back to the stored object to diff assignment.
+			if err := h.client.Get(ctx, client.ObjectKey{Name: name}, oldDevice); err != nil {
+				if apierrors.IsNotFound(err) {
 					assignmentChanged = false
 					break
 				}
-				// Some update paths might omit oldObject; fall back to the stored object to diff assignment.
-				if err := h.client.Get(ctx, client.ObjectKey{Name: name}, oldDevice); err != nil {
-					if apierrors.IsNotFound(err) {
-						assignmentChanged = false
-						break
-					}
 				return cradmission.Errored(http.StatusInternalServerError, err)
 			}
 		} else {

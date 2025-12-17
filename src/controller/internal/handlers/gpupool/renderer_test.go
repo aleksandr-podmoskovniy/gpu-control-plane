@@ -150,10 +150,10 @@ func TestRendererCreatesResourcesWhenPoolHasPendingAssignments(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{Name: "device-1"},
 		Status: v1alpha1.GPUDeviceStatus{
-			PoolRef:   &v1alpha1.GPUPoolReference{Name: "alpha"},
-			State:     v1alpha1.GPUDeviceStatePendingAssignment,
-			Hardware:  v1alpha1.GPUDeviceHardware{UUID: "GPU-AAA"},
-			Managed:   true,
+			PoolRef:    &v1alpha1.GPUPoolReference{Name: "alpha"},
+			State:      v1alpha1.GPUDeviceStatePendingAssignment,
+			Hardware:   v1alpha1.GPUDeviceHardware{UUID: "GPU-AAA"},
+			Managed:    true,
 			AutoAttach: false,
 		},
 	}

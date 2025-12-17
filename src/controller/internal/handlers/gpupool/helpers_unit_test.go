@@ -88,4 +88,3 @@ func TestPoolRefMatchesPool(t *testing.T) {
 		t.Fatalf("expected namespaced ref to not match cluster pool")
 	}
 }
-

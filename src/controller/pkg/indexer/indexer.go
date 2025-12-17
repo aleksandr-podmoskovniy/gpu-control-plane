@@ -177,8 +177,8 @@ func IndexNodeByTaintKey(ctx context.Context, idx client.FieldIndexer) error {
 		}
 		if len(keys) == 0 {
 			return nil
-			}
-			return keys
+		}
+		return keys
 	}); err != nil {
 		if isIndexerConflict(err) {
 			return nil

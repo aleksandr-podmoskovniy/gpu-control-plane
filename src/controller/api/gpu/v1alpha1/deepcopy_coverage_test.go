@@ -22,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func ptrBool(v bool) *bool { return &v }
+func ptrBool(v bool) *bool    { return &v }
 func ptrInt32(v int32) *int32 { return &v }
 
 func TestDeepCopyNilReceivers(t *testing.T) {
@@ -180,14 +180,14 @@ func TestDeepCopyCoversAllGeneratedMethods(t *testing.T) {
 	}
 
 	deviceStatus := GPUDeviceStatus{
-		NodeName:     "node-1",
-		InventoryID:  "node-1/0000:00:01.0",
-		Managed:      true,
-		State:        GPUDeviceStateAssigned,
-		AutoAttach:   true,
-		PoolRef:      &GPUPoolReference{Name: "pool", Namespace: "ns"},
-		Hardware:     hardware,
-		Conditions:   []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, LastTransitionTime: transitionTime}},
+		NodeName:    "node-1",
+		InventoryID: "node-1/0000:00:01.0",
+		Managed:     true,
+		State:       GPUDeviceStateAssigned,
+		AutoAttach:  true,
+		PoolRef:     &GPUPoolReference{Name: "pool", Namespace: "ns"},
+		Hardware:    hardware,
+		Conditions:  []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, LastTransitionTime: transitionTime}},
 	}
 	if deviceStatus.DeepCopy() == nil {
 		t.Fatalf("expected GPUDeviceStatus.DeepCopy result")
@@ -223,20 +223,20 @@ func TestDeepCopyCoversAllGeneratedMethods(t *testing.T) {
 		Provider: "Nvidia",
 		Backend:  "DevicePlugin",
 		Resource: GPUPoolResourceSpec{
-			Unit:             "Card",
+			Unit:              "Card",
 			SlicesPerUnit:     2,
 			MaxDevicesPerNode: maxDevices,
 		},
-		NodeSelector: selector,
+		NodeSelector:   selector,
 		DeviceSelector: poolSelector,
 		DeviceAssignment: GPUPoolAssignmentSpec{
 			AutoApproveSelector: selector,
 		},
 		Scheduling: GPUPoolSchedulingSpec{
 			Strategy:      GPUPoolSchedulingSpread,
-			TopologyKey:    "topology.kubernetes.io/zone",
-			TaintsEnabled:  taintsEnabled,
-			Taints:         []GPUPoolTaintSpec{{Key: "k", Value: "v", Effect: "NoSchedule"}},
+			TopologyKey:   "topology.kubernetes.io/zone",
+			TaintsEnabled: taintsEnabled,
+			Taints:        []GPUPoolTaintSpec{{Key: "k", Value: "v", Effect: "NoSchedule"}},
 		},
 	}
 	if poolSpec.DeepCopy() == nil {

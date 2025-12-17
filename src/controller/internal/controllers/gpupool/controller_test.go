@@ -57,10 +57,10 @@ import (
 // --- Test fakes ----------------------------------------------------------------
 
 type fakeManager struct {
-	client client.Client
-	scheme *runtime.Scheme
-	log    logr.Logger
-	cache  cache.Cache
+	client  client.Client
+	scheme  *runtime.Scheme
+	log     logr.Logger
+	cache   cache.Cache
 	indexer client.FieldIndexer
 }
 

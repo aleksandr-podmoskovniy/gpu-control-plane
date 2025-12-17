@@ -58,4 +58,3 @@ func TestRuntimeBuilderChainsCallsAndFailsCompleteWithoutManager(t *testing.T) {
 	// Ensure we satisfy the controller-runtime Source interface.
 	var _ source.Source = noopSource{}
 }
-

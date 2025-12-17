@@ -123,4 +123,3 @@ func TestValidateNamespacedPoolNameUniqueBranches(t *testing.T) {
 		t.Fatalf("expected list error, got %v", err)
 	}
 }
-

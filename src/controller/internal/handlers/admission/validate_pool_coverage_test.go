@@ -210,8 +210,8 @@ func TestValidateResourceErrors(t *testing.T) {
 	spec = &v1alpha1.GPUPoolSpec{
 		Backend: "DRA",
 		Resource: v1alpha1.GPUPoolResourceSpec{
-			Unit:       "MIG",
-			MIGProfile: "1g.10gb",
+			Unit:          "MIG",
+			MIGProfile:    "1g.10gb",
 			SlicesPerUnit: 1,
 		},
 	}

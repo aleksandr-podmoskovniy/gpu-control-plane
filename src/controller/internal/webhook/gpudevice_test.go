@@ -61,7 +61,7 @@ func TestGPUDeviceAssignmentValidator(t *testing.T) {
 				UUID: "GPU-uuid-1",
 				PCI:  v1alpha1.PCIAddress{Address: "0000:01:00.0"},
 			},
-			State:       v1alpha1.GPUDeviceStateReady,
+			State: v1alpha1.GPUDeviceStateReady,
 		},
 	}
 	device := oldDevice.DeepCopy()

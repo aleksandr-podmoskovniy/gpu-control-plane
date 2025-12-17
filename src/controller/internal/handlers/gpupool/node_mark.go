@@ -59,20 +59,20 @@ func (h *NodeMarkHandler) HandlePool(ctx context.Context, pool *v1alpha1.GPUPool
 	if err := h.client.List(ctx, devices, client.MatchingFields{indexer.GPUDevicePoolRefNameField: pool.Name}); err != nil {
 		return contracts.Result{}, err
 	}
-		for i := range devices.Items {
-			dev := &devices.Items[i]
-			if isDeviceIgnored(dev) {
-				continue
-			}
-			if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
-				continue
-			}
-			nodeName := deviceNodeName(dev)
-			if nodeName == "" {
-				continue
-			}
-			nodesWithDevices[nodeName]++
+	for i := range devices.Items {
+		dev := &devices.Items[i]
+		if isDeviceIgnored(dev) {
+			continue
 		}
+		if !poolRefMatchesPool(pool, dev.Status.PoolRef) {
+			continue
+		}
+		nodeName := deviceNodeName(dev)
+		if nodeName == "" {
+			continue
+		}
+		nodesWithDevices[nodeName]++
+	}
 
 	nodesToSync := make(map[string]struct{}, len(nodesWithDevices))
 	for nodeName := range nodesWithDevices {

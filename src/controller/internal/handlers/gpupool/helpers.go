@@ -24,7 +24,7 @@ const (
 	namespacedPoolResourcePrefix = "gpu.deckhouse.io"
 	clusterPoolResourcePrefix    = "cluster.gpu.deckhouse.io"
 
-	deviceIgnoreKey = "gpu.deckhouse.io/ignore"
+	deviceIgnoreKey    = "gpu.deckhouse.io/ignore"
 	deviceNodeLabelKey = "gpu.deckhouse.io/node"
 
 	namespacedAssignmentAnnotation = "gpu.deckhouse.io/assignment"

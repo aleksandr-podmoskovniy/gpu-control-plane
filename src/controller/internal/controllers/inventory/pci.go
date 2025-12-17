@@ -73,4 +73,3 @@ func isHex(s string) bool {
 	}
 	return true
 }
-

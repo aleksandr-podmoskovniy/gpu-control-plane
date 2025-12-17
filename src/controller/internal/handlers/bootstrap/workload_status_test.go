@@ -262,4 +262,3 @@ func TestWorkloadStatusHandlerClientAndListErrors(t *testing.T) {
 		}
 	})
 }
-

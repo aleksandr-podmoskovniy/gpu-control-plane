@@ -50,4 +50,3 @@ func TestResolvePoolByRequestBranches(t *testing.T) {
 		t.Fatalf("expected get error for namespaced pool, got %v", err)
 	}
 }
-

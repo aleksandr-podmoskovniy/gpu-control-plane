@@ -70,4 +70,3 @@ func (b *runtimeBuilder) WithOptions(opts controller.Options) Builder {
 func (b *runtimeBuilder) Complete(r reconcile.Reconciler) error {
 	return b.delegate.Complete(r)
 }
-

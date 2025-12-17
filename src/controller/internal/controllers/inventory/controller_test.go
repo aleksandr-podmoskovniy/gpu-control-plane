@@ -2965,10 +2965,10 @@ func TestSetupWithDependenciesAddsModuleWatcher(t *testing.T) {
 	if err := rec.setupWithDependencies(context.Background(), deps); err != nil {
 		t.Fatalf("setupWithDependencies returned error: %v", err)
 	}
-		if len(builder.watchedSources) != 3 {
-			t.Fatalf("expected three watchers (node feature, gfd pod, module config), got %d", len(builder.watchedSources))
-		}
+	if len(builder.watchedSources) != 3 {
+		t.Fatalf("expected three watchers (node feature, gfd pod, module config), got %d", len(builder.watchedSources))
 	}
+}
 
 func TestSetupWithManagerUsesFactories(t *testing.T) {
 	scheme := newTestScheme(t)
@@ -4276,11 +4276,11 @@ func TestReconcileNodeInventoryRefetchError(t *testing.T) {
 
 	err = reconciler.inventorySvc().Reconcile(context.Background(), node, nodeSnapshot{
 		Devices: []deviceSnapshot{{
-			Index:     "0",
-			Vendor:    "10de",
-			Device:    "1db5",
-			Class:     "0302",
-			Product:   "GPU",
+			Index:   "0",
+			Vendor:  "10de",
+			Device:  "1db5",
+			Class:   "0302",
+			Product: "GPU",
 		}},
 	}, []*v1alpha1.GPUDevice{{
 		ObjectMeta: metav1.ObjectMeta{

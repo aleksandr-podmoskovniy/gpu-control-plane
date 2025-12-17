@@ -287,4 +287,3 @@ func deviceCounters(devices []v1alpha1.GPUDevice) map[v1alpha1.GPUDeviceState]in
 	}
 	return counters
 }
-

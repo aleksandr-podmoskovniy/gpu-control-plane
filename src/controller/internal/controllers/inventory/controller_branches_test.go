@@ -84,10 +84,12 @@ type errorCleanupService struct {
 	err error
 }
 
-func (e errorCleanupService) CleanupNode(context.Context, string) error                            { return nil }
-func (e errorCleanupService) DeleteInventory(context.Context, string) error                        { return nil }
-func (e errorCleanupService) ClearMetrics(string)                                                   {}
-func (e errorCleanupService) RemoveOrphans(context.Context, *corev1.Node, map[string]struct{}) error { return e.err }
+func (e errorCleanupService) CleanupNode(context.Context, string) error     { return nil }
+func (e errorCleanupService) DeleteInventory(context.Context, string) error { return nil }
+func (e errorCleanupService) ClearMetrics(string)                           {}
+func (e errorCleanupService) RemoveOrphans(context.Context, *corev1.Node, map[string]struct{}) error {
+	return e.err
+}
 
 func TestReconcileRecordsDetectionUnavailableAndDeletionCleanup(t *testing.T) {
 	// Telemetry unavailable branch.

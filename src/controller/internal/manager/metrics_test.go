@@ -100,7 +100,7 @@ func TestMetricsEndpointServesPrometheus(t *testing.T) {
 		Timeout: 5 * time.Second,
 	}
 
-resp, err := client.Get(fmt.Sprintf("https://%s/metrics", bindAddr))
+	resp, err := client.Get(fmt.Sprintf("https://%s/metrics", bindAddr))
 	if err != nil {
 		t.Fatalf("request metrics endpoint: %v", err)
 	}
