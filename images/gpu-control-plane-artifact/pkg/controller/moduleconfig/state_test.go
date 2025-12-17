@@ -27,10 +27,6 @@ type marshalError struct{}
 
 func (marshalError) MarshalJSON() ([]byte, error) { return nil, errors.New("marshal error") }
 
-type numericJSON struct{}
-
-func (numericJSON) MarshalJSON() ([]byte, error) { return []byte("123"), nil }
-
 func boolPtr(v bool) *bool { return &v }
 
 func TestParse(t *testing.T) {

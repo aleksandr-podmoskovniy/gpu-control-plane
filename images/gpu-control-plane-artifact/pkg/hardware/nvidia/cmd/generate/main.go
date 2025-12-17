@@ -56,7 +56,7 @@ func parseDevices(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open input file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	deviceNames := make(map[string]string)
 	scanner := bufio.NewScanner(file)
