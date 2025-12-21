@@ -505,13 +505,13 @@ type listResponse struct {
 }
 
 type fakeResource struct {
-	deleteErr            error
-	deleteCollectionErr  error
-	getErrors            []error
-	getIndex             int
-	listResponses        []listResponse
-	listIndex            int
-	deleteCalls          atomic.Int32
+	deleteErr             error
+	deleteCollectionErr   error
+	getErrors             []error
+	getIndex              int
+	listResponses         []listResponse
+	listIndex             int
+	deleteCalls           atomic.Int32
 	deleteCollectionCalls atomic.Int32
 }
 

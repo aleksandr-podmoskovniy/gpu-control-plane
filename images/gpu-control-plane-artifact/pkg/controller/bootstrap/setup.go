@@ -16,14 +16,19 @@ package bootstrap
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/config"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/internal"
+	bshandler "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/internal/handler"
+	bsreconciler "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/internal/reconciler"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 )
 
 func SetupController(
@@ -34,17 +39,34 @@ func SetupController(
 	store *moduleconfig.ModuleConfigStore,
 ) error {
 	baseLog := log.WithName("bootstrap")
-	handlers := []contracts.BootstrapHandler{
-		internal.NewWorkloadStatusHandler(baseLog.WithName("workload-status")),
-		internal.NewDeviceStateSyncHandler(baseLog.WithName("device-state-sync")),
+	handlers := []bshandler.Handler{
+		bshandler.WrapBootstrapHandler(bshandler.NewWorkloadStatusHandler(baseLog.WithName("workload-status"))),
+		bshandler.WrapBootstrapHandler(bshandler.NewDeviceStateSyncHandler(baseLog.WithName("device-state-sync"))),
 	}
 
-	r := New(baseLog, cfg, store, handlers)
-	if err := r.SetupWithManager(ctx, mgr); err != nil {
+	workers := cfg.Workers
+	if workers <= 0 {
+		workers = 1
+	}
+
+	r := bsreconciler.New(baseLog, cfg, store, handlers)
+
+	c, err := controller.New(bsreconciler.ControllerName, mgr, controller.Options{
+		Reconciler:              r,
+		MaxConcurrentReconciles: workers,
+		RecoverPanic:            ptr.To(true),
+		LogConstructor:          logger.NewConstructor(baseLog),
+		CacheSyncTimeout:        10 * time.Minute,
+		NewQueue:                reconciler.NewNamedQueue(reconciler.UsePriorityQueue()),
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := r.SetupController(ctx, mgr, c); err != nil {
 		return err
 	}
 
 	baseLog.Info("Initialized GPU bootstrap controller")
 	return nil
 }
-

@@ -17,6 +17,7 @@ package inventory
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -25,22 +26,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
+	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 )
 
 func TestInventoryStateAllowCleanup(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 
-	state := inventoryState{node: node, snapshot: nodeSnapshot{}}
+	state := inventoryState{node: node, snapshot: invstate.NodeSnapshot{}}
 	if state.AllowCleanup() {
 		t.Fatalf("expected cleanup to be disabled without devices and features")
 	}
 
-	state = inventoryState{node: node, snapshot: nodeSnapshot{FeatureDetected: true}}
+	state = inventoryState{node: node, snapshot: invstate.NodeSnapshot{FeatureDetected: true}}
 	if !state.AllowCleanup() {
 		t.Fatalf("expected cleanup to be enabled when NodeFeature detected")
 	}
 
-	state = inventoryState{node: node, snapshot: nodeSnapshot{Devices: []deviceSnapshot{{Index: "0"}}}}
+	state = inventoryState{node: node, snapshot: invstate.NodeSnapshot{Devices: []invstate.DeviceSnapshot{{Index: "0"}}}}
 	if !state.AllowCleanup() {
 		t.Fatalf("expected cleanup to be enabled when devices are present")
 	}
@@ -48,12 +52,12 @@ func TestInventoryStateAllowCleanup(t *testing.T) {
 
 func TestInventoryStateCollectDetectionsSkipsWithoutDevices(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
-	state := inventoryState{node: node, snapshot: nodeSnapshot{}}
+	state := inventoryState{node: node, snapshot: invstate.NodeSnapshot{}}
 
 	called := 0
-	got, err := state.CollectDetections(context.Background(), func(context.Context, string) (nodeDetection, error) {
+	got, err := state.CollectDetections(context.Background(), func(context.Context, string) (invservice.NodeDetection, error) {
 		called++
-		return nodeDetection{byUUID: map[string]detectGPUEntry{}}, nil
+		return invservice.NodeDetection{}, nil
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -61,22 +65,22 @@ func TestInventoryStateCollectDetectionsSkipsWithoutDevices(t *testing.T) {
 	if called != 0 {
 		t.Fatalf("expected collector not to be called, got %d calls", called)
 	}
-	if got.byUUID != nil || got.byIndex != nil {
+	if !reflect.DeepEqual(got, invservice.NodeDetection{}) {
 		t.Fatalf("expected empty detection result")
 	}
 }
 
 func TestInventoryStateCollectDetectionsCallsCollector(t *testing.T) {
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
-	state := inventoryState{node: node, snapshot: nodeSnapshot{Devices: []deviceSnapshot{{Index: "0"}}}}
+	state := inventoryState{node: node, snapshot: invstate.NodeSnapshot{Devices: []invstate.DeviceSnapshot{{Index: "0"}}}}
 
 	called := 0
-	got, err := state.CollectDetections(context.Background(), func(_ context.Context, nodeName string) (nodeDetection, error) {
+	got, err := state.CollectDetections(context.Background(), func(_ context.Context, nodeName string) (invservice.NodeDetection, error) {
 		called++
 		if nodeName != "node-a" {
 			t.Fatalf("expected node name node-a, got %s", nodeName)
 		}
-		return nodeDetection{byIndex: map[string]detectGPUEntry{"0": {}}}, nil
+		return invservice.NodeDetection{}, nil
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -84,7 +88,7 @@ func TestInventoryStateCollectDetectionsCallsCollector(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("expected collector to be called once, got %d calls", called)
 	}
-	if got.byIndex == nil || len(got.byIndex) != 1 {
+	if !reflect.DeepEqual(got, invservice.NodeDetection{}) {
 		t.Fatalf("expected detection result to be returned")
 	}
 }
@@ -100,7 +104,7 @@ func TestInventoryStateOrphanDevicesListsExistingGPUDevices(t *testing.T) {
 				opt.ApplyToList(listOpts)
 			}
 
-			want := fields.SelectorFromSet(fields.Set{deviceNodeIndexKey: "node-a"}).String()
+			want := fields.SelectorFromSet(fields.Set{invconsts.DeviceNodeIndexKey: "node-a"}).String()
 			if listOpts.FieldSelector == nil || listOpts.FieldSelector.String() != want {
 				return errors.New("unexpected field selector")
 			}

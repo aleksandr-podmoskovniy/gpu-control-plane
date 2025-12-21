@@ -22,6 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	commonpod "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/pod"
 )
 
 const (
@@ -123,10 +125,8 @@ func hasReadyBootstrapValidator(pods []corev1.Pod, app string) bool {
 		if strings.TrimSpace(p.Labels["pool"]) != "" {
 			continue
 		}
-		for _, cond := range p.Status.Conditions {
-			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-				return true
-			}
+		if commonpod.IsReady(p) {
+			return true
 		}
 	}
 	return false
@@ -158,10 +158,8 @@ func hasReadyPod(pods []corev1.Pod, app string) bool {
 		if p.Labels["app"] != app {
 			continue
 		}
-		for _, cond := range p.Status.Conditions {
-			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-				return true
-			}
+		if commonpod.IsReady(p) {
+			return true
 		}
 	}
 	return false

@@ -14,13 +14,11 @@
 
 package contracts
 
-import "time"
+import "sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 // Result represents the outcome of a handler execution.
-type Result struct {
-	Requeue      bool
-	RequeueAfter time.Duration
-}
+// It is an alias of controller-runtime reconcile.Result to align handler contracts with upstream patterns.
+type Result = reconcile.Result
 
 // MergeResult combines two handler results preferring the shortest requeue interval.
 func MergeResult(current Result, next Result) Result {

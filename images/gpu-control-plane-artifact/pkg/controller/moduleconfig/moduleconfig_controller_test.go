@@ -31,20 +31,14 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
 )
 
 type fakeManager struct {
@@ -52,6 +46,7 @@ type fakeManager struct {
 	scheme *runtime.Scheme
 	cache  cache.Cache
 	log    logr.Logger
+	addErr error
 }
 
 func newFakeManager(c client.Client, scheme *runtime.Scheme) *fakeManager {
@@ -68,7 +63,7 @@ func (f *fakeManager) GetEventRecorderFor(string) record.EventRecorder { return 
 func (f *fakeManager) GetRESTMapper() meta.RESTMapper                  { return nil }
 func (f *fakeManager) GetAPIReader() client.Reader                     { return nil }
 func (f *fakeManager) Start(context.Context) error                     { return nil }
-func (f *fakeManager) Add(manager.Runnable) error                      { return nil }
+func (f *fakeManager) Add(manager.Runnable) error                      { return f.addErr }
 func (f *fakeManager) Elected() <-chan struct{}                        { return make(chan struct{}) }
 func (f *fakeManager) AddMetricsServerExtraHandler(string, http.Handler) error {
 	return nil
@@ -78,38 +73,6 @@ func (f *fakeManager) AddReadyzCheck(string, healthz.Checker) error  { return ni
 func (f *fakeManager) GetWebhookServer() webhook.Server              { return nil }
 func (f *fakeManager) GetLogger() logr.Logger                        { return f.log }
 func (f *fakeManager) GetControllerOptions() ctrlconfig.Controller   { return ctrlconfig.Controller{} }
-
-type fakeBuilder struct {
-	named    string
-	forObj   client.Object
-	options  controller.Options
-	complete int
-	err      error
-}
-
-func (f *fakeBuilder) Named(name string) controllerbuilder.Builder {
-	f.named = name
-	return f
-}
-
-func (f *fakeBuilder) For(obj client.Object, _ ...builder.ForOption) controllerbuilder.Builder {
-	f.forObj = obj
-	return f
-}
-
-func (f *fakeBuilder) Owns(client.Object, ...builder.OwnsOption) controllerbuilder.Builder { return f }
-
-func (f *fakeBuilder) WatchesRawSource(source.Source) controllerbuilder.Builder { return f }
-
-func (f *fakeBuilder) WithOptions(opts controller.Options) controllerbuilder.Builder {
-	f.options = opts
-	return f
-}
-
-func (f *fakeBuilder) Complete(reconcile.Reconciler) error {
-	f.complete++
-	return f.err
-}
 
 func newContext() context.Context {
 	return ctrllog.IntoContext(context.Background(), logr.Discard())
@@ -124,7 +87,7 @@ func newModuleConfigScheme() *runtime.Scheme {
 }
 
 func TestNewRequiresStore(t *testing.T) {
-	if _, err := New(logr.Discard(), nil); err == nil {
+	if _, err := New(nil, logr.Discard(), nil); err == nil {
 		t.Fatal("expected error when store is nil")
 	}
 }
@@ -140,7 +103,7 @@ func (f *failingClient) Get(context.Context, client.ObjectKey, client.Object, ..
 
 func TestReconcileReturnsGetError(t *testing.T) {
 	store := NewModuleConfigStore(DefaultState())
-	rec, err := New(logr.Discard(), store)
+	rec, err := New(nil, logr.Discard(), store)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -175,11 +138,10 @@ func TestReconcileReturnsParseError(t *testing.T) {
 		t.Fatalf("seed client: %v", err)
 	}
 
-	rec, err := New(logr.Discard(), store)
+	rec, err := New(client, logr.Discard(), store)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	rec.client = client
 
 	_, err = rec.Reconcile(newContext(), ctrl.Request{NamespacedName: types.NamespacedName{Name: moduleConfigName}})
 	if err == nil {
@@ -195,7 +157,7 @@ func TestExtractStateSettingsDecodeError(t *testing.T) {
 	}}
 	obj.SetGroupVersionKind(ModuleConfigGVK)
 
-	rec, err := New(logr.Discard(), NewModuleConfigStore(DefaultState()))
+	rec, err := New(nil, logr.Discard(), NewModuleConfigStore(DefaultState()))
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -206,39 +168,19 @@ func TestExtractStateSettingsDecodeError(t *testing.T) {
 	}
 }
 
-func TestSetupWithManagerConfiguresBuilder(t *testing.T) {
+func TestSetupControllerRequiresCache(t *testing.T) {
 	scheme := newModuleConfigScheme()
-	client := fake.NewClientBuilder().WithScheme(scheme).Build()
-	mgr := newFakeManager(client, scheme)
-	builderStub := &fakeBuilder{}
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	mgr := newFakeManager(cl, scheme)
 	store := NewModuleConfigStore(DefaultState())
-	rec, err := New(testr.New(t), store)
+
+	rec, err := New(cl, testr.New(t), store)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	rec.build = func(ctrl.Manager) controllerbuilder.Builder { return builderStub }
 
-	if err := rec.SetupWithManager(context.Background(), mgr); err != nil {
-		t.Fatalf("SetupWithManager returned error: %v", err)
-	}
-
-	if rec.client != client {
-		t.Fatal("expected manager client captured")
-	}
-	if builderStub.named != controllerName {
-		t.Fatalf("unexpected controller name: %s", builderStub.named)
-	}
-	if _, ok := builderStub.forObj.(*unstructured.Unstructured); !ok {
-		t.Fatalf("unexpected For object: %T", builderStub.forObj)
-	}
-	if builderStub.options.MaxConcurrentReconciles != 1 {
-		t.Fatalf("unexpected concurrency: %d", builderStub.options.MaxConcurrentReconciles)
-	}
-	if builderStub.options.LogConstructor == nil {
-		t.Fatal("expected LogConstructor configured")
-	}
-	if builderStub.complete != 1 {
-		t.Fatalf("expected Complete to be called once, got %d", builderStub.complete)
+	if err := rec.SetupController(context.Background(), mgr, nil); err == nil {
+		t.Fatal("expected error when manager cache is nil")
 	}
 }
 
@@ -247,11 +189,10 @@ func TestReconcileStoresDefaultsWhenMissing(t *testing.T) {
 	scheme := newModuleConfigScheme()
 	client := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	reconciler, err := New(logr.Discard(), store)
+	reconciler, err := New(client, logr.Discard(), store)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	reconciler.client = client
 
 	_, err = reconciler.Reconcile(newContext(), ctrl.Request{NamespacedName: types.NamespacedName{Name: moduleConfigName}})
 	if err != nil {
@@ -291,7 +232,7 @@ func TestReconcileUpdatesStore(t *testing.T) {
 		t.Fatalf("failed to seed fake client with moduleconfig: %v", err)
 	}
 
-	reconciler, err := New(logr.Discard(), store)
+	reconciler, err := New(client, logr.Discard(), store)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -302,8 +243,6 @@ func TestReconcileUpdatesStore(t *testing.T) {
 	if state.Settings.ManagedNodes.LabelKey != "gpu.deckhouse.io/custom" {
 		t.Fatalf("expected extracted labelKey to be updated, got %s", state.Settings.ManagedNodes.LabelKey)
 	}
-	reconciler.client = client
-
 	_, err = reconciler.Reconcile(newContext(), ctrl.Request{NamespacedName: types.NamespacedName{Name: moduleConfigName}})
 	if err != nil {
 		t.Fatalf("Reconcile returned error: %v", err)

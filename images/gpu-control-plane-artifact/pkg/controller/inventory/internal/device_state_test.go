@@ -20,24 +20,39 @@ import (
 
 	"github.com/go-logr/logr/testr"
 
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 )
 
-func TestDeviceStateHandlerSetsDefault(t *testing.T) {
+func TestDeviceStateHandlerDefaultsToDiscovered(t *testing.T) {
 	h := NewDeviceStateHandler(testr.New(t))
-	device := &v1alpha1.GPUDevice{}
+	dev := &v1alpha1.GPUDevice{}
 
-	if _, err := h.HandleDevice(context.Background(), device); err != nil {
+	_, err := h.HandleDevice(context.Background(), dev)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if device.Status.State != v1alpha1.GPUDeviceStateDiscovered {
-		t.Fatalf("state not defaulted: %s", device.Status.State)
+	if dev.Status.State != v1alpha1.GPUDeviceStateDiscovered {
+		t.Fatalf("expected state to be Discovered, got %q", dev.Status.State)
+	}
+}
+
+func TestDeviceStateHandlerPreservesExistingState(t *testing.T) {
+	h := NewDeviceStateHandler(testr.New(t))
+	dev := &v1alpha1.GPUDevice{}
+	dev.Status.State = v1alpha1.GPUDeviceStateReady
+
+	_, err := h.HandleDevice(context.Background(), dev)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dev.Status.State != v1alpha1.GPUDeviceStateReady {
+		t.Fatalf("expected state to stay Ready, got %q", dev.Status.State)
 	}
 }
 
 func TestDeviceStateHandlerName(t *testing.T) {
 	h := NewDeviceStateHandler(testr.New(t))
 	if h.Name() != "device-state" {
-		t.Fatalf("unexpected handler name: %s", h.Name())
+		t.Fatalf("unexpected handler name: %q", h.Name())
 	}
 }

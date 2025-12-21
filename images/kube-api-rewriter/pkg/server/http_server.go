@@ -31,8 +31,8 @@ import (
 )
 
 var (
-	netListen     = net.Listen
-	serverServe   = func(srv *http.Server, ln net.Listener) error { return srv.Serve(ln) }
+	netListen      = net.Listen
+	serverServe    = func(srv *http.Server, ln net.Listener) error { return srv.Serve(ln) }
 	serverServeTLS = func(srv *http.Server, ln net.Listener, certFile, keyFile string) error {
 		return srv.ServeTLS(ln, certFile, keyFile)
 	}

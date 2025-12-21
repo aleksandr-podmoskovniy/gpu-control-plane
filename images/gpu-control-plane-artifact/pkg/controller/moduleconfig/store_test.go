@@ -17,8 +17,8 @@ package moduleconfig
 import "testing"
 
 func TestModuleConfigStoreCloneOnCurrent(t *testing.T) {
-	state := DefaultState()
-	store := NewModuleConfigStore(state)
+	initial := DefaultState()
+	store := NewModuleConfigStore(initial)
 
 	current := store.Current()
 	current.Settings.ManagedNodes.LabelKey = "modified"
@@ -31,12 +31,12 @@ func TestModuleConfigStoreCloneOnCurrent(t *testing.T) {
 
 func TestModuleConfigStoreCloneOnUpdate(t *testing.T) {
 	store := NewModuleConfigStore(DefaultState())
-	state := DefaultState()
-	state.Settings.ManagedNodes.LabelKey = "custom"
+	updated := DefaultState()
+	updated.Settings.ManagedNodes.LabelKey = "custom"
 
-	store.Update(state)
+	store.Update(updated)
 
-	state.Settings.ManagedNodes.LabelKey = "changed-after-update"
+	updated.Settings.ManagedNodes.LabelKey = "changed-after-update"
 
 	current := store.Current()
 	if current.Settings.ManagedNodes.LabelKey != "custom" {

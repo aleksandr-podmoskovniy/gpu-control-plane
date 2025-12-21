@@ -18,4 +18,3 @@ package contracts
 type Named interface {
 	Name() string
 }
-

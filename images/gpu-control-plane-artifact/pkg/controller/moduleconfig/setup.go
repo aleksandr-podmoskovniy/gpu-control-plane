@@ -18,7 +18,11 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
 )
 
 func SetupController(
@@ -28,14 +32,25 @@ func SetupController(
 	store *ModuleConfigStore,
 ) error {
 	baseLog := log.WithName("moduleconfig")
-	r, err := New(baseLog, store)
+	r, err := New(mgr.GetClient(), baseLog, store)
 	if err != nil {
 		return err
 	}
-	if err := r.SetupWithManager(ctx, mgr); err != nil {
+
+	c, err := controller.New(controllerName, mgr, controller.Options{
+		Reconciler:              r,
+		MaxConcurrentReconciles: 1,
+		RecoverPanic:            ptr.To(true),
+		LogConstructor:          logger.NewConstructor(baseLog),
+	})
+	if err != nil {
 		return err
 	}
+
+	if err := r.SetupController(ctx, mgr, c); err != nil {
+		return err
+	}
+
 	baseLog.Info("Initialized ModuleConfig controller")
 	return nil
 }
-

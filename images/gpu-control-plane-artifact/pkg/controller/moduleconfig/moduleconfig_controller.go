@@ -19,18 +19,18 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controllerbuilder"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/logger"
+	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
 )
 
 const (
@@ -45,61 +45,53 @@ type Reconciler struct {
 	client client.Client
 	log    logr.Logger
 	store  *ModuleConfigStore
-	build  func(ctrl.Manager) controllerbuilder.Builder
 }
 
-func New(log logr.Logger, store *ModuleConfigStore) (*Reconciler, error) {
+func New(client client.Client, log logr.Logger, store *ModuleConfigStore) (*Reconciler, error) {
 	if store == nil {
 		return nil, fmt.Errorf("module config store must be provided")
 	}
-	rec := &Reconciler{log: log, store: store}
-	rec.build = controllerbuilder.NewManagedBy
+	rec := &Reconciler{client: client, log: log, store: store}
 	return rec, nil
 }
 
-func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager) error {
-	r.client = mgr.GetClient()
+func (r *Reconciler) SetupController(_ context.Context, mgr manager.Manager, ctr controller.Controller) error {
+	cache := mgr.GetCache()
+	if cache == nil {
+		return fmt.Errorf("manager cache is required")
+	}
 
 	base := &unstructured.Unstructured{}
 	base.SetGroupVersionKind(ModuleConfigGVK)
-
-	options := controller.Options{
-		MaxConcurrentReconciles: 1,
-		RecoverPanic:            ptr.To(true),
-		LogConstructor:          logger.NewConstructor(r.log),
-	}
-
-	ctrlBuilder := r.build(mgr).
-		Named(controllerName).
-		For(base).
-		WithOptions(options)
-
-	return ctrlBuilder.Complete(r)
+	return ctr.Watch(
+		source.Kind(cache, base, &handler.TypedEnqueueRequestForObject[*unstructured.Unstructured]{}),
+	)
 }
 
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := crlog.FromContext(ctx).WithValues("moduleConfig", req.Name)
 	ctx = logr.NewContext(ctx, log)
 
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(ModuleConfigGVK)
 
-	if err := r.client.Get(ctx, types.NamespacedName{Name: moduleConfigName}, obj); err != nil {
-		if apierrors.IsNotFound(err) {
-			r.store.Update(DefaultState())
-			return ctrl.Result{}, nil
-		}
-		return ctrl.Result{}, err
+	obj, err := commonobject.FetchObject(ctx, types.NamespacedName{Name: moduleConfigName}, r.client, obj)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if obj == nil {
+		r.store.Update(DefaultState())
+		return reconcile.Result{}, nil
 	}
 
 	state, err := r.extractState(obj)
 	if err != nil {
 		log.Error(err, "parse module configuration")
-		return ctrl.Result{}, err
+		return reconcile.Result{}, err
 	}
 
 	r.store.Update(state)
-	return ctrl.Result{}, nil
+	return reconcile.Result{}, nil
 }
 
 func (r *Reconciler) extractState(obj *unstructured.Unstructured) (State, error) {

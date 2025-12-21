@@ -25,6 +25,8 @@ fi
 HELM_BIN=""
 HELM_TMPDIR=""
 ensure_helm() {
+  local root_dir
+  root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   local min_version="3.14.0"
   local desired_version="${HELM_DESIRED_VERSION:-3.17.2}"
 
@@ -60,13 +62,32 @@ ensure_helm() {
       ;;
   esac
 
+  local cache_dir="${root_dir}/.cache/helm/v${desired_version}/${os}-${arch}"
+  local cached_bin="${cache_dir}/helm"
+  if [[ -x "${cached_bin}" ]]; then
+    HELM_BIN="${cached_bin}"
+    return
+  fi
+
   echo "Downloading Helm v${desired_version} (${os}/${arch}) ..." >&2
   HELM_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/helm.XXXXXX")
   trap 'rm -rf "${HELM_TMPDIR}"' EXIT
-  curl -sSL "https://get.helm.sh/helm-v${desired_version}-${os}-${arch}.tar.gz" -o "${HELM_TMPDIR}/helm.tar.gz"
+
+  local tarball_url="https://get.helm.sh/helm-v${desired_version}-${os}-${arch}.tar.gz"
+  local backup_url="https://github.com/helm/helm/releases/download/v${desired_version}/helm-v${desired_version}-${os}-${arch}.tar.gz"
+  if ! curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 --http1.1 \
+    "${tarball_url}" \
+    -o "${HELM_TMPDIR}/helm.tar.gz"; then
+    echo "Failed to download Helm from get.helm.sh, retry via GitHub releases ..." >&2
+    curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 --http1.1 \
+      "${backup_url}" \
+      -o "${HELM_TMPDIR}/helm.tar.gz"
+  fi
   tar -xzf "${HELM_TMPDIR}/helm.tar.gz" -C "${HELM_TMPDIR}"
-  HELM_BIN="${HELM_TMPDIR}/${os}-${arch}/helm"
-  chmod +x "${HELM_BIN}"
+  mkdir -p "${cache_dir}"
+  cp "${HELM_TMPDIR}/${os}-${arch}/helm" "${cached_bin}"
+  chmod +x "${cached_bin}"
+  HELM_BIN="${cached_bin}"
 }
 
 ensure_helm

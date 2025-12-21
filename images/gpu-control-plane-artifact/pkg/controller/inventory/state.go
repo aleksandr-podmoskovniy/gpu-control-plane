@@ -21,6 +21,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
+	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
+
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
@@ -28,20 +32,20 @@ import (
 type inventoryState struct {
 	node          *corev1.Node
 	nodeFeature   *nfdv1alpha1.NodeFeature
-	managedPolicy ManagedNodesPolicy
-	snapshot      nodeSnapshot
+	managedPolicy invstate.ManagedNodesPolicy
+	snapshot      invstate.NodeSnapshot
 }
 
-func newInventoryState(node *corev1.Node, feature *nfdv1alpha1.NodeFeature, managed ManagedNodesPolicy) inventoryState {
+func newInventoryState(node *corev1.Node, feature *nfdv1alpha1.NodeFeature, managed invstate.ManagedNodesPolicy) inventoryState {
 	return inventoryState{
 		node:          node,
 		nodeFeature:   feature,
 		managedPolicy: managed,
-		snapshot:      buildNodeSnapshot(node, feature, managed),
+		snapshot:      invstate.BuildNodeSnapshot(node, feature, managed),
 	}
 }
 
-func (s inventoryState) Snapshot() nodeSnapshot {
+func (s inventoryState) Snapshot() invstate.NodeSnapshot {
 	return s.snapshot
 }
 
@@ -51,7 +55,7 @@ func (s inventoryState) AllowCleanup() bool {
 
 func (s inventoryState) OrphanDevices(ctx context.Context, c client.Client) (map[string]struct{}, error) {
 	existingDevices := &v1alpha1.GPUDeviceList{}
-	if err := c.List(ctx, existingDevices, client.MatchingFields{deviceNodeIndexKey: s.node.Name}); err != nil {
+	if err := c.List(ctx, existingDevices, client.MatchingFields{invconsts.DeviceNodeIndexKey: s.node.Name}); err != nil {
 		return nil, err
 	}
 	orphanDevices := make(map[string]struct{}, len(existingDevices.Items))
@@ -61,9 +65,9 @@ func (s inventoryState) OrphanDevices(ctx context.Context, c client.Client) (map
 	return orphanDevices, nil
 }
 
-func (s inventoryState) CollectDetections(ctx context.Context, collect func(context.Context, string) (nodeDetection, error)) (nodeDetection, error) {
+func (s inventoryState) CollectDetections(ctx context.Context, collect func(context.Context, string) (invservice.NodeDetection, error)) (invservice.NodeDetection, error) {
 	if len(s.snapshot.Devices) == 0 {
-		return nodeDetection{}, nil
+		return invservice.NodeDetection{}, nil
 	}
 	return collect(ctx, s.node.Name)
 }

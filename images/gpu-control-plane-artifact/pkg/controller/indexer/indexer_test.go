@@ -17,221 +17,223 @@ package indexer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
+	commonannotations "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/annotations"
 )
 
 type capturingFieldIndexer struct {
-	field     string
-	extractor client.IndexerFunc
-	calls     int
-	err       error
+	fields []string
+	err    error
 }
 
-func (f *capturingFieldIndexer) IndexField(_ context.Context, _ client.Object, field string, extractFunc client.IndexerFunc) error {
-	f.calls++
-	f.field = field
-	f.extractor = extractFunc
+func (f *capturingFieldIndexer) IndexField(_ context.Context, _ client.Object, field string, _ client.IndexerFunc) error {
+	f.fields = append(f.fields, field)
 	return f.err
 }
 
+type stubManager struct {
+	manager.Manager
+	fieldIndexer client.FieldIndexer
+}
+
+func (s *stubManager) GetFieldIndexer() client.FieldIndexer {
+	return s.fieldIndexer
+}
+
 func TestIndexGPUDeviceByNode(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-
-	if err := IndexGPUDeviceByNode(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+	obj, field, extractor := IndexGPUDeviceByNode()
+	if _, ok := obj.(*v1alpha1.GPUDevice); !ok {
+		t.Fatalf("expected GPUDevice object, got %T", obj)
 	}
-	if idx.calls != 1 || idx.field != GPUDeviceNodeField {
-		t.Fatalf("expected index call for %s, got %d calls field %q", GPUDeviceNodeField, idx.calls, idx.field)
+	if field != GPUDeviceNodeField {
+		t.Fatalf("expected field %s, got %s", GPUDeviceNodeField, field)
 	}
-
 	device := &v1alpha1.GPUDevice{}
 	device.Status.NodeName = "node-a"
-	values := idx.extractor(device)
-	if len(values) != 1 || values[0] != "node-a" {
+	values := extractor(device)
+	if !reflect.DeepEqual(values, []string{"node-a"}) {
 		t.Fatalf("expected node name indexed, got %+v", values)
 	}
 
 	// empty node name -> no index
 	device.Status.NodeName = ""
-	if got := idx.extractor(device); got != nil {
+	if got := extractor(device); got != nil {
 		t.Fatalf("expected nil for empty node name, got %+v", got)
 	}
 
 	// unrelated object should be ignored
 	pod := &corev1.Pod{}
-	if got := idx.extractor(pod); got != nil {
+	if got := extractor(pod); got != nil {
 		t.Fatalf("expected nil for non-GPUDevice object, got %+v", got)
 	}
 }
 
 func TestIndexGPUDeviceByPoolRefName(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-
-	if err := IndexGPUDeviceByPoolRefName(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+	obj, field, extractor := IndexGPUDeviceByPoolRefName()
+	if _, ok := obj.(*v1alpha1.GPUDevice); !ok {
+		t.Fatalf("expected GPUDevice object, got %T", obj)
 	}
-	if idx.calls != 1 || idx.field != GPUDevicePoolRefNameField {
-		t.Fatalf("expected index call for %s, got %d calls field %q", GPUDevicePoolRefNameField, idx.calls, idx.field)
+	if field != GPUDevicePoolRefNameField {
+		t.Fatalf("expected field %s, got %s", GPUDevicePoolRefNameField, field)
 	}
 
 	device := &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool-a"}}}
-	if got := idx.extractor(device); len(got) != 1 || got[0] != "pool-a" {
+	if got := extractor(device); len(got) != 1 || got[0] != "pool-a" {
 		t.Fatalf("expected pool name indexed, got %+v", got)
 	}
 
 	device.Status.PoolRef = nil
-	if got := idx.extractor(device); got != nil {
+	if got := extractor(device); got != nil {
 		t.Fatalf("expected nil for empty pool ref, got %+v", got)
 	}
 
 	// unrelated object should be ignored
 	pod := &corev1.Pod{}
-	if got := idx.extractor(pod); got != nil {
+	if got := extractor(pod); got != nil {
 		t.Fatalf("expected nil for non-GPUDevice object, got %+v", got)
 	}
 }
 
 func TestIndexGPUDeviceByNamespacedAssignment(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-
-	if err := IndexGPUDeviceByNamespacedAssignment(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+	obj, field, extractor := IndexGPUDeviceByNamespacedAssignment()
+	if _, ok := obj.(*v1alpha1.GPUDevice); !ok {
+		t.Fatalf("expected GPUDevice object, got %T", obj)
 	}
-	if idx.calls != 1 || idx.field != GPUDeviceNamespacedAssignmentField {
-		t.Fatalf("expected index call for %s, got %d calls field %q", GPUDeviceNamespacedAssignmentField, idx.calls, idx.field)
+	if field != GPUDeviceNamespacedAssignmentField {
+		t.Fatalf("expected field %s, got %s", GPUDeviceNamespacedAssignmentField, field)
 	}
 
-	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"gpu.deckhouse.io/assignment": "pool-a"}}}
-	if got := idx.extractor(device); len(got) != 1 || got[0] != "pool-a" {
+	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{commonannotations.GPUDeviceAssignment: "pool-a"}}}
+	if got := extractor(device); len(got) != 1 || got[0] != "pool-a" {
 		t.Fatalf("expected assignment indexed, got %+v", got)
 	}
 
 	device.Annotations = nil
-	if got := idx.extractor(device); got != nil {
+	if got := extractor(device); got != nil {
 		t.Fatalf("expected nil for empty annotations, got %+v", got)
 	}
 }
 
 func TestIndexGPUDeviceByClusterAssignment(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-
-	if err := IndexGPUDeviceByClusterAssignment(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+	obj, field, extractor := IndexGPUDeviceByClusterAssignment()
+	if _, ok := obj.(*v1alpha1.GPUDevice); !ok {
+		t.Fatalf("expected GPUDevice object, got %T", obj)
 	}
-	if idx.calls != 1 || idx.field != GPUDeviceClusterAssignmentField {
-		t.Fatalf("expected index call for %s, got %d calls field %q", GPUDeviceClusterAssignmentField, idx.calls, idx.field)
+	if field != GPUDeviceClusterAssignmentField {
+		t.Fatalf("expected field %s, got %s", GPUDeviceClusterAssignmentField, field)
 	}
 
-	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"cluster.gpu.deckhouse.io/assignment": "pool-a"}}}
-	if got := idx.extractor(device); len(got) != 1 || got[0] != "pool-a" {
+	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{commonannotations.ClusterGPUDeviceAssignment: "pool-a"}}}
+	if got := extractor(device); len(got) != 1 || got[0] != "pool-a" {
 		t.Fatalf("expected assignment indexed, got %+v", got)
 	}
 
 	device.Annotations = nil
-	if got := idx.extractor(device); got != nil {
+	if got := extractor(device); got != nil {
 		t.Fatalf("expected nil for empty annotations, got %+v", got)
 	}
 }
 
 func TestIndexGPUPoolByName(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-
-	if err := IndexGPUPoolByName(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+	obj, field, extractor := IndexGPUPoolByName()
+	if _, ok := obj.(*v1alpha1.GPUPool); !ok {
+		t.Fatalf("expected GPUPool object, got %T", obj)
 	}
-	if idx.calls != 1 || idx.field != GPUPoolNameField {
-		t.Fatalf("expected index call for %s, got %d calls field %q", GPUPoolNameField, idx.calls, idx.field)
+	if field != GPUPoolNameField {
+		t.Fatalf("expected field %s, got %s", GPUPoolNameField, field)
 	}
 
 	pool := &v1alpha1.GPUPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: "ns"}}
-	if got := idx.extractor(pool); len(got) != 1 || got[0] != "pool-a" {
+	if got := extractor(pool); len(got) != 1 || got[0] != "pool-a" {
 		t.Fatalf("expected pool name indexed, got %+v", got)
 	}
 
 	pool.Name = ""
-	if got := idx.extractor(pool); got != nil {
+	if got := extractor(pool); got != nil {
 		t.Fatalf("expected nil for empty pool name, got %+v", got)
 	}
 
-	if got := idx.extractor(&corev1.Pod{}); got != nil {
+	if got := extractor(&corev1.Pod{}); got != nil {
 		t.Fatalf("expected nil for non-GPUPool object, got %+v", got)
 	}
 }
 
-func TestIndexersHandleNilIndexerAndPropagateErrors(t *testing.T) {
-	if err := IndexGPUDeviceByNode(context.Background(), nil); err != nil {
-		t.Fatalf("expected nil error for nil indexer, got %v", err)
+func TestIndexNodeByTaintKey(t *testing.T) {
+	obj, field, extractor := IndexNodeByTaintKey()
+	if _, ok := obj.(*corev1.Node); !ok {
+		t.Fatalf("expected Node object, got %T", obj)
 	}
-	if err := IndexGPUDeviceByPoolRefName(context.Background(), nil); err != nil {
-		t.Fatalf("expected nil error for nil indexer, got %v", err)
-	}
-	if err := IndexGPUDeviceByNamespacedAssignment(context.Background(), nil); err != nil {
-		t.Fatalf("expected nil error for nil indexer, got %v", err)
-	}
-	if err := IndexGPUDeviceByClusterAssignment(context.Background(), nil); err != nil {
-		t.Fatalf("expected nil error for nil indexer, got %v", err)
-	}
-	if err := IndexGPUPoolByName(context.Background(), nil); err != nil {
-		t.Fatalf("expected nil error for nil indexer, got %v", err)
+	if field != NodeTaintKeyField {
+		t.Fatalf("expected field %s, got %s", NodeTaintKeyField, field)
 	}
 
-	expected := errors.New("index failed")
-	idx := &capturingFieldIndexer{err: expected}
-	if err := IndexGPUDeviceByNode(context.Background(), idx); !errors.Is(err, expected) {
-		t.Fatalf("expected error propagated, got %v", err)
-	}
+	t.Run("no-taints", func(t *testing.T) {
+		node := &corev1.Node{}
+		if got := extractor(node); got != nil {
+			t.Fatalf("expected nil for node without taints, got %+v", got)
+		}
+	})
+
+	t.Run("dedup-and-skip-empty", func(t *testing.T) {
+		node := &corev1.Node{Spec: corev1.NodeSpec{Taints: []corev1.Taint{
+			{Key: "a"},
+			{Key: ""},
+			{Key: "a"},
+			{Key: "b"},
+		}}}
+		got := extractor(node)
+		if len(got) != 2 || got[0] != "a" || got[1] != "b" {
+			t.Fatalf("unexpected taint keys: %+v", got)
+		}
+	})
+
+	t.Run("all-empty-keys", func(t *testing.T) {
+		node := &corev1.Node{Spec: corev1.NodeSpec{Taints: []corev1.Taint{{Key: ""}}}}
+		if got := extractor(node); got != nil {
+			t.Fatalf("expected nil for node taints without keys, got %+v", got)
+		}
+	})
+
+	t.Run("non-node-object", func(t *testing.T) {
+		if got := extractor(&corev1.Pod{}); got != nil {
+			t.Fatalf("expected nil for non-node object, got %+v", got)
+		}
+	})
 }
 
-func TestIndexGPUDeviceByNodeIgnoresIndexerConflict(t *testing.T) {
-	idx := &capturingFieldIndexer{err: errors.New("indexer conflict: map[field:status.nodeName:{}]")}
-	if err := IndexGPUDeviceByNode(context.Background(), idx); err != nil {
-		t.Fatalf("expected conflict to be ignored, got %v", err)
-	}
-	if idx.calls != 1 {
-		t.Fatalf("expected indexer called once, got %d", idx.calls)
-	}
-}
-
-func TestIndexGPUDeviceByPoolRefNameSkipsEmptyPoolName(t *testing.T) {
+func TestIndexALLRegistersIndexers(t *testing.T) {
 	idx := &capturingFieldIndexer{}
-	if err := IndexGPUDeviceByPoolRefName(context.Background(), idx); err != nil {
+	mgr := &stubManager{fieldIndexer: idx}
+
+	if err := IndexALL(context.Background(), mgr); err != nil {
 		t.Fatalf("unexpected index error: %v", err)
 	}
-	device := &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: ""}}}
-	if got := idx.extractor(device); got != nil {
-		t.Fatalf("expected nil for empty poolRef name, got %+v", got)
+
+	expected := make([]string, 0, len(IndexGetters))
+	for _, getter := range IndexGetters {
+		_, field, _ := getter()
+		expected = append(expected, field)
+	}
+
+	if !reflect.DeepEqual(idx.fields, expected) {
+		t.Fatalf("unexpected registered fields: %+v", idx.fields)
 	}
 }
 
-func TestIndexGPUDeviceAssignmentIndexersHandleEmptyValueAndOtherObjects(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-	if err := IndexGPUDeviceByNamespacedAssignment(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
-	}
-	device := &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"gpu.deckhouse.io/assignment": ""}}}
-	if got := idx.extractor(device); got != nil {
-		t.Fatalf("expected nil for empty assignment, got %+v", got)
-	}
-	if got := idx.extractor(&corev1.Pod{}); got != nil {
-		t.Fatalf("expected nil for other objects, got %+v", got)
-	}
+func TestIndexALLPropagatesErrors(t *testing.T) {
+	idx := &capturingFieldIndexer{err: errors.New("index failed")}
+	mgr := &stubManager{fieldIndexer: idx}
 
-	idx = &capturingFieldIndexer{}
-	if err := IndexGPUDeviceByClusterAssignment(context.Background(), idx); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
-	}
-	device = &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"cluster.gpu.deckhouse.io/assignment": ""}}}
-	if got := idx.extractor(device); got != nil {
-		t.Fatalf("expected nil for empty assignment, got %+v", got)
-	}
-	if got := idx.extractor(&corev1.Pod{}); got != nil {
-		t.Fatalf("expected nil for other objects, got %+v", got)
+	if err := IndexALL(context.Background(), mgr); err == nil {
+		t.Fatalf("expected index error")
 	}
 }

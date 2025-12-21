@@ -24,15 +24,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/cmd/gpu-control-plane-controller/app"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/config"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/internal/manager"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var (
 	loadConfigFile = config.LoadFile
-	runManager     = manager.Run
+	runManager     = app.Run
 	getRESTConfig  = ctrl.GetConfigOrDie
 	setupSignals   = ctrl.SetupSignalHandler
 	exit           = os.Exit
@@ -49,7 +49,7 @@ func runMain(args []string, getenv func(string) string) int {
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flagSet)
 	if err := flagSet.Parse(args); err != nil {
-		manager.Log.Error(err, "failed to parse flags")
+		app.Log.Error(err, "failed to parse flags")
 		return 1
 	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
@@ -64,16 +64,16 @@ func runMain(args []string, getenv func(string) string) int {
 		if info, err := statFile(configPath); err == nil && !info.IsDir() {
 			loaded, err := loadConfigFile(configPath)
 			if err != nil {
-				manager.Log.Error(err, "failed to load config", "path", configPath)
+				app.Log.Error(err, "failed to load config", "path", configPath)
 				return 1
 			}
 			sysCfg = loaded
 		} else if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
-				manager.Log.Error(err, "failed to access config", "path", configPath)
+				app.Log.Error(err, "failed to access config", "path", configPath)
 				return 1
 			}
-			manager.Log.Info("config file not found, using defaults", "path", configPath)
+			app.Log.Info("config file not found, using defaults", "path", configPath)
 		}
 	}
 
@@ -83,7 +83,7 @@ func runMain(args []string, getenv func(string) string) int {
 	ctx := setupSignals()
 
 	if err := runManager(ctx, restCfg, sysCfg); err != nil {
-		manager.Log.Error(err, "manager exited with error")
+		app.Log.Error(err, "manager exited with error")
 		return 1
 	}
 

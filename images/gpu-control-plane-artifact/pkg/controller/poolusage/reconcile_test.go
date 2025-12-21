@@ -186,11 +186,23 @@ func TestClusterGPUPoolUsageReconcileUpdatesUsedAvailable(t *testing.T) {
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodPending},
 	}
+	unscheduled := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "unscheduled", Namespace: "ns3", Labels: podLabels},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "c",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{resourceName: resource.MustParse("1")},
+				},
+			}},
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodPending},
+	}
 
 	cl := clientfake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&v1alpha1.ClusterGPUPool{}).
-		WithObjects(pool, pod1, pod2).
+		WithObjects(pool, pod1, pod2, unscheduled).
 		Build()
 
 	r := NewClusterGPUPoolUsage(testr.New(t), config.ControllerConfig{Workers: 1}, nil)

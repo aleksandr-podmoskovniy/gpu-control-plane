@@ -16,91 +16,97 @@ package conditions
 
 import (
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestBuilderSetPreservesTransitionTime(t *testing.T) {
+func TestSetConditionAddsAndUpdates(t *testing.T) {
 	var conds []metav1.Condition
-	b := New(&conds)
 
-	initial := metav1.Condition{
-		Type:    "Ready",
-		Status:  metav1.ConditionTrue,
-		Reason:  "Initial",
-		Message: "ok",
-	}
-	b.Set(initial)
+	t0 := time.Unix(1000, 0)
+	builder := NewConditionBuilder(ConditionType("Ready")).
+		Status(metav1.ConditionTrue).
+		Reason(CommonReason("Initial")).
+		Message("ok").
+		Generation(1).
+		LastTransitionTime(t0)
 
+	SetCondition(builder, &conds)
 	if len(conds) != 1 {
 		t.Fatalf("expected one condition, got %d", len(conds))
 	}
-	firstTransition := conds[0].LastTransitionTime
-	if firstTransition.IsZero() {
-		t.Fatalf("expected transition time to be set")
+	if conds[0].LastTransitionTime.Time != t0 {
+		t.Fatalf("expected lastTransitionTime preserved, got %s", conds[0].LastTransitionTime.Time)
 	}
 
-	// Same status keeps transition time.
-	updated := metav1.Condition{
-		Type:    "Ready",
-		Status:  metav1.ConditionTrue,
-		Reason:  "StillReady",
-		Message: "still ok",
+	t1 := time.Unix(2000, 0)
+	builder = NewConditionBuilder(ConditionType("Ready")).
+		Status(metav1.ConditionFalse).
+		Reason(CommonReason("Initial")).
+		Message("boom").
+		Generation(2).
+		LastTransitionTime(t1)
+	SetCondition(builder, &conds)
+
+	cond := conds[0]
+	if cond.Status != metav1.ConditionFalse || cond.Reason != "Initial" || cond.Message != "boom" || cond.ObservedGeneration != 2 {
+		t.Fatalf("unexpected condition update: %+v", cond)
 	}
-	b.Set(updated)
-	if conds[0].LastTransitionTime != firstTransition {
-		t.Fatalf("expected transition time preserved, got %s -> %s", firstTransition, conds[0].LastTransitionTime)
-	}
-	if conds[0].Reason != "StillReady" || conds[0].Message != "still ok" {
-		t.Fatalf("expected condition replaced with new content, got %+v", conds[0])
+	if cond.LastTransitionTime.Time != t1 {
+		t.Fatalf("expected lastTransitionTime to be set to t1, got %s", cond.LastTransitionTime.Time)
 	}
 
-	// Status change updates transition time.
-	updated.Status = metav1.ConditionFalse
-	b.Set(updated)
-	if !conds[0].LastTransitionTime.After(firstTransition.Time) {
-		t.Fatalf("expected transition time to advance on status change")
+	t2 := time.Unix(3000, 0)
+	builder = NewConditionBuilder(ConditionType("Ready")).
+		Status(metav1.ConditionFalse).
+		Reason(CommonReason("Failed")).
+		Message("still bad").
+		Generation(3).
+		LastTransitionTime(t2)
+	SetCondition(builder, &conds)
+
+	cond = conds[0]
+	if cond.Reason != "Failed" || cond.Message != "still bad" || cond.ObservedGeneration != 3 {
+		t.Fatalf("unexpected condition update after reason change: %+v", cond)
+	}
+	if cond.LastTransitionTime.Time != t2 {
+		t.Fatalf("expected lastTransitionTime to be set to t2, got %s", cond.LastTransitionTime.Time)
 	}
 }
 
-func TestBuilderFind(t *testing.T) {
+func TestConditionHelpers(t *testing.T) {
 	conds := []metav1.Condition{
 		{Type: "Ready", Status: metav1.ConditionTrue},
 		{Type: "Synced", Status: metav1.ConditionFalse},
 	}
-	b := New(&conds)
 
-	found := b.Find("Synced")
-	if found == nil || found.Status != metav1.ConditionFalse {
-		t.Fatalf("expected to find Synced condition, got %+v", found)
+	if !HasCondition(ConditionType("Ready"), conds) {
+		t.Fatalf("expected Ready condition to exist")
 	}
-	if b.Find("Missing") != nil {
-		t.Fatalf("expected nil for missing condition")
+	if HasCondition(ConditionType("Missing"), conds) {
+		t.Fatalf("did not expect Missing condition to exist")
+	}
+
+	if cond := FindStatusCondition(conds, "Synced"); cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Fatalf("expected to find Synced condition, got %+v", cond)
+	}
+
+	if cond, ok := GetCondition(ConditionType("Ready"), conds); !ok || cond.Status != metav1.ConditionTrue {
+		t.Fatalf("expected to get Ready condition, got %+v", cond)
+	}
+
+	if cond, ok := GetCondition(ConditionType("Missing"), conds); ok || cond.Type != "" {
+		t.Fatalf("expected missing condition to be absent, got %+v", cond)
 	}
 }
 
-func TestBuilderNilTargetIsNoOp(t *testing.T) {
-	b := New(nil)
-	b.Set(metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue})
-	if b.Find("Ready") != nil {
-		t.Fatalf("expected nil result for nil target")
+func TestNewConditionBuilderDefaults(t *testing.T) {
+	cond := NewConditionBuilder(ConditionType("Ready")).Condition()
+	if cond.Status != metav1.ConditionUnknown {
+		t.Fatalf("expected default status Unknown, got %s", cond.Status)
 	}
-}
-
-func TestBuilderSetAppendsWhenTypeNotFound(t *testing.T) {
-	conds := []metav1.Condition{
-		{Type: "Other", Status: metav1.ConditionTrue},
-	}
-	b := New(&conds)
-	b.Set(metav1.Condition{Type: "Ready", Status: metav1.ConditionTrue})
-
-	if len(conds) != 2 {
-		t.Fatalf("expected condition to be appended, got %#v", conds)
-	}
-	if conds[0].Type != "Other" || conds[1].Type != "Ready" {
-		t.Fatalf("unexpected conditions order/content: %#v", conds)
-	}
-	if conds[1].LastTransitionTime.IsZero() {
-		t.Fatalf("expected lastTransitionTime to be set")
+	if cond.Reason != ReasonUnknown.String() {
+		t.Fatalf("expected default reason Unknown, got %s", cond.Reason)
 	}
 }
