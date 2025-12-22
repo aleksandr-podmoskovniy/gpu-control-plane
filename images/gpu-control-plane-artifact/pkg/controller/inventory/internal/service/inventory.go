@@ -29,7 +29,6 @@ import (
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/conditions"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
@@ -98,20 +97,33 @@ func (s *InventoryService) Reconcile(ctx context.Context, node *corev1.Node, sna
 		}
 	}
 
-	resource := reconciler.NewResource(inventory, s.client)
+	resource := reconciler.NewResource(
+		types.NamespacedName{Name: node.Name},
+		s.client,
+		func() *v1alpha1.GPUNodeState { return &v1alpha1.GPUNodeState{} },
+		func(obj *v1alpha1.GPUNodeState) v1alpha1.GPUNodeStateStatus { return obj.Status },
+	)
+	if err := resource.Fetch(ctx); err != nil {
+		return err
+	}
+	if resource.IsEmpty() {
+		return nil
+	}
+
+	inventory = resource.Changed()
 
 	inventoryComplete := snapshot.FeatureDetected && len(snapshot.Devices) > 0
-	inventoryReason := invconsts.ReasonInventorySynced
+	inventoryReason := invstate.ReasonInventorySynced
 	inventoryMessage := "inventory data collected"
 	switch {
 	case !snapshot.FeatureDetected:
-		inventoryReason = invconsts.ReasonNodeFeatureMissing
+		inventoryReason = invstate.ReasonNodeFeatureMissing
 		inventoryMessage = "NodeFeature resource not discovered yet"
 	case len(snapshot.Devices) == 0:
-		inventoryReason = invconsts.ReasonNoDevicesDiscovered
+		inventoryReason = invstate.ReasonNoDevicesDiscovered
 		inventoryMessage = "no NVIDIA devices detected on the node"
 	}
-	condBuilder := conditions.NewConditionBuilder(conditions.ConditionType(invconsts.ConditionInventoryComplete)).
+	condBuilder := conditions.NewConditionBuilder(conditions.ConditionType(invstate.ConditionInventoryComplete)).
 		Status(boolToConditionStatus(inventoryComplete)).
 		Reason(conditions.CommonReason(inventoryReason)).
 		Message(inventoryMessage).
@@ -120,21 +132,21 @@ func (s *InventoryService) Reconcile(ctx context.Context, node *corev1.Node, sna
 	prevComplete := conditions.FindStatusCondition(inventory.Status.Conditions, completeCond.Type)
 	inventoryChanged := prevComplete == nil || prevComplete.Status != completeCond.Status || prevComplete.Reason != completeCond.Reason || prevComplete.Message != completeCond.Message
 	conditions.SetCondition(condBuilder, &inventory.Status.Conditions)
-	invmetrics.InventoryConditionSet(node.Name, invconsts.ConditionInventoryComplete, inventoryComplete)
+	invmetrics.InventoryConditionSet(node.Name, invstate.ConditionInventoryComplete, inventoryComplete)
 
 	if inventoryChanged && s.recorder != nil {
 		eventType := corev1.EventTypeNormal
 		if !inventoryComplete {
 			eventType = corev1.EventTypeWarning
 		}
-		s.recorder.Eventf(node, eventType, invconsts.EventInventoryChanged, "Condition %s changed to %t (%s)", invconsts.ConditionInventoryComplete, inventoryComplete, inventoryReason)
+		s.recorder.Eventf(node, eventType, invstate.EventInventoryChanged, "Condition %s changed to %t (%s)", invstate.ConditionInventoryComplete, inventoryComplete, inventoryReason)
 	}
 
-	if equality.Semantic.DeepEqual(resource.Original().Status, inventory.Status) {
+	if equality.Semantic.DeepEqual(resource.Current().Status, inventory.Status) {
 		return nil
 	}
 
-	return resource.PatchStatus(ctx)
+	return resource.Update(ctx)
 }
 
 func (s *InventoryService) UpdateDeviceMetrics(nodeName string, devices []*v1alpha1.GPUDevice) {

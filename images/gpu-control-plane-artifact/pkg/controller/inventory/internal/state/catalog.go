@@ -33,4 +33,3 @@ func enrichDevicesFromCatalog(devices []deviceSnapshot) {
 		}
 	}
 }
-

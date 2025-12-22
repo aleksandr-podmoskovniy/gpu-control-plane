@@ -21,9 +21,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/internal/state"
 )
 
@@ -36,10 +36,10 @@ type stubBootstrapHandler struct {
 
 func (s *stubBootstrapHandler) Name() string { return s.name }
 
-func (s *stubBootstrapHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
+func (s *stubBootstrapHandler) HandleNode(_ context.Context, inventory *v1alpha1.GPUNodeState) (reconcile.Result, error) {
 	s.calls++
 	s.handled = inventory
-	return contracts.Result{}, nil
+	return reconcile.Result{}, nil
 }
 
 func (s *stubBootstrapHandler) SetClient(cl client.Client) { s.client = cl }
@@ -48,8 +48,8 @@ type handlerWithoutClientSetter struct{}
 
 func (handlerWithoutClientSetter) Name() string { return "no-setter" }
 
-func (handlerWithoutClientSetter) HandleNode(context.Context, *v1alpha1.GPUNodeState) (contracts.Result, error) {
-	return contracts.Result{}, nil
+func (handlerWithoutClientSetter) HandleNode(context.Context, *v1alpha1.GPUNodeState) (reconcile.Result, error) {
+	return reconcile.Result{}, nil
 }
 
 func TestWrapBootstrapHandlerDelegatesCalls(t *testing.T) {
@@ -84,4 +84,3 @@ func TestWrapBootstrapHandlerSetClientIsOptional(t *testing.T) {
 	withoutSetter := WrapBootstrapHandler(handlerWithoutClientSetter{}).(*handlerAdapter)
 	withoutSetter.SetClient(cl) // should be a no-op
 }
-

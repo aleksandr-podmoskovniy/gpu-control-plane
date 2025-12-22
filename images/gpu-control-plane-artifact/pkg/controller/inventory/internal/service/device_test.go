@@ -28,10 +28,9 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
@@ -43,8 +42,8 @@ type namedErrorHandler struct {
 
 func (h namedErrorHandler) Name() string { return h.name }
 
-func (h namedErrorHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (contracts.Result, error) {
-	return contracts.Result{}, h.err
+func (h namedErrorHandler) HandleDevice(context.Context, *v1alpha1.GPUDevice) (reconcile.Result, error) {
+	return reconcile.Result{}, h.err
 }
 
 type delegatingClient struct {
@@ -122,7 +121,7 @@ func newTestClient(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) 
 		WithObjects(objs...).
 		WithStatusSubresource(&v1alpha1.GPUDevice{}, &v1alpha1.GPUNodeState{})
 
-	builder = builder.WithIndex(&v1alpha1.GPUDevice{}, invconsts.DeviceNodeIndexKey, func(obj client.Object) []string {
+	builder = builder.WithIndex(&v1alpha1.GPUDevice{}, invstate.DeviceNodeIndexKey, func(obj client.Object) []string {
 		device, ok := obj.(*v1alpha1.GPUDevice)
 		if !ok || device.Status.NodeName == "" {
 			return nil
@@ -136,7 +135,7 @@ func newTestClient(t *testing.T, scheme *runtime.Scheme, objs ...client.Object) 
 func TestDeviceServiceInvokeHandlersIncrementsErrorMetric(t *testing.T) {
 	handler := namedErrorHandler{name: "error-" + t.Name(), err: errors.New("boom")}
 
-	svc := &DeviceService{handlers: []contracts.InventoryHandler{handler}}
+	svc := &DeviceService{handlers: []DeviceHandler{handler}}
 	if _, err := svc.invokeHandlers(context.Background(), &v1alpha1.GPUDevice{}); err == nil {
 		t.Fatalf("expected handler error")
 	}
@@ -175,10 +174,10 @@ func TestEnsureDeviceMetadataUpdatesLabelsAndOwner(t *testing.T) {
 	if !changed {
 		t.Fatal("expected metadata to change")
 	}
-	if device.Labels[invconsts.DeviceNodeLabelKey] != node.Name {
+	if device.Labels[invstate.DeviceNodeLabelKey] != node.Name {
 		t.Fatalf("device node label not set: %v", device.Labels)
 	}
-	if device.Labels[invconsts.DeviceIndexLabelKey] != "1" {
+	if device.Labels[invstate.DeviceIndexLabelKey] != "1" {
 		t.Fatalf("device index label not set: %v", device.Labels)
 	}
 	if len(device.OwnerReferences) != 1 || device.OwnerReferences[0].Name != node.Name || device.OwnerReferences[0].Kind != "Node" {
@@ -198,8 +197,8 @@ func TestEnsureDeviceMetadataNoChanges(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "unchanged-device",
 			Labels: map[string]string{
-				invconsts.DeviceNodeLabelKey:  node.Name,
-				invconsts.DeviceIndexLabelKey: "0",
+				invstate.DeviceNodeLabelKey:  node.Name,
+				invstate.DeviceIndexLabelKey: "0",
 			},
 		},
 	}

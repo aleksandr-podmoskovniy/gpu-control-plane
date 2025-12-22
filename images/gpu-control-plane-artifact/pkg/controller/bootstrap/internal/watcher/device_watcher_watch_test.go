@@ -46,24 +46,6 @@ func TestGPUDeviceWatcherEnqueueBranches(t *testing.T) {
 		}
 	})
 
-	t.Run("nodeName-from-gpu-label", func(t *testing.T) {
-		dev := &v1alpha1.GPUDevice{ObjectMeta: v1alpha1.GPUDevice{}.ObjectMeta}
-		dev.Labels = map[string]string{"gpu.deckhouse.io/node": " node-b "}
-		reqs := w.enqueue(context.Background(), dev)
-		if len(reqs) != 1 || reqs[0].Name != "node-b" {
-			t.Fatalf("unexpected requests: %+v", reqs)
-		}
-	})
-
-	t.Run("nodeName-from-hostname-label", func(t *testing.T) {
-		dev := &v1alpha1.GPUDevice{ObjectMeta: v1alpha1.GPUDevice{}.ObjectMeta}
-		dev.Labels = map[string]string{"kubernetes.io/hostname": "node-c"}
-		reqs := w.enqueue(context.Background(), dev)
-		if len(reqs) != 1 || reqs[0].Name != "node-c" {
-			t.Fatalf("unexpected requests: %+v", reqs)
-		}
-	})
-
 	t.Run("no-nodeName", func(t *testing.T) {
 		if got := w.enqueue(context.Background(), &v1alpha1.GPUDevice{}); got != nil {
 			t.Fatalf("expected nil requests, got %+v", got)

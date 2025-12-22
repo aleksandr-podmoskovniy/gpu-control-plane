@@ -56,4 +56,3 @@ func (c *stubController) Start(context.Context) error { return nil }
 func (c *stubController) GetLogger() logr.Logger { return logr.Discard() }
 
 var _ controller.Controller = (*stubController)(nil)
-

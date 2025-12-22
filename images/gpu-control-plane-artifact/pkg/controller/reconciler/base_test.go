@@ -25,13 +25,12 @@ import (
 	"github.com/go-logr/logr/testr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type stubHandler struct {
 	name           string
-	result         contracts.Result
+	result         reconcile.Result
 	err            error
 	stop           bool
 	finalizeErr    error
@@ -57,9 +56,9 @@ func newContext(t *testing.T) context.Context {
 }
 
 func TestReconcileRequiresResourceUpdater(t *testing.T) {
-	rec := NewBase([]*stubHandler{{}})
-	rec.SetHandlerExecutor(func(context.Context, *stubHandler) (contracts.Result, error) {
-		return contracts.Result{}, nil
+	rec := NewBaseReconciler([]*stubHandler{{}})
+	rec.SetHandlerExecutor(func(context.Context, *stubHandler) (reconcile.Result, error) {
+		return reconcile.Result{}, nil
 	})
 
 	if _, err := rec.Reconcile(newContext(t)); err == nil || err.Error() != "resource updater is not configured" {
@@ -68,7 +67,7 @@ func TestReconcileRequiresResourceUpdater(t *testing.T) {
 }
 
 func TestReconcileRequiresHandlerExecutor(t *testing.T) {
-	rec := NewBase([]*stubHandler{{}})
+	rec := NewBaseReconciler([]*stubHandler{{}})
 	rec.SetResourceUpdater(func(context.Context) error { return nil })
 
 	if _, err := rec.Reconcile(newContext(t)); err == nil || err.Error() != "handler executor is not configured" {
@@ -78,11 +77,11 @@ func TestReconcileRequiresHandlerExecutor(t *testing.T) {
 
 func TestReconcileSuccessPath(t *testing.T) {
 	handlers := []*stubHandler{
-		{name: "first", result: contracts.Result{RequeueAfter: time.Second}},
-		{name: "second", result: contracts.Result{Requeue: true}},
+		{name: "first", result: reconcile.Result{RequeueAfter: time.Second}},
+		{name: "second", result: reconcile.Result{Requeue: true}},
 	}
-	rec := NewBase(handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler(handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
 		return h.result, nil
 	})
@@ -96,7 +95,7 @@ func TestReconcileSuccessPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Requeue || result.RequeueAfter != time.Second {
+	if !result.Requeue || result.RequeueAfter != 0 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 	if handlers[0].calls != 1 || handlers[1].calls != 1 {
@@ -109,14 +108,14 @@ func TestReconcileSuccessPath(t *testing.T) {
 
 func TestReconcileStopChainSkipsRemainingHandlers(t *testing.T) {
 	handlers := []*stubHandler{
-		{name: "stop", result: contracts.Result{RequeueAfter: time.Millisecond}, stop: true},
+		{name: "stop", result: reconcile.Result{RequeueAfter: time.Millisecond}, stop: true},
 		{name: "skip"},
 	}
-	rec := NewBase(handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler(handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
 		if h.stop {
-			return h.result, ErrStopChain
+			return h.result, ErrStopHandlerChain
 		}
 		return h.result, nil
 	})
@@ -144,8 +143,8 @@ func TestReconcileHandlerConflictRequestsRequeue(t *testing.T) {
 		fmt.Errorf("conflict"),
 	)
 	handler := &stubHandler{name: "conflict", err: conflict}
-	rec := NewBase([]*stubHandler{handler})
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler([]*stubHandler{handler})
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
 		return h.result, h.err
 	})
@@ -166,10 +165,10 @@ func TestReconcileUpdateConflictRequestsRequeue(t *testing.T) {
 		"update",
 		fmt.Errorf("conflict"),
 	)
-	rec := NewBase([]*stubHandler{{name: "one"}})
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler([]*stubHandler{{name: "one"}})
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
-		return contracts.Result{}, nil
+		return reconcile.Result{}, nil
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return conflict })
 
@@ -187,10 +186,10 @@ func TestReconcileHandlerErrorStopsFurtherHandlers(t *testing.T) {
 	errB := errors.New("second failed")
 
 	handlers := []*stubHandler{{name: "a", err: errA}, {name: "b", err: errB}}
-	rec := NewBase(handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler(handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
-		return contracts.Result{}, h.err
+		return reconcile.Result{}, h.err
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return nil })
 
@@ -208,10 +207,10 @@ func TestReconcileAggregatesUpdateAndHandlerErrors(t *testing.T) {
 	updateErr := errors.New("update failed")
 
 	handlers := []*stubHandler{{name: "a", err: handlerErr}}
-	rec := NewBase(handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
+	rec := NewBaseReconciler(handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
 		h.calls++
-		return contracts.Result{}, h.err
+		return reconcile.Result{}, h.err
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return updateErr })
 
@@ -228,9 +227,9 @@ func TestReconcileFinalizerErrorPropagates(t *testing.T) {
 	finalizeErr := errors.New("finalize failed")
 	handler := &stubHandler{name: "finalizer", finalizeErr: finalizeErr}
 
-	rec := NewBase([]*stubHandler{handler})
-	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (contracts.Result, error) {
-		return contracts.Result{}, nil
+	rec := NewBaseReconciler([]*stubHandler{handler})
+	rec.SetHandlerExecutor(func(ctx context.Context, h *stubHandler) (reconcile.Result, error) {
+		return reconcile.Result{}, nil
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return nil })
 
@@ -248,10 +247,10 @@ func TestReconcileSkipsNonFinalizerHandlers(t *testing.T) {
 		calls int
 	}
 
-	rec := NewBase([]*plain{{}})
-	rec.SetHandlerExecutor(func(ctx context.Context, h *plain) (contracts.Result, error) {
+	rec := NewBaseReconciler([]*plain{{}})
+	rec.SetHandlerExecutor(func(ctx context.Context, h *plain) (reconcile.Result, error) {
 		h.calls++
-		return contracts.Result{}, nil
+		return reconcile.Result{}, nil
 	})
 	rec.SetResourceUpdater(func(context.Context) error { return nil })
 
@@ -260,14 +259,14 @@ func TestReconcileSkipsNonFinalizerHandlers(t *testing.T) {
 	}
 }
 
-func TestMergeResultsChoosesShortestDelay(t *testing.T) {
+func TestMergeResultsPrefersImmediateRequeue(t *testing.T) {
 	res := MergeResults(
-		contracts.Result{RequeueAfter: 5 * time.Second},
-		contracts.Result{RequeueAfter: 2 * time.Second},
-		contracts.Result{Requeue: true},
+		reconcile.Result{RequeueAfter: 5 * time.Second},
+		reconcile.Result{RequeueAfter: 2 * time.Second},
+		reconcile.Result{Requeue: true},
 	)
 
-	if !res.Requeue || res.RequeueAfter != 2*time.Second {
+	if !res.Requeue || res.RequeueAfter != 0 {
 		t.Fatalf("unexpected merged result: %+v", res)
 	}
 }

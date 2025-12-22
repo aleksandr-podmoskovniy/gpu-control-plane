@@ -62,12 +62,6 @@ func (w *GPUDeviceWatcher) enqueue(_ context.Context, dev *v1alpha1.GPUDevice) [
 	}
 
 	nodeName := strings.TrimSpace(dev.Status.NodeName)
-	if nodeName == "" && dev.Labels != nil {
-		nodeName = strings.TrimSpace(dev.Labels["gpu.deckhouse.io/node"])
-	}
-	if nodeName == "" && dev.Labels != nil {
-		nodeName = strings.TrimSpace(dev.Labels["kubernetes.io/hostname"])
-	}
 	if nodeName == "" {
 		return nil
 	}

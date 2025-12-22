@@ -104,4 +104,3 @@ func parseBool(value string) bool {
 		return false
 	}
 }
-

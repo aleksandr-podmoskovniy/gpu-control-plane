@@ -37,15 +37,16 @@ import (
 	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/config"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/clustergpupool"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/gpupool"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/podlabels"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/poolusage"
+	mcapi "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig/api"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/pool/clustergpupool"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/pool/gpupool"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/pool/usage"
+	poolcommon "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/service/pool/common"
 	cpmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics"
 	bootmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/bootstrap"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
@@ -57,26 +58,22 @@ var (
 	// Log is the base logger for the controller manager.
 	Log = ctrl.Log.WithName("gpu-control-plane")
 
-	newManager                      = ctrl.NewManager
-	setupModuleConfigController     = moduleconfig.SetupController
-	setupInventoryController        = inventory.SetupController
-	setupBootstrapController        = bootstrap.SetupController
-	setupGPUPoolController          = gpupool.SetupController
-	setupClusterGPUPoolController   = clustergpupool.SetupController
-	setupGPUPoolUsageController     = poolusage.SetupGPUPoolUsageController
-	setupClusterPoolUsageController = poolusage.SetupClusterGPUPoolUsageController
-	setupControllers                = setupControllersDefault
+	newManager                    = ctrl.NewManager
+	setupInventoryController      = inventory.SetupController
+	setupBootstrapController      = bootstrap.SetupController
+	setupGPUPoolController        = gpupool.SetupController
+	setupClusterGPUPoolController = clustergpupool.SetupController
+	setupPoolUsageController      = usage.SetupController
+	setupControllers              = setupControllersDefault
 
-	newLabelRequirement = labels.NewRequirement
-	getConfigOrDie      = ctrl.GetConfigOrDie
-	addGPUScheme        = v1alpha1.AddToScheme
-	addNFDScheme        = nfdv1alpha1.AddToScheme
+	newLabelRequirement   = labels.NewRequirement
+	getConfigOrDie        = ctrl.GetConfigOrDie
+	addGPUScheme          = v1alpha1.AddToScheme
+	addNFDScheme          = nfdv1alpha1.AddToScheme
+	addModuleConfigScheme = mcapi.AddToScheme
 )
 
 func setupControllersDefault(ctx context.Context, mgr ctrl.Manager, cfg config.ControllersConfig, store *moduleconfig.ModuleConfigStore) error {
-	if err := setupModuleConfigController(ctx, mgr, Log, store); err != nil {
-		return err
-	}
 	if err := setupInventoryController(ctx, mgr, Log, cfg.GPUInventory, store); err != nil {
 		return err
 	}
@@ -89,10 +86,7 @@ func setupControllersDefault(ctx context.Context, mgr ctrl.Manager, cfg config.C
 	if err := setupClusterGPUPoolController(ctx, mgr, Log, cfg.GPUPool, store); err != nil {
 		return err
 	}
-	if err := setupGPUPoolUsageController(ctx, mgr, Log, cfg.GPUPool, store); err != nil {
-		return err
-	}
-	if err := setupClusterPoolUsageController(ctx, mgr, Log, cfg.GPUPool, store); err != nil {
+	if err := setupPoolUsageController(ctx, mgr, Log, cfg.GPUPool, store); err != nil {
 		return err
 	}
 	return nil
@@ -119,7 +113,7 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 			"key", metricsOpts.KeyName)
 	}
 
-	podReq, err := newLabelRequirement(podlabels.PoolNameKey, selection.Exists, nil)
+	podReq, err := newLabelRequirement(poolcommon.PoolNameKey, selection.Exists, nil)
 	if err != nil {
 		return fmt.Errorf("build pod cache label selector: %w", err)
 	}
@@ -133,7 +127,7 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 				&corev1.Pod{}: {
 					Namespaces: map[string]cache.Config{
 						// Control-plane workloads (validator, GFD, etc.) live here and must be fully cached.
-						meta.WorkloadsNamespace: {},
+						common.WorkloadsNamespace: {},
 						// Workload pods across the cluster are cached only when they request GPU resources
 						// and were labeled by the mutating webhook.
 						cache.AllNamespaces: {LabelSelector: gpuPodSelector},
@@ -167,6 +161,9 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 	if err := addNFDScheme(nfdScheme); err != nil {
 		return fmt.Errorf("register nfd scheme: %w", err)
 	}
+	if err := addModuleConfigScheme(nfdScheme); err != nil {
+		return fmt.Errorf("register moduleconfig scheme: %w", err)
+	}
 	// Register list types explicitly because upstream AddToScheme omits them.
 	nfdScheme.AddKnownTypes(
 		nfdv1alpha1.SchemeGroupVersion,
@@ -187,6 +184,10 @@ func Run(ctx context.Context, restCfg *rest.Config, sysCfg config.System) error 
 		return fmt.Errorf("convert module settings: %w", err)
 	}
 	store := moduleconfig.NewModuleConfigStore(moduleState)
+
+	if err := moduleconfig.SetupWebhookWithManager(mgr, Log); err != nil {
+		return fmt.Errorf("register moduleconfig webhook: %w", err)
+	}
 
 	if err := setupControllers(ctx, mgr, sysCfg.Controllers, store); err != nil {
 		return fmt.Errorf("register controllers: %w", err)

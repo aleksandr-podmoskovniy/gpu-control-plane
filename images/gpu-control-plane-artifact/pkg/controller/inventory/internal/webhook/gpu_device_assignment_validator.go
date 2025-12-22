@@ -29,7 +29,7 @@ import (
 	commonannotations "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/annotations"
 	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/indexer"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/service/pool"
+	poolcommon "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/service/pool/common"
 )
 
 const (
@@ -149,7 +149,7 @@ func matchesDeviceSelector(dev *v1alpha1.GPUDevice, sel *v1alpha1.GPUPoolDeviceS
 	if dev == nil {
 		return false
 	}
-	candidates := pool.FilterDevices([]v1alpha1.GPUDevice{*dev}, sel)
+	candidates := poolcommon.FilterDevices([]v1alpha1.GPUDevice{*dev}, sel)
 	return len(candidates) == 1
 }
 

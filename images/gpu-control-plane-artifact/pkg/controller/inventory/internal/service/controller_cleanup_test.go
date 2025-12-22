@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,7 +61,7 @@ func (d *cleanupDelegatingClient) Delete(ctx context.Context, obj client.Object,
 func TestCleanupNodeDeletesMetrics(t *testing.T) {
 	const nodeName = "cleanup-metrics"
 	invmetrics.InventoryDevicesSet(nodeName, 2)
-	invmetrics.InventoryConditionSet(nodeName, invconsts.ConditionInventoryComplete, true)
+	invmetrics.InventoryConditionSet(nodeName, invstate.ConditionInventoryComplete, true)
 
 	scheme := newTestScheme(t)
 	cl := newTestClient(t, scheme)
@@ -150,7 +150,7 @@ func TestCleanupNodeReturnsDeviceDeleteError(t *testing.T) {
 	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   "worker-delete-0",
-			Labels: map[string]string{invconsts.DeviceNodeLabelKey: "worker-delete", invconsts.DeviceIndexLabelKey: "0"},
+			Labels: map[string]string{invstate.DeviceNodeLabelKey: "worker-delete", invstate.DeviceIndexLabelKey: "0"},
 		},
 		Status: v1alpha1.GPUDeviceStatus{NodeName: "worker-delete"},
 	}

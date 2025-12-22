@@ -59,4 +59,3 @@ func buildInventoryID(nodeName string, info deviceSnapshot) string {
 	suffix := sanitizeName(info.Index + "-" + info.Vendor + "-" + info.Device)
 	return truncateName(base + "-" + suffix)
 }
-

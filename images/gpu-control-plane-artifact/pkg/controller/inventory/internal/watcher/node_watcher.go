@@ -79,4 +79,3 @@ func nodeLabels(node *corev1.Node) map[string]string {
 	}
 	return node.Labels
 }
-

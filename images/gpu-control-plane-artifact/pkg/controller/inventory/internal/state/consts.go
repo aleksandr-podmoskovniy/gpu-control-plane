@@ -14,27 +14,70 @@
 
 package state
 
-import invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+import "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/indexer"
 
 const (
-	deviceLabelPrefix = invconsts.DeviceLabelPrefix
+	DeviceNodeIndexKey  = indexer.GPUDeviceNodeField
+	DeviceLabelPrefix   = "gpu.deckhouse.io/device."
+	DeviceNodeLabelKey  = "gpu.deckhouse.io/node"
+	DeviceIndexLabelKey = "gpu.deckhouse.io/device-index"
 
-	gfdProductLabel            = invconsts.GFDProductLabel
-	gfdMemoryLabel             = invconsts.GFDMemoryLabel
-	gfdComputeMajorLabel       = invconsts.GFDComputeMajorLabel
-	gfdComputeMinorLabel       = invconsts.GFDComputeMinorLabel
-	gfdDriverVersionLabel      = invconsts.GFDDriverVersionLabel
-	gfdCudaRuntimeVersionLabel = invconsts.GFDCudaRuntimeVersionLabel
-	gfdCudaDriverMajorLabel    = invconsts.GFDCudaDriverMajorLabel
-	gfdCudaDriverMinorLabel    = invconsts.GFDCudaDriverMinorLabel
-	gfdMigCapableLabel         = invconsts.GFDMigCapableLabel
-	gfdMigStrategyLabel        = invconsts.GFDMigStrategyLabel
-	gfdMigAltCapableLabel      = invconsts.GFDMigAltCapableLabel
-	gfdMigAltStrategy          = invconsts.GFDMigAltStrategyLabel
-	deckhouseToolkitInstalled  = invconsts.DeckhouseToolkitInstalled
-	deckhouseToolkitReadyLabel = invconsts.DeckhouseToolkitReadyLabel
+	// DefaultManagedNodeLabelKey marks nodes enabled for GPU inventory management.
+	DefaultManagedNodeLabelKey = "gpu.deckhouse.io/enabled"
 
-	migProfileLabelPrefix = invconsts.MIGProfileLabelPrefix
-	vendorNvidia          = invconsts.VendorNvidia
+	// NodeFeatureNodeNameLabel is NFD label with node name.
+	NodeFeatureNodeNameLabel = "nfd.node.kubernetes.io/node-name"
+
+	// Inventory condition and reasons.
+	ConditionInventoryComplete = "InventoryComplete"
+	ReasonInventorySynced      = "InventorySynced"
+	ReasonNoDevicesDiscovered  = "NoDevicesDiscovered"
+	ReasonNodeFeatureMissing   = "NodeFeatureMissing"
+
+	// Inventory events.
+	EventDeviceDetected    = "GPUDeviceDetected"
+	EventDeviceRemoved     = "GPUDeviceRemoved"
+	EventInventoryChanged  = "GPUInventoryConditionChanged"
+	EventDetectUnavailable = "GPUDetectionUnavailable"
+
+	// NFD/GFD labels.
+	GFDProductLabel            = "nvidia.com/gpu.product"
+	GFDMemoryLabel             = "nvidia.com/gpu.memory"
+	GFDComputeMajorLabel       = "nvidia.com/gpu.compute.major"
+	GFDComputeMinorLabel       = "nvidia.com/gpu.compute.minor"
+	GFDDriverVersionLabel      = "nvidia.com/gpu.driver"
+	GFDCudaRuntimeVersionLabel = "nvidia.com/cuda.runtime.version"
+	GFDCudaDriverMajorLabel    = "nvidia.com/cuda.driver.major"
+	GFDCudaDriverMinorLabel    = "nvidia.com/cuda.driver.minor"
+	GFDMigCapableLabel         = "nvidia.com/mig.capable"
+	GFDMigStrategyLabel        = "nvidia.com/mig.strategy"
+	GFDMigAltCapableLabel      = "nvidia.com/mig-capable"
+	GFDMigAltStrategyLabel     = "nvidia.com/mig-strategy"
+	DeckhouseToolkitInstalled  = "gpu.deckhouse.io/toolkit.installed"
+	DeckhouseToolkitReadyLabel = "gpu.deckhouse.io/toolkit.ready"
+
+	MIGProfileLabelPrefix = "nvidia.com/mig-"
+	VendorNvidia          = "10de"
 )
 
+const (
+	deviceLabelPrefix = DeviceLabelPrefix
+
+	gfdProductLabel            = GFDProductLabel
+	gfdMemoryLabel             = GFDMemoryLabel
+	gfdComputeMajorLabel       = GFDComputeMajorLabel
+	gfdComputeMinorLabel       = GFDComputeMinorLabel
+	gfdDriverVersionLabel      = GFDDriverVersionLabel
+	gfdCudaRuntimeVersionLabel = GFDCudaRuntimeVersionLabel
+	gfdCudaDriverMajorLabel    = GFDCudaDriverMajorLabel
+	gfdCudaDriverMinorLabel    = GFDCudaDriverMinorLabel
+	gfdMigCapableLabel         = GFDMigCapableLabel
+	gfdMigStrategyLabel        = GFDMigStrategyLabel
+	gfdMigAltCapableLabel      = GFDMigAltCapableLabel
+	gfdMigAltStrategy          = GFDMigAltStrategyLabel
+	deckhouseToolkitInstalled  = DeckhouseToolkitInstalled
+	deckhouseToolkitReadyLabel = DeckhouseToolkitReadyLabel
+
+	migProfileLabelPrefix = MIGProfileLabelPrefix
+	vendorNvidia          = VendorNvidia
+)

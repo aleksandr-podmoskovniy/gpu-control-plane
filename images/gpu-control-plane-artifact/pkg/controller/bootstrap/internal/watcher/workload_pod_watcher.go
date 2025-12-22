@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
+	common "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 )
 
 type WorkloadPodWatcher struct {
@@ -37,7 +37,7 @@ type WorkloadPodWatcher struct {
 
 func NewWorkloadPodWatcher(log logr.Logger) *WorkloadPodWatcher {
 	set := make(map[string]struct{})
-	for _, name := range meta.ComponentAppNames() {
+	for _, name := range common.ComponentAppNames() {
 		set[name] = struct{}{}
 	}
 	return &WorkloadPodWatcher{log: log, managedAppSet: set}
@@ -58,7 +58,7 @@ func (w *WorkloadPodWatcher) enqueue(_ context.Context, pod *corev1.Pod) []recon
 	if pod == nil {
 		return nil
 	}
-	if pod.Namespace != meta.WorkloadsNamespace {
+	if pod.Namespace != common.WorkloadsNamespace {
 		return nil
 	}
 	if pod.Spec.NodeName == "" {

@@ -28,22 +28,18 @@ import (
 )
 
 func TestSetupControllersDefaultBranches(t *testing.T) {
-	origModule := setupModuleConfigController
 	origInventory := setupInventoryController
 	origBootstrap := setupBootstrapController
 	origGPUPool := setupGPUPoolController
 	origClusterPool := setupClusterGPUPoolController
-	origGPUPoolUsage := setupGPUPoolUsageController
-	origClusterUsage := setupClusterPoolUsageController
+	origPoolUsage := setupPoolUsageController
 
 	t.Cleanup(func() {
-		setupModuleConfigController = origModule
 		setupInventoryController = origInventory
 		setupBootstrapController = origBootstrap
 		setupGPUPoolController = origGPUPool
 		setupClusterGPUPoolController = origClusterPool
-		setupGPUPoolUsageController = origGPUPoolUsage
-		setupClusterPoolUsageController = origClusterUsage
+		setupPoolUsageController = origPoolUsage
 	})
 
 	sysCfg := config.DefaultSystem()
@@ -57,14 +53,12 @@ func TestSetupControllersDefaultBranches(t *testing.T) {
 	}
 
 	cases := []testCase{
-		{name: "fails-moduleconfig", failAt: "moduleconfig", wantCalls: []string{"moduleconfig"}},
-		{name: "fails-inventory", failAt: "inventory", wantCalls: []string{"moduleconfig", "inventory"}},
-		{name: "fails-bootstrap", failAt: "bootstrap", wantCalls: []string{"moduleconfig", "inventory", "bootstrap"}},
-		{name: "fails-gpupool", failAt: "gpupool", wantCalls: []string{"moduleconfig", "inventory", "bootstrap", "gpupool"}},
-		{name: "fails-clustergpupool", failAt: "clustergpupool", wantCalls: []string{"moduleconfig", "inventory", "bootstrap", "gpupool", "clustergpupool"}},
-		{name: "fails-gpupool-usage", failAt: "gpupool-usage", wantCalls: []string{"moduleconfig", "inventory", "bootstrap", "gpupool", "clustergpupool", "gpupool-usage"}},
-		{name: "fails-cluster-pool-usage", failAt: "cluster-pool-usage", wantCalls: []string{"moduleconfig", "inventory", "bootstrap", "gpupool", "clustergpupool", "gpupool-usage", "cluster-pool-usage"}},
-		{name: "success", wantCalls: []string{"moduleconfig", "inventory", "bootstrap", "gpupool", "clustergpupool", "gpupool-usage", "cluster-pool-usage"}},
+		{name: "fails-inventory", failAt: "inventory", wantCalls: []string{"inventory"}},
+		{name: "fails-bootstrap", failAt: "bootstrap", wantCalls: []string{"inventory", "bootstrap"}},
+		{name: "fails-gpupool", failAt: "gpupool", wantCalls: []string{"inventory", "bootstrap", "gpupool"}},
+		{name: "fails-clustergpupool", failAt: "clustergpupool", wantCalls: []string{"inventory", "bootstrap", "gpupool", "clustergpupool"}},
+		{name: "fails-pool-usage", failAt: "pool-usage", wantCalls: []string{"inventory", "bootstrap", "gpupool", "clustergpupool", "pool-usage"}},
+		{name: "success", wantCalls: []string{"inventory", "bootstrap", "gpupool", "clustergpupool", "pool-usage"}},
 	}
 
 	for _, tc := range cases {
@@ -72,13 +66,6 @@ func TestSetupControllersDefaultBranches(t *testing.T) {
 			calls := make([]string, 0, len(tc.wantCalls))
 			errSentinel := errors.New("boom")
 
-			setupModuleConfigController = func(context.Context, ctrl.Manager, logr.Logger, *moduleconfig.ModuleConfigStore) error {
-				calls = append(calls, "moduleconfig")
-				if tc.failAt == "moduleconfig" {
-					return errSentinel
-				}
-				return nil
-			}
 			setupInventoryController = func(context.Context, ctrl.Manager, logr.Logger, config.ControllerConfig, *moduleconfig.ModuleConfigStore) error {
 				calls = append(calls, "inventory")
 				if tc.failAt == "inventory" {
@@ -107,16 +94,9 @@ func TestSetupControllersDefaultBranches(t *testing.T) {
 				}
 				return nil
 			}
-			setupGPUPoolUsageController = func(context.Context, ctrl.Manager, logr.Logger, config.ControllerConfig, *moduleconfig.ModuleConfigStore) error {
-				calls = append(calls, "gpupool-usage")
-				if tc.failAt == "gpupool-usage" {
-					return errSentinel
-				}
-				return nil
-			}
-			setupClusterPoolUsageController = func(context.Context, ctrl.Manager, logr.Logger, config.ControllerConfig, *moduleconfig.ModuleConfigStore) error {
-				calls = append(calls, "cluster-pool-usage")
-				if tc.failAt == "cluster-pool-usage" {
+			setupPoolUsageController = func(context.Context, ctrl.Manager, logr.Logger, config.ControllerConfig, *moduleconfig.ModuleConfigStore) error {
+				calls = append(calls, "pool-usage")
+				if tc.failAt == "pool-usage" {
 					return errSentinel
 				}
 				return nil

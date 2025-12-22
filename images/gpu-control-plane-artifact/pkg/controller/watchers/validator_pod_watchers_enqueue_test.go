@@ -49,12 +49,11 @@ func TestGPUPoolValidatorPodWatcherEnqueueBranches(t *testing.T) {
 	}
 
 	validator := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Labels: map[string]string{"app": "nvidia-operator-validator", "pool": "pool"}}}
-	w.cl = nil
 	if got := w.enqueue(ctx, validator); got != nil {
 		t.Fatalf("expected nil when client is nil, got %#v", got)
 	}
 
-	w.cl = &failingListClient{err: errors.New("list fail")}
+	w.enqueuer = NewGPUPoolValidatorPodEnqueuer(w.log, &failingListClient{err: errors.New("list fail")})
 	if got := w.enqueue(ctx, validator); got != nil {
 		t.Fatalf("expected nil on list error, got %#v", got)
 	}
@@ -77,7 +76,7 @@ func TestGPUPoolValidatorPodWatcherEnqueueBranches(t *testing.T) {
 		).
 		Build()
 
-	w.cl = cl
+	w.enqueuer = NewGPUPoolValidatorPodEnqueuer(w.log, cl)
 	reqs := w.enqueue(ctx, validator)
 	if len(reqs) != 2 {
 		t.Fatalf("expected 2 requests, got %#v", reqs)
@@ -98,4 +97,3 @@ func TestClusterGPUPoolValidatorPodWatcherEnqueueBranches(t *testing.T) {
 		t.Fatalf("unexpected requests: %#v", reqs)
 	}
 }
-

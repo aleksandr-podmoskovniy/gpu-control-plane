@@ -35,7 +35,8 @@ func TestGPUDevicePredicates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := gpuDevicePredicates(tt.assignmentAnnotation)
+			p := NewGPUDeviceFilter(tt.assignmentAnnotation).Predicates()
+			poolRef := poolRefForAssignment(tt.assignmentAnnotation)
 
 			if p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: nil}) {
 				t.Fatalf("expected create predicate to ignore nil device")
@@ -46,8 +47,17 @@ func TestGPUDevicePredicates(t *testing.T) {
 			if !p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{tt.assignmentAnnotation: "pool"}}}}) {
 				t.Fatalf("expected create predicate to trigger on assignment annotation")
 			}
-			if !p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}}) {
+			if !p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: poolRef}}}) {
 				t.Fatalf("expected create predicate to trigger on poolRef")
+			}
+			if tt.assignmentAnnotation == commonannotations.GPUDeviceAssignment {
+				if p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}}) {
+					t.Fatalf("expected create predicate to ignore unqualified poolRef")
+				}
+			} else {
+				if p.Create(event.TypedCreateEvent[*v1alpha1.GPUDevice]{Object: &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool", Namespace: "ns"}}}}) {
+					t.Fatalf("expected create predicate to ignore namespaced poolRef for cluster pool")
+				}
 			}
 
 			if !p.Update(event.TypedUpdateEvent[*v1alpha1.GPUDevice]{ObjectOld: nil, ObjectNew: &v1alpha1.GPUDevice{}}) {
@@ -66,7 +76,7 @@ func TestGPUDevicePredicates(t *testing.T) {
 						UUID: "uuid-1",
 						MIG:  v1alpha1.GPUMIGConfig{Capable: true, Strategy: v1alpha1.GPUMIGStrategySingle},
 					},
-					PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"},
+					PoolRef: poolRef,
 				},
 			}
 
@@ -101,6 +111,7 @@ func TestGPUDeviceChangedDetectsRelevantFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			poolRef := poolRefForAssignment(tt.assignmentAnnotation)
 			base := &v1alpha1.GPUDevice{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:        "dev",
@@ -113,7 +124,7 @@ func TestGPUDeviceChangedDetectsRelevantFields(t *testing.T) {
 						UUID: "uuid-1",
 						MIG:  v1alpha1.GPUMIGConfig{Capable: true, Strategy: v1alpha1.GPUMIGStrategySingle},
 					},
-					PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"},
+					PoolRef: poolRef,
 				},
 			}
 
@@ -165,10 +176,22 @@ func TestGPUDeviceChangedDetectsRelevantFields(t *testing.T) {
 			}
 
 			changed = base.DeepCopy()
-			changed.Status.PoolRef.Namespace = "ns"
+			if tt.assignmentAnnotation == commonannotations.GPUDeviceAssignment {
+				changed.Status.PoolRef.Namespace = "other"
+			} else {
+				changed.Status.PoolRef.Namespace = "ns"
+			}
 			if !gpuDeviceChanged(base, changed, tt.assignmentAnnotation) {
 				t.Fatalf("expected poolRef namespace change to be detected")
 			}
 		})
 	}
+}
+
+func poolRefForAssignment(assignmentAnnotation string) *v1alpha1.GPUPoolReference {
+	ref := &v1alpha1.GPUPoolReference{Name: "pool"}
+	if assignmentAnnotation == commonannotations.GPUDeviceAssignment {
+		ref.Namespace = "ns"
+	}
+	return ref
 }

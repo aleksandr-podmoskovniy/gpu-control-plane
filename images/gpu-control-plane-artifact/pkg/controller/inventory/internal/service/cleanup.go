@@ -23,7 +23,7 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
 
@@ -54,7 +54,7 @@ func (c *cleanupService) DeleteInventory(ctx context.Context, nodeName string) e
 
 func (c *cleanupService) ClearMetrics(nodeName string) {
 	invmetrics.InventoryDevicesDelete(nodeName)
-	invmetrics.InventoryConditionDelete(nodeName, invconsts.ConditionInventoryComplete)
+	invmetrics.InventoryConditionDelete(nodeName, invstate.ConditionInventoryComplete)
 	for _, state := range knownDeviceStates {
 		invmetrics.InventoryDeviceStateDelete(nodeName, string(state))
 	}
@@ -62,7 +62,7 @@ func (c *cleanupService) ClearMetrics(nodeName string) {
 
 func (c *cleanupService) CleanupNode(ctx context.Context, nodeName string) error {
 	deviceList := &v1alpha1.GPUDeviceList{}
-	if err := c.client.List(ctx, deviceList, client.MatchingFields{invconsts.DeviceNodeIndexKey: nodeName}); err != nil {
+	if err := c.client.List(ctx, deviceList, client.MatchingFields{invstate.DeviceNodeIndexKey: nodeName}); err != nil {
 		return err
 	}
 	for i := range deviceList.Items {
@@ -92,7 +92,7 @@ func (c *cleanupService) RemoveOrphans(ctx context.Context, node *corev1.Node, o
 			return err
 		}
 		if c.recorder != nil {
-			c.recorder.Eventf(node, corev1.EventTypeNormal, invconsts.EventDeviceRemoved, "GPU device %s removed from inventory", name)
+			c.recorder.Eventf(node, corev1.EventTypeNormal, invstate.EventDeviceRemoved, "GPU device %s removed from inventory", name)
 		}
 	}
 	return nil

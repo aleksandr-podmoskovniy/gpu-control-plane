@@ -136,4 +136,3 @@ func TestNodeFeaturePredicates(t *testing.T) {
 		t.Fatalf("expected generic to be ignored")
 	}
 }
-

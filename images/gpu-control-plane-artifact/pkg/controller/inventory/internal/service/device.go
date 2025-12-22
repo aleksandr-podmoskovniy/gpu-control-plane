@@ -26,25 +26,29 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
 	invpci "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/pci"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
 
+type DeviceHandler interface {
+	HandleDevice(ctx context.Context, device *v1alpha1.GPUDevice) (reconcile.Result, error)
+	Name() string
+}
+
 type DeviceService struct {
 	client   client.Client
 	scheme   *runtime.Scheme
 	recorder record.EventRecorder
-	handlers []contracts.InventoryHandler
+	handlers []DeviceHandler
 }
 
-func NewDeviceService(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder, handlers []contracts.InventoryHandler) *DeviceService {
+func NewDeviceService(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder, handlers []DeviceHandler) *DeviceService {
 	return &DeviceService{
 		client:   c,
 		scheme:   scheme,
@@ -61,12 +65,12 @@ func (s *DeviceService) Reconcile(
 	managed bool,
 	approval invstate.DeviceApprovalPolicy,
 	applyDetection func(*v1alpha1.GPUDevice, invstate.DeviceSnapshot),
-) (*v1alpha1.GPUDevice, contracts.Result, error) {
+) (*v1alpha1.GPUDevice, reconcile.Result, error) {
 	deviceName := invstate.BuildDeviceName(node.Name, snapshot)
 	device := &v1alpha1.GPUDevice{}
 	device, err := commonobject.FetchObject(ctx, types.NamespacedName{Name: deviceName}, s.client, device)
 	if err != nil {
-		return nil, contracts.Result{}, err
+		return nil, reconcile.Result{}, err
 	}
 	if device == nil {
 		return s.createDevice(ctx, node, snapshot, nodeLabels, managed, approval, applyDetection)
@@ -74,11 +78,11 @@ func (s *DeviceService) Reconcile(
 
 	metaUpdated, err := s.ensureDeviceMetadata(ctx, node, device, snapshot)
 	if err != nil {
-		return nil, contracts.Result{}, err
+		return nil, reconcile.Result{}, err
 	}
 	if metaUpdated {
 		if err := s.client.Get(ctx, types.NamespacedName{Name: deviceName}, device); err != nil {
-			return nil, contracts.Result{}, err
+			return nil, reconcile.Result{}, err
 		}
 	}
 
@@ -131,7 +135,7 @@ func (s *DeviceService) Reconcile(
 	if !equality.Semantic.DeepEqual(statusBefore.Status, device.Status) {
 		if err := s.client.Status().Patch(ctx, device, client.MergeFrom(statusBefore)); err != nil {
 			if apierrors.IsConflict(err) {
-				return device, contracts.MergeResult(result, contracts.Result{Requeue: true}), nil
+				return device, reconciler.MergeResults(result, reconcile.Result{Requeue: true}), nil
 			}
 			return nil, result, err
 		}
@@ -148,28 +152,28 @@ func (s *DeviceService) createDevice(
 	managed bool,
 	approval invstate.DeviceApprovalPolicy,
 	applyDetection func(*v1alpha1.GPUDevice, invstate.DeviceSnapshot),
-) (*v1alpha1.GPUDevice, contracts.Result, error) {
+) (*v1alpha1.GPUDevice, reconcile.Result, error) {
 	device := &v1alpha1.GPUDevice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: invstate.BuildDeviceName(node.Name, snapshot),
 			Labels: map[string]string{
-				invconsts.DeviceNodeLabelKey:  node.Name,
-				invconsts.DeviceIndexLabelKey: snapshot.Index,
+				invstate.DeviceNodeLabelKey:  node.Name,
+				invstate.DeviceIndexLabelKey: snapshot.Index,
 			},
 		},
 	}
 	if err := controllerutil.SetOwnerReference(node, device, s.scheme); err != nil {
-		return nil, contracts.Result{}, err
+		return nil, reconcile.Result{}, err
 	}
 
 	if err := s.client.Create(ctx, device); err != nil {
-		return nil, contracts.Result{}, err
+		return nil, reconcile.Result{}, err
 	}
 	if s.recorder != nil {
 		s.recorder.Eventf(
 			device,
 			corev1.EventTypeNormal,
-			invconsts.EventDeviceDetected,
+			invstate.EventDeviceDetected,
 			"Discovered GPU device index=%s vendor=%s device=%s on node %s",
 			snapshot.Index,
 			snapshot.Vendor,
@@ -203,7 +207,7 @@ func (s *DeviceService) createDevice(
 
 	if err := s.client.Status().Update(ctx, device); err != nil {
 		if apierrors.IsConflict(err) {
-			return device, contracts.MergeResult(result, contracts.Result{Requeue: true}), nil
+			return device, reconciler.MergeResults(result, reconcile.Result{Requeue: true}), nil
 		}
 		return nil, result, err
 	}
@@ -218,12 +222,12 @@ func (s *DeviceService) ensureDeviceMetadata(ctx context.Context, node *corev1.N
 	if desired.Labels == nil {
 		desired.Labels = make(map[string]string)
 	}
-	if desired.Labels[invconsts.DeviceNodeLabelKey] != node.Name {
-		desired.Labels[invconsts.DeviceNodeLabelKey] = node.Name
+	if desired.Labels[invstate.DeviceNodeLabelKey] != node.Name {
+		desired.Labels[invstate.DeviceNodeLabelKey] = node.Name
 		changed = true
 	}
-	if desired.Labels[invconsts.DeviceIndexLabelKey] != snapshot.Index {
-		desired.Labels[invconsts.DeviceIndexLabelKey] = snapshot.Index
+	if desired.Labels[invstate.DeviceIndexLabelKey] != snapshot.Index {
+		desired.Labels[invstate.DeviceIndexLabelKey] = snapshot.Index
 		changed = true
 	}
 	if err := controllerutil.SetOwnerReference(node, desired, s.scheme); err != nil {
@@ -245,9 +249,9 @@ func (s *DeviceService) ensureDeviceMetadata(ctx context.Context, node *corev1.N
 	return true, nil
 }
 
-func (s *DeviceService) invokeHandlers(ctx context.Context, device *v1alpha1.GPUDevice) (contracts.Result, error) {
-	rec := reconciler.NewBase(s.handlers)
-	rec.SetHandlerExecutor(func(ctx context.Context, handler contracts.InventoryHandler) (contracts.Result, error) {
+func (s *DeviceService) invokeHandlers(ctx context.Context, device *v1alpha1.GPUDevice) (reconcile.Result, error) {
+	rec := reconciler.NewBaseReconciler(s.handlers)
+	rec.SetHandlerExecutor(func(ctx context.Context, handler DeviceHandler) (reconcile.Result, error) {
 		result, err := handler.HandleDevice(ctx, device)
 		if err != nil {
 			invmetrics.InventoryHandlerErrorInc(handler.Name())

@@ -24,9 +24,9 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/validation"
 )
@@ -71,9 +71,9 @@ func (h *WorkloadStatusHandler) Name() string {
 	return "workload-status"
 }
 
-func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
+func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (reconcile.Result, error) {
 	if h.client == nil {
-		return contracts.Result{}, fmt.Errorf("workload-status handler: client is not configured")
+		return reconcile.Result{}, fmt.Errorf("workload-status handler: client is not configured")
 	}
 
 	nodeName := strings.TrimSpace(inventory.Spec.NodeName)
@@ -81,7 +81,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 		nodeName = strings.TrimSpace(inventory.Name)
 	}
 	if nodeName == "" {
-		return contracts.Result{}, nil
+		return reconcile.Result{}, nil
 	}
 
 	valStatus, valPresent := validation.StatusFromContext(ctx)
@@ -96,7 +96,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 
 	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, deviceList, client.MatchingFields{indexer.GPUDeviceNodeField: nodeName}); err != nil {
-		return contracts.Result{}, fmt.Errorf("list GPUDevices for bootstrap status: %w", err)
+		return reconcile.Result{}, fmt.Errorf("list GPUDevices for bootstrap status: %w", err)
 	}
 
 	devicesPresent := len(deviceList.Items) > 0
@@ -160,7 +160,7 @@ func (h *WorkloadStatusHandler) HandleNode(ctx context.Context, inventory *v1alp
 		h.log.Info("updated bootstrap conditions", "node", nodeName, "ready", nodeReady)
 	}
 
-	return contracts.Result{}, nil
+	return reconcile.Result{}, nil
 }
 
 func workloadsDegradedMessage(hasWorkloads bool, degraded bool) string {

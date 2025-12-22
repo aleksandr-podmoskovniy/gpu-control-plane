@@ -365,3 +365,19 @@ type GPUPoolList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []GPUPool `json:"items"`
 }
+
+func (g *GPUNodeState) GetObjectMeta() metav1.Object {
+	return &g.ObjectMeta
+}
+
+func (g *GPUDevice) GetObjectMeta() metav1.Object {
+	return &g.ObjectMeta
+}
+
+func (g *GPUPool) GetObjectMeta() metav1.Object {
+	return &g.ObjectMeta
+}
+
+func (g *ClusterGPUPool) GetObjectMeta() metav1.Object {
+	return &g.ObjectMeta
+}

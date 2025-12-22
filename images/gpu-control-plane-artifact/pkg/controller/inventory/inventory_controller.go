@@ -26,8 +26,8 @@ import (
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/config"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
-	invinternal "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal"
+	invhandler "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/handler"
+	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
 	invwebhook "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/webhook"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
@@ -42,8 +42,8 @@ func SetupController(
 	store *moduleconfig.ModuleConfigStore,
 ) error {
 	baseLog := log.WithName("inventory")
-	handlers := []contracts.InventoryHandler{
-		invinternal.NewDeviceStateHandler(baseLog.WithName("device-state")),
+	handlers := []invservice.DeviceHandler{
+		invhandler.NewDeviceStateHandler(baseLog.WithName("device-state")),
 	}
 
 	workers := cfg.Workers

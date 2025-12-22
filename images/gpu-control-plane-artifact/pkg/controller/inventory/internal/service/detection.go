@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
+	common "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 	invpci "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/pci"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 )
@@ -119,8 +119,8 @@ func (c *detectionCollector) Collect(ctx context.Context, node string) (NodeDete
 
 	pods := &corev1.PodList{}
 	if err := c.client.List(ctx, pods,
-		client.InNamespace(meta.WorkloadsNamespace),
-		client.MatchingLabels{"app": meta.AppName(meta.ComponentGPUFeatureDiscovery)}); err != nil {
+		client.InNamespace(common.WorkloadsNamespace),
+		client.MatchingLabels{"app": common.AppName(common.ComponentGPUFeatureDiscovery)}); err != nil {
 		return result, err
 	}
 
@@ -286,4 +286,3 @@ func applyDetectionHardware(device *v1alpha1.GPUDevice, entry detectGPUEntry) {
 		hw.MIG.Capable = true
 	}
 }
-

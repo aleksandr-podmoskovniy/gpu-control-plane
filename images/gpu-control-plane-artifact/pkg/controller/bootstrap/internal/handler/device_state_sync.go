@@ -22,9 +22,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/indexer"
 )
 
@@ -48,16 +48,16 @@ func (h *DeviceStateSyncHandler) Name() string {
 	return "device-state-sync"
 }
 
-func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (contracts.Result, error) {
+func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (reconcile.Result, error) {
 	if h.client == nil {
-		return contracts.Result{}, fmt.Errorf("device-state-sync handler: client is not configured")
+		return reconcile.Result{}, fmt.Errorf("device-state-sync handler: client is not configured")
 	}
 	nodeName := inventory.Spec.NodeName
 	if nodeName == "" {
 		nodeName = inventory.Name
 	}
 	if nodeName == "" {
-		return contracts.Result{}, nil
+		return reconcile.Result{}, nil
 	}
 	driverReady := isConditionTrue(inventory, conditionDriverReady)
 	toolkitReady := isConditionTrue(inventory, conditionToolkitReady)
@@ -68,11 +68,11 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 
 	deviceList := &v1alpha1.GPUDeviceList{}
 	if err := h.client.List(ctx, deviceList, client.MatchingFields{indexer.GPUDeviceNodeField: nodeName}); err != nil {
-		return contracts.Result{}, fmt.Errorf("list devices on node %s: %w", nodeName, err)
+		return reconcile.Result{}, fmt.Errorf("list devices on node %s: %w", nodeName, err)
 	}
 
 	if len(deviceList.Items) == 0 {
-		return contracts.Result{}, nil
+		return reconcile.Result{}, nil
 	}
 
 	var errs []error
@@ -96,7 +96,7 @@ func (h *DeviceStateSyncHandler) HandleNode(ctx context.Context, inventory *v1al
 		h.log.V(1).Info("updated device state", "device", device.Name, "node", nodeName, "state", target)
 	}
 
-	return contracts.Result{}, utilerrors.NewAggregate(errs)
+	return reconcile.Result{}, utilerrors.NewAggregate(errs)
 }
 
 func isConditionTrue(inventory *v1alpha1.GPUNodeState, condType string) bool {

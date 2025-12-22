@@ -1,0 +1,90 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Кластерный ресурс, задающий контракт и политику выдачи GPU
+            (конвертируется контроллером в DRA DeviceClass).
+          properties:
+            spec:
+              description: Желаемая политика для логического класса GPU.
+              properties:
+                vendor:
+                  description: Вендор GPU (nvidia/amd/intel).
+                  enum:
+                    - nvidia
+                    - amd
+                    - intel
+                deviceType:
+                  description: Тип устройства (Physical, MIG, Passthrough, vGPU).
+                  enum:
+                    - Physical
+                    - MIG
+                    - Passthrough
+                    - vGPU
+                nvidia:
+                  description: NVIDIA-специфичные настройки класса.
+                  properties:
+                    mig:
+                      description: Настройки MIG (обязательны, если deviceType=MIG).
+                      properties:
+                        profile:
+                          description: Имя MIG-профиля (например, 2g.12gb).
+                    vgpu:
+                      description: Настройки vGPU (обязательны, если deviceType=vGPU).
+                      properties:
+                        profile:
+                          description: Имя профиля vGPU (как в tooling вендора).
+                sharing:
+                  description: Политика совместного использования GPU.
+                  properties:
+                    strategy:
+                      description: Стратегия совместного использования (Exclusive, TimeSlicing, MPS).
+                      enum:
+                        - Exclusive
+                        - TimeSlicing
+                        - MPS
+                    timeSlicing:
+                      description: Настройки для TimeSlicing.
+                      properties:
+                        interval:
+                          description: Интервал нарезки (Default/Short/Medium/Long).
+                          enum:
+                            - Default
+                            - Short
+                            - Medium
+                            - Long
+                    mps:
+                      description: Настройки для NVIDIA MPS.
+                      properties:
+                        defaultActiveThreadPercentage:
+                          description: Процент активных потоков по умолчанию (1..100).
+                selector:
+                  description: LabelSelector для отбора PhysicalGPU по меткам.
+                names:
+                  description: Явный allowlist PhysicalGPU по именам.
+                requirements:
+                  description: Дополнительные ограничения (память, compute capability).
+                  properties:
+                    minMemory:
+                      description: Минимальный объём VRAM (например, 16Gi).
+                    minComputeCapability:
+                      description: Минимальная Compute Capability (например, 8.6).
+                extraSelectors:
+                  description: Список CEL-селекторов, напрямую передаваемых в DeviceClass.
+            status:
+              description: Статус валидации и имя сгенерированного DeviceClass.
+              properties:
+                valid:
+                  description: Валидна ли спецификация GPUClass.
+                message:
+                  description: Диагностическое сообщение при ошибке валидации.
+                requiresWorkload:
+                  description: Ожидаемый тип нагрузки (Container, VMPassthrough, VMvGPU).
+                  enum:
+                    - Container
+                    - VMPassthrough
+                    - VMvGPU
+                deviceClassName:
+                  description: Имя созданного DRA DeviceClass.

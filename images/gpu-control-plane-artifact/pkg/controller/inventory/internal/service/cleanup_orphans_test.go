@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 )
 
 func TestCleanupServiceRemoveOrphansNoop(t *testing.T) {
@@ -79,8 +79,8 @@ func TestCleanupServiceRemoveOrphansDeletesDeviceAndEmitsEvent(t *testing.T) {
 
 	select {
 	case event := <-rec.Events:
-		if !strings.Contains(event, invconsts.EventDeviceRemoved) {
-			t.Fatalf("expected %q event, got %q", invconsts.EventDeviceRemoved, event)
+		if !strings.Contains(event, invstate.EventDeviceRemoved) {
+			t.Fatalf("expected %q event, got %q", invstate.EventDeviceRemoved, event)
 		}
 	default:
 		t.Fatalf("expected event to be recorded")

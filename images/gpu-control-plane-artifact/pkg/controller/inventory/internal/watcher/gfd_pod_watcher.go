@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
+	common "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 )
 
 type GFDPodWatcher struct {
@@ -37,7 +37,7 @@ type GFDPodWatcher struct {
 }
 
 func NewGFDPodWatcher() *GFDPodWatcher {
-	return &GFDPodWatcher{gfdApp: meta.AppName(meta.ComponentGPUFeatureDiscovery)}
+	return &GFDPodWatcher{gfdApp: common.AppName(common.ComponentGPUFeatureDiscovery)}
 }
 
 func (w *GFDPodWatcher) Watch(mgr manager.Manager, ctr controller.Controller) error {
@@ -101,7 +101,7 @@ func isGFDPod(pod *corev1.Pod, gfdApp string) bool {
 	if pod == nil || pod.Labels == nil {
 		return false
 	}
-	return pod.Namespace == meta.WorkloadsNamespace && pod.Labels["app"] == gfdApp
+	return pod.Namespace == common.WorkloadsNamespace && pod.Labels["app"] == gfdApp
 }
 
 func isPodReady(pod *corev1.Pod) bool {
@@ -115,4 +115,3 @@ func isPodReady(pod *corev1.Pod) bool {
 	}
 	return false
 }
-

@@ -72,4 +72,3 @@ func nodeStatePredicates() predicate.TypedPredicate[*v1alpha1.GPUNodeState] {
 		GenericFunc: func(event.TypedGenericEvent[*v1alpha1.GPUNodeState]) bool { return false },
 	}
 }
-

@@ -41,19 +41,17 @@ func TestGPUPoolGPUDeviceWatcherEnqueueBranches(t *testing.T) {
 	dev := &v1alpha1.GPUDevice{
 		Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool", Namespace: "ns"}},
 	}
-	w.cl = nil
 	reqs := w.enqueue(ctx, dev)
 	if len(reqs) != 1 || reqs[0].Namespace != "ns" || reqs[0].Name != "pool" {
 		t.Fatalf("unexpected requests: %#v", reqs)
 	}
 
 	dev = &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}
-	w.cl = nil
 	if got := w.enqueue(ctx, dev); got != nil {
 		t.Fatalf("expected nil requests when client is nil and pool is unqualified, got %#v", got)
 	}
 
-	w.cl = &failingListClient{err: errors.New("list fail")}
+	w.enqueuer = NewGPUPoolGPUDeviceEnqueuer(w.log, &failingListClient{err: errors.New("list fail")})
 	dev = &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev", Annotations: map[string]string{commonannotations.GPUDeviceAssignment: "pool"}}}
 	if got := w.enqueue(ctx, dev); got != nil {
 		t.Fatalf("expected nil requests on list error, got %#v", got)
@@ -76,7 +74,13 @@ func TestGPUPoolGPUDeviceWatcherEnqueueBranches(t *testing.T) {
 		).
 		Build()
 
-	w.cl = cl
+	w.enqueuer = NewGPUPoolGPUDeviceEnqueuer(w.log, cl)
+	dev = &v1alpha1.GPUDevice{Status: v1alpha1.GPUDeviceStatus{PoolRef: &v1alpha1.GPUPoolReference{Name: "pool"}}}
+	if got := w.enqueue(ctx, dev); got != nil {
+		t.Fatalf("expected nil requests for unqualified poolRef, got %#v", got)
+	}
+
+	dev = &v1alpha1.GPUDevice{ObjectMeta: metav1.ObjectMeta{Name: "dev", Annotations: map[string]string{commonannotations.GPUDeviceAssignment: "pool"}}}
 	reqs = w.enqueue(ctx, dev)
 	if len(reqs) != 2 {
 		t.Fatalf("expected 2 requests, got %#v", reqs)
@@ -89,7 +93,7 @@ func TestGPUPoolGPUDeviceWatcherEnqueueBranches(t *testing.T) {
 		}
 	}
 
-	w.cl = fake.NewClientBuilder().WithScheme(scheme).Build()
+	w.enqueuer = NewGPUPoolGPUDeviceEnqueuer(w.log, fake.NewClientBuilder().WithScheme(scheme).Build())
 	if got := w.enqueue(ctx, dev); got != nil {
 		t.Fatalf("expected nil requests when no pools are found, got %#v", got)
 	}
@@ -124,4 +128,3 @@ func TestClusterGPUPoolGPUDeviceWatcherEnqueueBranches(t *testing.T) {
 		t.Fatalf("expected nil requests when no assignment, got %#v", got)
 	}
 }
-

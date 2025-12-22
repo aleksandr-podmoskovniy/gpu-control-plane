@@ -153,4 +153,3 @@ func TestGpuLabelsDifferCoversBranches(t *testing.T) {
 		t.Fatalf("expected additional relevant key in newLabels to be detected")
 	}
 }
-

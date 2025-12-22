@@ -28,29 +28,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 
 	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 const (
-	deviceLabelPrefix     = invconsts.DeviceLabelPrefix
-	migProfileLabelPrefix = invconsts.MIGProfileLabelPrefix
+	deviceLabelPrefix     = invstate.DeviceLabelPrefix
+	migProfileLabelPrefix = invstate.MIGProfileLabelPrefix
 
-	gfdProductLabel            = invconsts.GFDProductLabel
-	gfdMemoryLabel             = invconsts.GFDMemoryLabel
-	gfdComputeMajorLabel       = invconsts.GFDComputeMajorLabel
-	gfdComputeMinorLabel       = invconsts.GFDComputeMinorLabel
-	gfdDriverVersionLabel      = invconsts.GFDDriverVersionLabel
-	gfdCudaRuntimeVersionLabel = invconsts.GFDCudaRuntimeVersionLabel
-	gfdCudaDriverMajorLabel    = invconsts.GFDCudaDriverMajorLabel
-	gfdCudaDriverMinorLabel    = invconsts.GFDCudaDriverMinorLabel
-	gfdMigCapableLabel         = invconsts.GFDMigCapableLabel
-	gfdMigStrategyLabel        = invconsts.GFDMigStrategyLabel
-	gfdMigAltCapableLabel      = invconsts.GFDMigAltCapableLabel
-	gfdMigAltStrategy          = invconsts.GFDMigAltStrategyLabel
+	gfdProductLabel            = invstate.GFDProductLabel
+	gfdMemoryLabel             = invstate.GFDMemoryLabel
+	gfdComputeMajorLabel       = invstate.GFDComputeMajorLabel
+	gfdComputeMinorLabel       = invstate.GFDComputeMinorLabel
+	gfdDriverVersionLabel      = invstate.GFDDriverVersionLabel
+	gfdCudaRuntimeVersionLabel = invstate.GFDCudaRuntimeVersionLabel
+	gfdCudaDriverMajorLabel    = invstate.GFDCudaDriverMajorLabel
+	gfdCudaDriverMinorLabel    = invstate.GFDCudaDriverMinorLabel
+	gfdMigCapableLabel         = invstate.GFDMigCapableLabel
+	gfdMigStrategyLabel        = invstate.GFDMigStrategyLabel
+	gfdMigAltCapableLabel      = invstate.GFDMigAltCapableLabel
+	gfdMigAltStrategy          = invstate.GFDMigAltStrategyLabel
 
-	nodeFeatureNodeNameLabel = invconsts.NodeFeatureNodeNameLabel
+	nodeFeatureNodeNameLabel = invstate.NodeFeatureNodeNameLabel
 )
 
 type NodeFeatureWatcher struct{}

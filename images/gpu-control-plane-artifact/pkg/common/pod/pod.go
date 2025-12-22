@@ -28,4 +28,3 @@ func IsReady(pod *corev1.Pod) bool {
 	}
 	return false
 }
-

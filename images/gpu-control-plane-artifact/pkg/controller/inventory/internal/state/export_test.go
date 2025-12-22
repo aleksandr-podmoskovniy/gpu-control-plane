@@ -49,4 +49,3 @@ func TestExportedBuilders(t *testing.T) {
 		t.Fatalf("unexpected inventory id: %q", got)
 	}
 }
-

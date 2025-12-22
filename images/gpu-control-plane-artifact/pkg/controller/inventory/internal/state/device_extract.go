@@ -89,4 +89,3 @@ func canonicalIndex(index string) string {
 	}
 	return index
 }
-

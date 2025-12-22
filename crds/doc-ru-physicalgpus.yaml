@@ -1,0 +1,86 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Кластерный ресурс, описывающий физический GPU в инвентаре:
+            PCI-идентификацию, здоровье и возможности устройства.
+          properties:
+            spec:
+              description: Желаемое состояние (в v0 не используется, spec пустой).
+            status:
+              description: Набор наблюдаемых характеристик и условий готовности.
+              properties:
+                nodeName:
+                  description: Имя узла Kubernetes, где установлена карта.
+                pci:
+                  description: PCI-идентификация и информация о привязанном драйвере.
+                  properties:
+                    address:
+                      description: Полный PCI-адрес (domain:bus:slot.func).
+                    vendor:
+                      description: PCI vendor ID в шестнадцатеричном формате.
+                    device:
+                      description: PCI device ID в шестнадцатеричном формате.
+                    class:
+                      description: PCI class code в шестнадцатеричном формате.
+                    driver:
+                      description: Имя kernel-драйвера, привязанного к устройству (nvidia, vfio-pci и т.п.).
+                product:
+                  description: Читаемое название модели GPU (например, NVIDIA A30).
+                conditions:
+                  description: Список условий готовности (DriverReady, HardwareHealthy, Ready).
+                capabilities:
+                  description: Нормализованные возможности устройства.
+                  properties:
+                    supports:
+                      description: Флаги поддержки функциональности (MIG, vGPU, Passthrough).
+                      properties:
+                        mig:
+                          description: Поддерживается ли режим MIG.
+                        vgpu:
+                          description: Поддерживается ли vGPU/mdev.
+                        passthrough:
+                          description: Поддерживается ли passthrough (VFIO/IOMMU).
+                    memory:
+                      description: Характеристики видеопамяти (если доступны).
+                      properties:
+                        total:
+                          description: Общий объём VRAM.
+                        type:
+                          description: Тип памяти (HBM2/GDDR6 и т.п.), если известно.
+                nvidia:
+                  description: NVIDIA-специфичный статус (если vendor=nvidia).
+                  properties:
+                    query:
+                      description: Значения из nvidia-smi --query-gpu (ключи как у nvidia-smi).
+                    mig:
+                      description: Сведения о поддержке и профилях MIG.
+                      properties:
+                        sliceCountTotal:
+                          description: Общее число MIG-слайсов на карте.
+                        profileCaps:
+                          description: Перечень доступных профилей MIG и их ёмкостей.
+                          items:
+                            properties:
+                              profileId:
+                                description: Числовой идентификатор профиля.
+                              name:
+                                description: Имя профиля (например, 2g.12gb).
+                              instances:
+                                description: Доступные/всего инстансов этого профиля.
+                                properties:
+                                  free:
+                                    description: Количество свободных инстансов.
+                                  total:
+                                    description: Общее количество инстансов.
+                              memoryGiB:
+                                description: Объём памяти профиля в GiB (если доступно).
+                              placement:
+                                description: Подсказки по размещению слайсов.
+                                properties:
+                                  sliceCount:
+                                    description: Сколько слайсов требуется профилю.
+                                  startIndices:
+                                    description: Допустимые стартовые индексы слайсов.

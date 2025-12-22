@@ -16,23 +16,52 @@ package reconciler
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 )
 
-func TestResourcePatchStatus(t *testing.T) {
+func TestResourceFetchEmpty(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = v1alpha1.AddToScheme(scheme)
+
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		Build()
+
+	resource := NewResource(
+		types.NamespacedName{Name: "pool", Namespace: "ns"},
+		cl,
+		func() *v1alpha1.GPUPool { return &v1alpha1.GPUPool{} },
+		func(obj *v1alpha1.GPUPool) v1alpha1.GPUPoolStatus { return obj.Status },
+	)
+
+	if err := resource.Fetch(context.Background()); err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if !resource.IsEmpty() {
+		t.Fatalf("expected empty resource")
+	}
+}
+
+func TestResourceUpdateStatusAndMetadata(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool", ResourceVersion: "1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "pool",
+			Namespace:   "ns",
+			Labels:      map[string]string{"tier": "gold"},
+			Annotations: map[string]string{"note": "old"},
+			Finalizers:  []string{"finalizer.gpu.deckhouse.io"},
+		},
 		Status: v1alpha1.GPUPoolStatus{
 			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
 		},
@@ -44,32 +73,59 @@ func TestResourcePatchStatus(t *testing.T) {
 		WithObjects(pool.DeepCopy()).
 		Build()
 
-	resource := NewResource(pool, cl)
-	pool.Status.Capacity.Total = 5
+	resource := NewResource(
+		types.NamespacedName{Name: "pool", Namespace: "ns"},
+		cl,
+		func() *v1alpha1.GPUPool { return &v1alpha1.GPUPool{} },
+		func(obj *v1alpha1.GPUPool) v1alpha1.GPUPoolStatus { return obj.Status },
+	)
 
-	if err := resource.PatchStatus(context.Background()); err != nil {
-		t.Fatalf("patch status failed: %v", err)
+	if err := resource.Fetch(context.Background()); err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if resource.IsEmpty() {
+		t.Fatalf("expected resource to exist")
+	}
+
+	changed := resource.Changed()
+	changed.Status.Capacity.Total = 5
+	changed.Labels["tier"] = "platinum"
+	changed.Annotations["note"] = "new"
+	changed.Finalizers = append(changed.Finalizers, "finalizer.gpu.deckhouse.io/secondary")
+
+	if err := resource.Update(context.Background()); err != nil {
+		t.Fatalf("update failed: %v", err)
 	}
 
 	stored := &v1alpha1.GPUPool{}
-	if err := cl.Get(context.Background(), client.ObjectKey{Name: "pool"}, stored); err != nil {
-		t.Fatalf("get patched pool: %v", err)
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "pool", Namespace: "ns"}, stored); err != nil {
+		t.Fatalf("get updated pool: %v", err)
 	}
 	if stored.Status.Capacity.Total != 5 {
 		t.Fatalf("expected capacity updated to 5, got %d", stored.Status.Capacity.Total)
 	}
-	// original copy must stay untouched
-	if resource.Original().Status.Capacity.Total != 1 {
-		t.Fatalf("expected original snapshot preserved, got %d", resource.Original().Status.Capacity.Total)
+	if stored.Labels["tier"] != "platinum" {
+		t.Fatalf("expected label updated, got %q", stored.Labels["tier"])
+	}
+	if stored.Annotations["note"] != "new" {
+		t.Fatalf("expected annotation updated, got %q", stored.Annotations["note"])
+	}
+	if len(stored.Finalizers) != 2 {
+		t.Fatalf("expected finalizers updated, got %v", stored.Finalizers)
 	}
 }
 
-func TestResourcePatchStatusWithoutResourceVersion(t *testing.T) {
+func TestResourceUpdateMetadataOnly(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(scheme)
 
 	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "pool",
+			Namespace:   "ns",
+			Labels:      map[string]string{"tier": "gold"},
+			Annotations: map[string]string{"note": "old"},
+		},
 		Status: v1alpha1.GPUPoolStatus{
 			Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1},
 		},
@@ -81,62 +137,29 @@ func TestResourcePatchStatusWithoutResourceVersion(t *testing.T) {
 		WithObjects(pool.DeepCopy()).
 		Build()
 
-	resource := NewResource(pool, cl)
-	pool.Status.Capacity.Total = 5
+	resource := NewResource(
+		types.NamespacedName{Name: "pool", Namespace: "ns"},
+		cl,
+		func() *v1alpha1.GPUPool { return &v1alpha1.GPUPool{} },
+		func(obj *v1alpha1.GPUPool) v1alpha1.GPUPoolStatus { return obj.Status },
+	)
 
-	if err := resource.PatchStatus(context.Background()); err != nil {
-		t.Fatalf("patch status failed: %v", err)
-	}
-}
-
-func TestResourcePatchStatusErrors(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = v1alpha1.AddToScheme(scheme)
-
-	pool := &v1alpha1.GPUPool{
-		ObjectMeta: metav1.ObjectMeta{Name: "pool"},
-		Status:     v1alpha1.GPUPoolStatus{Capacity: v1alpha1.GPUPoolCapacityStatus{Total: 1}},
+	if err := resource.Fetch(context.Background()); err != nil {
+		t.Fatalf("fetch failed: %v", err)
 	}
 
-	t.Run("nil client", func(t *testing.T) {
-		resource := NewResource(pool, nil)
-		if err := resource.PatchStatus(context.Background()); !errors.Is(err, errNilClient) {
-			t.Fatalf("expected errNilClient, got %v", err)
-		}
-	})
+	changed := resource.Changed()
+	changed.Annotations["note"] = "updated"
 
-	t.Run("nil resource current/original", func(t *testing.T) {
-		cl := fake.NewClientBuilder().
-			WithScheme(scheme).
-			WithStatusSubresource(&v1alpha1.GPUPool{}).
-			Build()
+	if err := resource.Update(context.Background()); err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
 
-		var empty *v1alpha1.GPUPool
-		resource := NewResource(empty, cl)
-		if err := resource.PatchStatus(context.Background()); !errors.Is(err, errNilResource) {
-			t.Fatalf("expected errNilResource, got %v", err)
-		}
-	})
-}
-
-func TestIsNilObjectHelper(t *testing.T) {
-	t.Run("invalid interface", func(t *testing.T) {
-		var v any
-		if !isNilObject(v) {
-			t.Fatalf("expected nil for untyped nil interface")
-		}
-	})
-
-	t.Run("typed nil pointer", func(t *testing.T) {
-		var pool *v1alpha1.GPUPool
-		if !isNilObject(pool) {
-			t.Fatalf("expected nil for typed nil pointer")
-		}
-	})
-
-	t.Run("non-nil value", func(t *testing.T) {
-		if isNilObject(123) {
-			t.Fatalf("expected non-nil for int value")
-		}
-	})
+	stored := &v1alpha1.GPUPool{}
+	if err := cl.Get(context.Background(), client.ObjectKey{Name: "pool", Namespace: "ns"}, stored); err != nil {
+		t.Fatalf("get updated pool: %v", err)
+	}
+	if stored.Annotations["note"] != "updated" {
+		t.Fatalf("expected annotation updated, got %q", stored.Annotations["note"])
+	}
 }

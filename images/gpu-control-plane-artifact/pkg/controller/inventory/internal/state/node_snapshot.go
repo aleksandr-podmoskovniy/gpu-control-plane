@@ -106,4 +106,3 @@ func nodeManaged(labels map[string]string, policy ManagedNodesPolicy) bool {
 	}
 	return policy.EnabledByDefault
 }
-

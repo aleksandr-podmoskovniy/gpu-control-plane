@@ -58,7 +58,7 @@ consistent view of detected hardware for other Deckhouse modules.
 
 - **GPUDevice** – represents a single GPU discovered on a node. The controller
   keeps hardware facts in the status, updates management flags, and triggers
-  downstream handlers that apply contracts (auto-attach, health, pools).
+  downstream handlers for auto-attach, health, pools.
 - **GPUNodeState** – node-level aggregate with driver/toolkit summary,
   readiness conditions consumed by higher-level controllers and admission
   webhooks.

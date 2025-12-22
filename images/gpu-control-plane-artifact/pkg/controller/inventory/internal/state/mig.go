@@ -126,4 +126,3 @@ func parseMIGConfig(labels map[string]string) v1alpha1.GPUMIGConfig {
 func migConfigEmpty(cfg v1alpha1.GPUMIGConfig) bool {
 	return !cfg.Capable && cfg.Strategy == "" && len(cfg.ProfilesSupported) == 0 && len(cfg.Types) == 0
 }
-

@@ -46,7 +46,7 @@ func TestPodReady(t *testing.T) {
 }
 
 func TestValidatorPodPredicates(t *testing.T) {
-	p := validatorPodPredicates()
+	p := NewValidatorPodFilter().Predicates()
 
 	if p.Create(event.TypedCreateEvent[*corev1.Pod]{Object: nil}) {
 		t.Fatalf("expected create predicate to ignore nil pod")

@@ -118,4 +118,3 @@ func TestDeviceChangedDetectsRelevantFields(t *testing.T) {
 		t.Fatalf("expected poolRef namespace change to be detected")
 	}
 }
-

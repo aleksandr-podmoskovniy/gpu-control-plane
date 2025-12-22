@@ -41,4 +41,3 @@ func (s *State) Client() client.Client {
 func (s *State) Inventory() *v1alpha1.GPUNodeState {
 	return s.inventory
 }
-

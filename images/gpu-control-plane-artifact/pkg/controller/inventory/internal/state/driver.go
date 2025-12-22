@@ -47,4 +47,3 @@ func parseDriverInfo(labels map[string]string) nodeDriverSnapshot {
 		ToolkitReady:     toolkitReady,
 	}
 }
-

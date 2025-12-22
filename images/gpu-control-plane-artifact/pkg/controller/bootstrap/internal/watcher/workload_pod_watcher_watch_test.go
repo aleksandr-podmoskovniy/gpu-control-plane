@@ -22,12 +22,12 @@ import (
 	"github.com/go-logr/logr/testr"
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
+	common "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 )
 
 func TestNewWorkloadPodWatcher(t *testing.T) {
 	w := NewWorkloadPodWatcher(testr.New(t))
-	for _, name := range meta.ComponentAppNames() {
+	for _, name := range common.ComponentAppNames() {
 		if _, ok := w.managedAppSet[name]; !ok {
 			t.Fatalf("expected managed app %q to be present", name)
 		}
@@ -55,7 +55,7 @@ func TestWorkloadPodWatcherEnqueueBranches(t *testing.T) {
 
 	t.Run("missing-nodeName", func(t *testing.T) {
 		pod := base.DeepCopy()
-		pod.Namespace = meta.WorkloadsNamespace
+		pod.Namespace = common.WorkloadsNamespace
 		if got := w.enqueue(context.Background(), pod); got != nil {
 			t.Fatalf("expected nil requests, got %+v", got)
 		}
@@ -63,7 +63,7 @@ func TestWorkloadPodWatcherEnqueueBranches(t *testing.T) {
 
 	t.Run("missing-labels", func(t *testing.T) {
 		pod := base.DeepCopy()
-		pod.Namespace = meta.WorkloadsNamespace
+		pod.Namespace = common.WorkloadsNamespace
 		pod.Spec.NodeName = "node-a"
 		if got := w.enqueue(context.Background(), pod); got != nil {
 			t.Fatalf("expected nil requests, got %+v", got)
@@ -72,7 +72,7 @@ func TestWorkloadPodWatcherEnqueueBranches(t *testing.T) {
 
 	t.Run("unmanaged-app", func(t *testing.T) {
 		pod := base.DeepCopy()
-		pod.Namespace = meta.WorkloadsNamespace
+		pod.Namespace = common.WorkloadsNamespace
 		pod.Spec.NodeName = "node-a"
 		pod.Labels = map[string]string{"app": "other"}
 		if got := w.enqueue(context.Background(), pod); got != nil {
@@ -82,9 +82,9 @@ func TestWorkloadPodWatcherEnqueueBranches(t *testing.T) {
 
 	t.Run("managed-app", func(t *testing.T) {
 		pod := base.DeepCopy()
-		pod.Namespace = meta.WorkloadsNamespace
+		pod.Namespace = common.WorkloadsNamespace
 		pod.Spec.NodeName = "node-a"
-		pod.Labels = map[string]string{"app": meta.ComponentAppNames()[0]}
+		pod.Labels = map[string]string{"app": common.ComponentAppNames()[0]}
 		reqs := w.enqueue(context.Background(), pod)
 		if len(reqs) != 1 || reqs[0].Name != "node-a" {
 			t.Fatalf("unexpected requests: %+v", reqs)

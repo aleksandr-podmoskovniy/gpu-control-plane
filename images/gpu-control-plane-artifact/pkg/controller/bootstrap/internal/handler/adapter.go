@@ -20,9 +20,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/internal/state"
 )
+
+type BootstrapHandler interface {
+	Name() string
+	HandleNode(ctx context.Context, inventory *v1alpha1.GPUNodeState) (reconcile.Result, error)
+}
 
 type Handler interface {
 	Name() string
@@ -30,10 +35,10 @@ type Handler interface {
 }
 
 type handlerAdapter struct {
-	handler contracts.BootstrapHandler
+	handler BootstrapHandler
 }
 
-func WrapBootstrapHandler(handler contracts.BootstrapHandler) Handler {
+func WrapBootstrapHandler(handler BootstrapHandler) Handler {
 	return &handlerAdapter{handler: handler}
 }
 
@@ -50,4 +55,3 @@ func (h *handlerAdapter) SetClient(cl client.Client) {
 		setter.SetClient(cl)
 	}
 }
-

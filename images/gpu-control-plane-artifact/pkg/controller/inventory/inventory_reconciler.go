@@ -21,16 +21,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/config"
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
-	invconsts "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/consts"
+	invhandler "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/handler"
 	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
@@ -42,21 +39,9 @@ const (
 	defaultResyncPeriod time.Duration = 0
 )
 
-type DeviceService interface {
-	Reconcile(
-		ctx context.Context,
-		node *corev1.Node,
-		snapshot invstate.DeviceSnapshot,
-		nodeLabels map[string]string,
-		managed bool,
-		approval invstate.DeviceApprovalPolicy,
-		applyDetection func(*v1alpha1.GPUDevice, invstate.DeviceSnapshot),
-	) (*v1alpha1.GPUDevice, contracts.Result, error)
-}
-
-type InventoryService interface {
-	Reconcile(ctx context.Context, node *corev1.Node, snapshot invstate.NodeSnapshot, devices []*v1alpha1.GPUDevice) error
-	UpdateDeviceMetrics(nodeName string, devices []*v1alpha1.GPUDevice)
+type Handler interface {
+	Handle(ctx context.Context, state invstate.InventoryState) (reconcile.Result, error)
+	Name() string
 }
 
 type Reconciler struct {
@@ -64,7 +49,8 @@ type Reconciler struct {
 	scheme           *runtime.Scheme
 	log              logr.Logger
 	cfg              config.ControllerConfig
-	handlers         []contracts.InventoryHandler
+	handlers         []Handler
+	deviceHandlers   []invservice.DeviceHandler
 	recorder         record.EventRecorder
 	resyncPeriod     time.Duration
 	resyncMu         sync.RWMutex
@@ -72,14 +58,14 @@ type Reconciler struct {
 	fallbackManaged  invstate.ManagedNodesPolicy
 	fallbackApproval invstate.DeviceApprovalPolicy
 
-	detectionCollector invservice.DetectionCollector
-	cleanupService     invservice.CleanupService
-	deviceService      DeviceService
-	inventoryService   InventoryService
+	detectionCollector invhandler.DetectionCollector
+	cleanupService     invhandler.CleanupService
+	deviceService      invhandler.DeviceService
+	inventoryService   invhandler.InventoryService
 	detectionClient    client.Client
 }
 
-func New(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.ModuleConfigStore, handlers []contracts.InventoryHandler) (*Reconciler, error) {
+func New(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.ModuleConfigStore, handlers []invservice.DeviceHandler) (*Reconciler, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 1
 	}
@@ -100,7 +86,7 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.Modul
 	rec := &Reconciler{
 		log:              log,
 		cfg:              cfg,
-		handlers:         handlers,
+		deviceHandlers:   handlers,
 		store:            store,
 		fallbackManaged:  managed,
 		fallbackApproval: approval,
@@ -111,15 +97,11 @@ func New(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.Modul
 	return rec, nil
 }
 
-func NewReconciler(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.ModuleConfigStore, handlers []contracts.InventoryHandler) (*Reconciler, error) {
+func NewReconciler(log logr.Logger, cfg config.ControllerConfig, store *moduleconfig.ModuleConfigStore, handlers []invservice.DeviceHandler) (*Reconciler, error) {
 	return New(log, cfg, store, handlers)
 }
 
-func (r *Reconciler) collectNodeDetections(ctx context.Context, node string) (invservice.NodeDetection, error) {
-	return r.detectionSvc().Collect(ctx, node)
-}
-
-func (r *Reconciler) detectionSvc() invservice.DetectionCollector {
+func (r *Reconciler) detectionSvc() invhandler.DetectionCollector {
 	if r.detectionCollector == nil || r.detectionClient != r.client {
 		r.detectionCollector = invservice.NewDetectionCollector(r.client)
 		r.detectionClient = r.client
@@ -127,25 +109,43 @@ func (r *Reconciler) detectionSvc() invservice.DetectionCollector {
 	return r.detectionCollector
 }
 
-func (r *Reconciler) cleanupSvc() invservice.CleanupService {
+func (r *Reconciler) cleanupSvc() invhandler.CleanupService {
 	if r.cleanupService == nil {
 		r.cleanupService = invservice.NewCleanupService(r.client, r.recorder)
 	}
 	return r.cleanupService
 }
 
-func (r *Reconciler) deviceSvc() DeviceService {
+func (r *Reconciler) deviceSvc() invhandler.DeviceService {
 	if r.deviceService == nil {
-		r.deviceService = invservice.NewDeviceService(r.client, r.scheme, r.recorder, r.handlers)
+		r.deviceService = invservice.NewDeviceService(r.client, r.scheme, r.recorder, r.deviceHandlers)
 	}
 	return r.deviceService
 }
 
-func (r *Reconciler) inventorySvc() InventoryService {
+func (r *Reconciler) inventorySvc() invhandler.InventoryService {
 	if r.inventoryService == nil {
 		r.inventoryService = invservice.NewInventoryService(r.client, r.scheme, r.recorder)
 	}
 	return r.inventoryService
+}
+
+func (r *Reconciler) handlerChain() []Handler {
+	if r.handlers != nil {
+		return r.handlers
+	}
+	r.handlers = []Handler{
+		invhandler.NewInventoryHandler(
+			r.log.WithName("inventory"),
+			r.client,
+			r.deviceSvc(),
+			r.inventorySvc(),
+			r.cleanupSvc(),
+			r.detectionSvc(),
+			r.recorder,
+		),
+	}
+	return r.handlers
 }
 
 func managedAndApprovalFromState(state moduleconfig.State) (invstate.ManagedNodesPolicy, invstate.DeviceApprovalPolicy, error) {
@@ -154,7 +154,7 @@ func managedAndApprovalFromState(state moduleconfig.State) (invstate.ManagedNode
 		EnabledByDefault: state.Settings.ManagedNodes.EnabledByDefault,
 	}
 	if managed.LabelKey == "" {
-		managed.LabelKey = invconsts.DefaultManagedNodeLabelKey
+		managed.LabelKey = invstate.DefaultManagedNodeLabelKey
 	}
 
 	approval, err := invstate.NewDeviceApprovalPolicy(state.Settings.DeviceApproval)

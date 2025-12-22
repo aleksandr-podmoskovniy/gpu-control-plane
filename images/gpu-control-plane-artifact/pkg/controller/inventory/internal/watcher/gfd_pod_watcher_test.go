@@ -23,12 +23,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/bootstrap/meta"
+	common "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common"
 )
 
 func TestNewGFDPodWatcher(t *testing.T) {
 	w := NewGFDPodWatcher()
-	if w.gfdApp != meta.AppName(meta.ComponentGPUFeatureDiscovery) {
+	if w.gfdApp != common.AppName(common.ComponentGPUFeatureDiscovery) {
 		t.Fatalf("unexpected gfd app label: %q", w.gfdApp)
 	}
 }
@@ -51,7 +51,7 @@ func TestMapGFDPodToNode(t *testing.T) {
 }
 
 func TestIsGFDPod(t *testing.T) {
-	gfdApp := meta.AppName(meta.ComponentGPUFeatureDiscovery)
+	gfdApp := common.AppName(common.ComponentGPUFeatureDiscovery)
 
 	if isGFDPod(nil, gfdApp) {
 		t.Fatalf("expected nil pod to not match")
@@ -62,10 +62,10 @@ func TestIsGFDPod(t *testing.T) {
 	if isGFDPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Labels: map[string]string{"app": gfdApp}}}, gfdApp) {
 		t.Fatalf("expected wrong namespace to not match")
 	}
-	if isGFDPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: meta.WorkloadsNamespace, Labels: map[string]string{"app": "other"}}}, gfdApp) {
+	if isGFDPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: common.WorkloadsNamespace, Labels: map[string]string{"app": "other"}}}, gfdApp) {
 		t.Fatalf("expected wrong app label to not match")
 	}
-	if !isGFDPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: meta.WorkloadsNamespace, Labels: map[string]string{"app": gfdApp}}}, gfdApp) {
+	if !isGFDPod(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: common.WorkloadsNamespace, Labels: map[string]string{"app": gfdApp}}}, gfdApp) {
 		t.Fatalf("expected matching GFD pod")
 	}
 }
@@ -88,11 +88,11 @@ func TestIsPodReady(t *testing.T) {
 }
 
 func TestGFDPodPredicatesBranches(t *testing.T) {
-	gfdApp := meta.AppName(meta.ComponentGPUFeatureDiscovery)
+	gfdApp := common.AppName(common.ComponentGPUFeatureDiscovery)
 	p := gfdPodPredicates(gfdApp)
 
 	readyPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: meta.WorkloadsNamespace, Labels: map[string]string{"app": gfdApp}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: common.WorkloadsNamespace, Labels: map[string]string{"app": gfdApp}},
 		Spec:       corev1.PodSpec{NodeName: "node-a"},
 		Status: corev1.PodStatus{
 			PodIP:      "10.0.0.1",

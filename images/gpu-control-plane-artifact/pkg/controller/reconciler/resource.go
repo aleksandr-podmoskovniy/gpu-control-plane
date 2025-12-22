@@ -16,64 +16,205 @@ package reconciler
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"maps"
 	"reflect"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/patch"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/conditions"
 )
 
-var (
-	errNilClient   = errors.New("resource client is not configured")
-	errNilResource = errors.New("resource is not initialized")
-)
-
-// Resource tracks original and mutated objects to produce minimal patches.
-type Resource[T client.Object] struct {
-	original T
-	current  T
-	client   client.Client
+type ResourceObject[T, ST any] interface {
+	comparable
+	client.Object
+	DeepCopy() T
+	GetObjectMeta() metav1.Object
 }
 
-func isNilObject[T any](obj T) bool {
-	val := reflect.ValueOf(obj)
-	if !val.IsValid() {
-		return true
-	}
-	switch val.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Interface, reflect.Slice:
-		return val.IsNil()
-	default:
-		return false
+type ObjectStatusGetter[T, ST any] func(obj T) ST
+
+type ObjectFactory[T any] func() T
+
+type Resource[T ResourceObject[T, ST], ST any] struct {
+	name       types.NamespacedName
+	currentObj T
+	changedObj T
+	emptyObj   T
+
+	objFactory      ObjectFactory[T]
+	objStatusGetter ObjectStatusGetter[T, ST]
+	client          client.Client
+}
+
+func NewResource[T ResourceObject[T, ST], ST any](name types.NamespacedName, client client.Client, objFactory ObjectFactory[T], objStatusGetter ObjectStatusGetter[T, ST]) *Resource[T, ST] {
+	return &Resource[T, ST]{
+		name:            name,
+		client:          client,
+		objFactory:      objFactory,
+		objStatusGetter: objStatusGetter,
 	}
 }
 
-// NewResource clones the provided object and prepares it for patch operations.
-func NewResource[T client.Object](obj T, cl client.Client) *Resource[T] {
-	var original T
-	if !isNilObject(obj) {
-		if copy, ok := obj.DeepCopyObject().(T); ok {
-			original = copy
+func (r *Resource[T, ST]) getObjStatus(obj T) (ret ST) {
+	if obj != r.emptyObj {
+		ret = r.objStatusGetter(obj)
+	}
+	return
+}
+
+func (r *Resource[T, ST]) Name() types.NamespacedName {
+	return r.name
+}
+
+func (r *Resource[T, ST]) Fetch(ctx context.Context) error {
+	currentObj, err := object.FetchObject(ctx, r.name, r.client, r.objFactory())
+	if err != nil {
+		return err
+	}
+
+	r.currentObj = currentObj
+	if r.IsEmpty() {
+		r.changedObj = r.emptyObj
+		return nil
+	}
+
+	r.changedObj = currentObj.DeepCopy()
+	return nil
+}
+
+func (r *Resource[T, ST]) IsEmpty() bool {
+	return r.currentObj == r.emptyObj
+}
+
+func (r *Resource[T, ST]) Current() T {
+	return r.currentObj
+}
+
+func (r *Resource[T, ST]) Changed() T {
+	return r.changedObj
+}
+
+func rewriteObject(obj client.Object) {
+	if obj == nil {
+		return
+	}
+	accessor := conditions.NewConditionsAccessor(obj)
+	if accessor == nil {
+		return
+	}
+	conds := accessor.Conditions()
+	if conds == nil {
+		return
+	}
+	rewriteConditions(*conds)
+}
+
+func rewriteConditions(conds []metav1.Condition) {
+	for i := range conds {
+		if conds[i].Reason == "" {
+			conds[i].Reason = conditions.ReasonUnknown.String()
+		}
+		if conds[i].Status == "" {
+			conds[i].Status = metav1.ConditionUnknown
 		}
 	}
-	return &Resource[T]{original: original, current: obj, client: cl}
 }
 
-// Original returns the snapshot captured at creation time. Do not mutate it.
-func (r *Resource[T]) Original() T {
-	return r.original
+func (r *Resource[T, ST]) Update(ctx context.Context) error {
+	if r.IsEmpty() {
+		return nil
+	}
+
+	rewriteObject(r.changedObj)
+
+	if !reflect.DeepEqual(r.getObjStatus(r.currentObj), r.getObjStatus(r.changedObj)) {
+		finalizers := r.changedObj.GetFinalizers()
+		labels := r.changedObj.GetLabels()
+		annotations := r.changedObj.GetAnnotations()
+		if err := r.client.Status().Update(ctx, r.changedObj); err != nil {
+			return fmt.Errorf("error updating status subresource: %w", err)
+		}
+		r.changedObj.SetFinalizers(finalizers)
+		r.changedObj.SetLabels(labels)
+		r.changedObj.SetAnnotations(annotations)
+	}
+
+	metadataPatch := patch.NewJSONPatch()
+
+	if !slices.Equal(r.currentObj.GetFinalizers(), r.changedObj.GetFinalizers()) {
+		metadataPatch.Append(r.JSONPatchOpsForFinalizers()...)
+	}
+	if !maps.Equal(r.currentObj.GetAnnotations(), r.changedObj.GetAnnotations()) {
+		metadataPatch.Append(r.JSONPatchOpsForAnnotations()...)
+	}
+	if !maps.Equal(r.currentObj.GetLabels(), r.changedObj.GetLabels()) {
+		metadataPatch.Append(r.JSONPatchOpsForLabels()...)
+	}
+
+	if metadataPatch.Len() == 0 {
+		return nil
+	}
+
+	metadataPatchBytes, err := metadataPatch.Bytes()
+	if err != nil {
+		return err
+	}
+	jsonPatch := client.RawPatch(types.JSONPatchType, metadataPatchBytes)
+	if err = r.client.Patch(ctx, r.changedObj, jsonPatch); err != nil {
+		if r.changedObj.GetDeletionTimestamp() != nil && len(r.changedObj.GetFinalizers()) == 0 && kerrors.IsNotFound(err) {
+			return nil
+		}
+
+		return fmt.Errorf("error patching metadata (%s): %w", string(metadataPatchBytes), err)
+	}
+
+	return nil
 }
 
-// PatchStatus applies status changes via the status subresource using MergeFrom.
-func (r *Resource[T]) PatchStatus(ctx context.Context) error {
-	if r.client == nil {
-		return errNilClient
+func (r *Resource[T, ST]) JSONPatchOpsForFinalizers() []patch.JSONPatchOperation {
+	return []patch.JSONPatchOperation{
+		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/finalizers", r.changedObj.GetFinalizers()),
 	}
-	if isNilObject(r.current) || isNilObject(r.original) {
-		return errNilResource
+}
+
+func (r *Resource[T, ST]) JSONPatchOpsForAnnotations() []patch.JSONPatchOperation {
+	return []patch.JSONPatchOperation{
+		patch.NewJSONPatchOperation(patch.PatchTestOp, "/metadata/annotations", r.currentObj.GetAnnotations()),
+		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/annotations", r.changedObj.GetAnnotations()),
 	}
-	patch := client.MergeFrom(r.original)
-	if r.original.GetResourceVersion() != "" {
-		patch = client.MergeFromWithOptions(r.original, client.MergeFromWithOptimisticLock{})
+}
+
+func (r *Resource[T, ST]) JSONPatchOpsForLabels() []patch.JSONPatchOperation {
+	return []patch.JSONPatchOperation{
+		patch.NewJSONPatchOperation(patch.PatchTestOp, "/metadata/labels", r.currentObj.GetLabels()),
+		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/labels", r.changedObj.GetLabels()),
 	}
-	return r.client.Status().Patch(ctx, r.current, patch)
+}
+
+func MergeResults(results ...reconcile.Result) reconcile.Result {
+	var result reconcile.Result
+	for _, r := range results {
+		if r.IsZero() {
+			continue
+		}
+		if r.Requeue && r.RequeueAfter == 0 {
+			return r
+		}
+		if result.IsZero() && r.RequeueAfter > 0 {
+			result = r
+			continue
+		}
+		if r.RequeueAfter > 0 && r.RequeueAfter < result.RequeueAfter {
+			result.RequeueAfter = r.RequeueAfter
+		}
+	}
+	return result
 }

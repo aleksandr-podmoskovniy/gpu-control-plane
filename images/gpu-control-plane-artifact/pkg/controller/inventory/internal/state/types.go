@@ -56,4 +56,3 @@ type deviceSnapshot struct {
 	DisplayMode  string
 	MIG          v1alpha1.GPUMIGConfig
 }
-

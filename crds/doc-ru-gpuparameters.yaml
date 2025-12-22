@@ -1,0 +1,16 @@
+spec:
+  versions:
+    - name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: >
+            Namespaced-ресурс с параметрами запроса GPU, используемыми в DRA
+            (передаётся в ResourceClaim.devices.config.opaque.parameters).
+          properties:
+            spec:
+              description: Параметры запроса GPU.
+              properties:
+                className:
+                  description: Имя GPUClass, на который нацелен запрос.
+                sharePercent:
+                  description: Процент совместного использования (1..100), если поддерживается.

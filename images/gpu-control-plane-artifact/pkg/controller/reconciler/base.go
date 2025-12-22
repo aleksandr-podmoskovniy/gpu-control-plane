@@ -22,14 +22,13 @@ import (
 
 	"github.com/go-logr/logr"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-
-	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/contracts"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// ErrStopChain is a sentinel error allowing handlers to stop further execution.
-var ErrStopChain = errors.New("stop handler chain execution")
+// ErrStopHandlerChain is a sentinel error allowing handlers to stop further execution.
+var ErrStopHandlerChain = errors.New("stop handler chain execution")
 
-const conflictRequeueAfter = 50 * time.Millisecond
+const conflictRequeueAfter = 100 * time.Microsecond
 
 type (
 	// Named marks handlers that expose human readable name for logging.
@@ -45,55 +44,46 @@ type (
 	// ResourceUpdater persists the final resource state.
 	ResourceUpdater func(ctx context.Context) error
 
-	// HandlerExecutor runs a single handler and returns its contracts.Result.
-	HandlerExecutor[H any] func(ctx context.Context, h H) (contracts.Result, error)
+	// HandlerExecutor runs a single handler and returns its reconcile.Result.
+	HandlerExecutor[H any] func(ctx context.Context, h H) (reconcile.Result, error)
 )
 
-// Base orchestrates handler execution, resource updates and finalizers.
-type Base[H any] struct {
+// BaseReconciler orchestrates handler execution, resource updates and finalizers.
+type BaseReconciler[H any] struct {
 	handlers []H
 	update   ResourceUpdater
 	execute  HandlerExecutor[H]
 }
 
-// NewBase constructs a Base reconciler for the provided handlers.
-func NewBase[H any](handlers []H) *Base[H] {
-	return &Base[H]{handlers: handlers}
+// NewBaseReconciler constructs a BaseReconciler for the provided handlers.
+func NewBaseReconciler[H any](handlers []H) *BaseReconciler[H] {
+	return &BaseReconciler[H]{handlers: handlers}
 }
 
 // SetResourceUpdater configures the resource update callback.
-func (b *Base[H]) SetResourceUpdater(update ResourceUpdater) {
+func (b *BaseReconciler[H]) SetResourceUpdater(update ResourceUpdater) {
 	b.update = update
 }
 
 // SetHandlerExecutor configures how individual handlers are invoked.
-func (b *Base[H]) SetHandlerExecutor(execute HandlerExecutor[H]) {
+func (b *BaseReconciler[H]) SetHandlerExecutor(execute HandlerExecutor[H]) {
 	b.execute = execute
 }
 
-// MergeResults aggregates multiple handler results following Deckhouse controller conventions.
-func MergeResults(results ...contracts.Result) contracts.Result {
-	var merged contracts.Result
-	for _, res := range results {
-		merged = contracts.MergeResult(merged, res)
-	}
-	return merged
-}
-
 // Reconcile executes handlers sequentially, applies updates and finalizers.
-func (b *Base[H]) Reconcile(ctx context.Context) (contracts.Result, error) {
+func (b *BaseReconciler[H]) Reconcile(ctx context.Context) (reconcile.Result, error) {
 	if b.update == nil {
-		return contracts.Result{}, errors.New("resource updater is not configured")
+		return reconcile.Result{}, errors.New("resource updater is not configured")
 	}
 	if b.execute == nil {
-		return contracts.Result{}, errors.New("handler executor is not configured")
+		return reconcile.Result{}, errors.New("handler executor is not configured")
 	}
 
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(2).Info("start reconciliation")
 
 	var (
-		result contracts.Result
+		result reconcile.Result
 		errs   error
 	)
 
@@ -111,13 +101,13 @@ func (b *Base[H]) Reconcile(ctx context.Context) (contracts.Result, error) {
 		switch {
 		case err == nil:
 			// noop
-		case errors.Is(err, ErrStopChain):
+		case errors.Is(err, ErrStopHandlerChain):
 			handlerLog.V(1).Info("handler requested to stop chain")
 			result = MergeResults(result, res)
 			goto finalize // skip remaining handlers
 		case k8serrors.IsConflict(err):
 			handlerLog.V(1).Info("conflict occurred during handler execution", "err", err)
-			res = MergeResults(res, contracts.Result{RequeueAfter: conflictRequeueAfter})
+			res = MergeResults(res, reconcile.Result{RequeueAfter: conflictRequeueAfter})
 		default:
 			handlerLog.Error(err, "handler failed")
 			errs = errors.Join(errs, err)
@@ -135,7 +125,7 @@ finalize:
 		switch {
 		case k8serrors.IsConflict(err):
 			log.V(1).Info("conflict occurred during resource update", "err", err)
-			result = MergeResults(result, contracts.Result{RequeueAfter: conflictRequeueAfter})
+			result = MergeResults(result, reconcile.Result{RequeueAfter: conflictRequeueAfter})
 		default:
 			log.Error(err, "failed to persist resource changes")
 			errs = errors.Join(errs, err)
@@ -155,7 +145,7 @@ finalize:
 
 	if errs != nil {
 		log.Error(errs, "handler chain finished with errors")
-		return contracts.Result{}, errs
+		return reconcile.Result{}, errs
 	}
 
 	log.V(2).Info("reconciliation completed",

@@ -34,4 +34,3 @@ func TestIsReady(t *testing.T) {
 		t.Fatalf("expected PodReady true to be ready")
 	}
 }
-

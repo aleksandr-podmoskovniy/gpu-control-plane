@@ -54,4 +54,3 @@ func TestNodePredicates(t *testing.T) {
 		t.Fatalf("expected update adding GPU labels to trigger")
 	}
 }
-
