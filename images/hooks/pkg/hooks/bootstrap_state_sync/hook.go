@@ -33,6 +33,8 @@ import (
 const (
 	bootstrapStateSnapshot = "gpu-gpu-node-state"
 	bootstrapStateFilter   = `{"name": .metadata.name, "status": .status}`
+	physicalGPUSnapshot    = "gpu-physical-gpu"
+	physicalGPUFilter      = `{"nodeName": .status.nodeInfo.nodeName}`
 )
 
 type inventorySnapshot struct {
@@ -42,6 +44,10 @@ type inventorySnapshot struct {
 
 type snapshotStatus struct {
 	Conditions []metav1.Condition `json:"conditions"`
+}
+
+type physicalSnapshot struct {
+	NodeName string `json:"nodeName"`
 }
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
@@ -58,12 +64,23 @@ var _ = registry.RegisterFunc(&pkg.HookConfig{
 			AllowFailure:                 ptr.To(true),
 			WaitForSynchronization:       ptr.To(false),
 		},
+		{
+			Name:                         physicalGPUSnapshot,
+			APIVersion:                   "gpu.deckhouse.io/v1alpha1",
+			Kind:                         "PhysicalGPU",
+			JqFilter:                     physicalGPUFilter,
+			ExecuteHookOnSynchronization: ptr.To(true),
+			ExecuteHookOnEvents:          ptr.To(true),
+			AllowFailure:                 ptr.To(true),
+			WaitForSynchronization:       ptr.To(false),
+		},
 	},
 }, handleBootstrapStateSync)
 
 func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
-	snaps := input.Snapshots.Get(bootstrapStateSnapshot)
-	if len(snaps) == 0 {
+	stateSnaps := input.Snapshots.Get(bootstrapStateSnapshot)
+	physicalSnaps := input.Snapshots.Get(physicalGPUSnapshot)
+	if len(stateSnaps) == 0 && len(physicalSnaps) == 0 {
 		input.Values.Remove(settings.InternalBootstrapStatePath)
 		return nil
 	}
@@ -76,7 +93,21 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		settings.BootstrapComponentDCGMExporter:        []string{},
 	}
 
-	for _, snap := range snaps {
+	physicalNodes := map[string]struct{}{}
+	for _, snap := range physicalSnaps {
+		var payload physicalSnapshot
+		if err := snap.UnmarshalTo(&payload); err != nil {
+			input.Logger.Info(fmt.Sprintf("bootstrap-state: skip PhysicalGPU snapshot: %v", err))
+			continue
+		}
+		nodeName := strings.TrimSpace(payload.NodeName)
+		if nodeName == "" {
+			continue
+		}
+		physicalNodes[nodeName] = struct{}{}
+	}
+
+	for _, snap := range stateSnaps {
 		var payload inventorySnapshot
 		if err := snap.UnmarshalTo(&payload); err != nil {
 			input.Logger.Info(fmt.Sprintf("bootstrap-state: skip inventory snapshot: %v", err))
@@ -99,9 +130,6 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		}
 		nodes[nodeName] = entry
 
-		// Stage 1: always run validator on nodes that have GPUNodeState.
-		componentNodes[settings.BootstrapComponentValidator] = append(componentNodes[settings.BootstrapComponentValidator], nodeName)
-
 		// Stage 2+: run discovery/monitoring only after driver/toolkit are ready.
 		if conditionTrue(conds, "DriverReady") && conditionTrue(conds, "ToolkitReady") {
 			componentNodes[settings.BootstrapComponentGPUFeatureDiscovery] = append(componentNodes[settings.BootstrapComponentGPUFeatureDiscovery], nodeName)
@@ -110,7 +138,19 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		}
 	}
 
-	if len(nodes) == 0 {
+	validatorNodes := []string{}
+	if len(physicalNodes) > 0 {
+		for nodeName := range physicalNodes {
+			validatorNodes = append(validatorNodes, nodeName)
+		}
+	} else {
+		for nodeName := range nodes {
+			validatorNodes = append(validatorNodes, nodeName)
+		}
+	}
+	componentNodes[settings.BootstrapComponentValidator] = validatorNodes
+
+	if len(nodes) == 0 && len(physicalNodes) == 0 {
 		input.Values.Remove(settings.InternalBootstrapStatePath)
 		return nil
 	}

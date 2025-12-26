@@ -25,8 +25,33 @@ spec:
     - jsonPath: .status.nodeInfo.nodeName
       name: Node
       type: string
-    - jsonPath: .metadata.labels.gpu\.deckhouse\.io/vendor
+    - jsonPath: .status.pciInfo.vendor.name
       name: Vendor
+      type: string
+    - jsonPath: .status.pciInfo.device.name
+      name: Device
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="DriverReady")].status
+      name: DriverReady
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="HardwareHealthy")].status
+      name: HardwareHealthy
+      type: string
+    - jsonPath: .status.currentState.vendor.nvidia.driverVersion
+      name: DriverVersion
+      priority: 1
+      type: string
+    - jsonPath: .status.currentState.vendor.nvidia.cudaVersion
+      name: CUDAVersion
+      priority: 1
+      type: string
+    - jsonPath: .status.capabilities.vendor.nvidia.computeCap
+      name: ComputeCap
+      priority: 1
+      type: string
+    - jsonPath: .status.capabilities.vendor.nvidia.migSupported
+      name: MIGSupported
+      priority: 1
       type: string
     name: v1alpha1
     schema:

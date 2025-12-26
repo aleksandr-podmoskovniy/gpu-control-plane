@@ -104,5 +104,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 func (a *Agent) sync(ctx context.Context) error {
 	st := state.New(a.cfg.NodeName)
-	return a.chain.Run(ctx, st, a.log)
+	if err := a.chain.Run(ctx, st, a.log); err != nil {
+		return err
+	}
+	a.log.Info("sync completed", "devices", len(st.Devices()))
+	return nil
 }

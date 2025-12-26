@@ -38,6 +38,7 @@ type Device struct {
 	Address    string
 	ClassCode  string
 	ClassName  string
+	Index      string
 	VendorID   string
 	VendorName string
 	DeviceID   string
@@ -89,7 +90,7 @@ func (s *state) SetDevices(devices []Device) {
 	s.devices = devices
 	s.expected = make(map[string]Device, len(devices))
 	for _, dev := range devices {
-		name := PhysicalGPUName(s.nodeName, dev.Address)
+		name := PhysicalGPUName(s.nodeName, dev)
 		s.expected[name] = dev
 	}
 }
@@ -116,9 +117,10 @@ func LabelsForDevice(nodeName string, dev Device) map[string]string {
 }
 
 // PhysicalGPUName returns a stable name for a PhysicalGPU object.
-func PhysicalGPUName(nodeName, pciAddress string) string {
-	safe := strings.NewReplacer(":", "-", ".", "-", "_", "-").Replace(pciAddress)
-	return fmt.Sprintf("%s-%s", nodeName, safe)
+func PhysicalGPUName(nodeName string, dev Device) string {
+	base := sanitizeName(nodeName)
+	suffix := sanitizeName(fmt.Sprintf("%s-%s-%s", dev.Index, dev.VendorID, dev.DeviceID))
+	return truncateName(base + "-" + suffix)
 }
 
 // VendorName maps PCI vendor ID to the API enum.
@@ -176,4 +178,36 @@ func normalizeLabelValue(value string) string {
 		return ""
 	}
 	return out
+}
+
+func sanitizeName(input string) string {
+	input = strings.ToLower(input)
+	var builder strings.Builder
+
+	lastHyphen := false
+	for _, r := range input {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastHyphen = false
+			continue
+		}
+		if !lastHyphen {
+			builder.WriteRune('-')
+			lastHyphen = true
+		}
+	}
+
+	result := strings.Trim(builder.String(), "-")
+	if result == "" {
+		return "gpu"
+	}
+	return result
+}
+
+func truncateName(name string) string {
+	const maxLen = 63
+	if len(name) <= maxLen {
+		return name
+	}
+	return name[:maxLen]
 }

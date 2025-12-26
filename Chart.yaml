@@ -16,5 +16,5 @@ name: gpu-control-plane
 version: 0.0.1
 dependencies:
   - name: deckhouse_lib_helm
-    version: 1.55.1
+    version: 1.65.2
     repository: https://deckhouse.github.io/lib-helm

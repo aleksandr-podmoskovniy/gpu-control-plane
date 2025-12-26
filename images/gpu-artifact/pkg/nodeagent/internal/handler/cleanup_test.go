@@ -37,8 +37,10 @@ func TestCleanupHandlerDeletesStaleObjects(t *testing.T) {
 		t.Fatalf("add scheme: %v", err)
 	}
 
-	expectedName := state.PhysicalGPUName("node-1", "0000:01:00.0")
-	staleName := state.PhysicalGPUName("node-1", "0000:02:00.0")
+	expectedDevice := state.Device{Address: "0000:01:00.0", Index: "0", VendorID: "10de", DeviceID: "1eb8"}
+	staleDevice := state.Device{Address: "0000:02:00.0", Index: "1", VendorID: "10de", DeviceID: "1eb8"}
+	expectedName := state.PhysicalGPUName("node-1", expectedDevice)
+	staleName := state.PhysicalGPUName("node-1", staleDevice)
 
 	expected := &gpuv1alpha1.PhysicalGPU{
 		ObjectMeta: metav1.ObjectMeta{
@@ -61,7 +63,7 @@ func TestCleanupHandlerDeletesStaleObjects(t *testing.T) {
 	handler := NewCleanupHandler(service.NewClientStore(cl))
 	st := state.New("node-1")
 	st.SetDevices([]state.Device{
-		{Address: "0000:01:00.0"},
+		expectedDevice,
 	})
 
 	if err := handler.Handle(context.Background(), st); err != nil {

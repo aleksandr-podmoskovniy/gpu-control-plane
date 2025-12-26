@@ -42,21 +42,23 @@ func TestApplyHandlerCreatesPhysicalGPU(t *testing.T) {
 
 	handler := NewApplyHandler(service.NewClientStore(cl))
 	st := state.New("node-1")
-	st.SetDevices([]state.Device{
+	devices := []state.Device{
 		{
 			Address:    "0000:01:00.0",
 			ClassCode:  "0300",
+			Index:      "0",
 			VendorID:   "10de",
 			DeviceID:   "1eb8",
 			DeviceName: "GA100GL [A30 PCIe]",
 		},
-	})
+	}
+	st.SetDevices(devices)
 
 	if err := handler.Handle(context.Background(), st); err != nil {
 		t.Fatalf("handle: %v", err)
 	}
 
-	name := state.PhysicalGPUName("node-1", "0000:01:00.0")
+	name := state.PhysicalGPUName("node-1", devices[0])
 	obj := &gpuv1alpha1.PhysicalGPU{}
 	if err := cl.Get(context.Background(), client.ObjectKey{Name: name}, obj); err != nil {
 		t.Fatalf("get PhysicalGPU: %v", err)

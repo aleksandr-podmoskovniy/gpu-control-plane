@@ -183,7 +183,14 @@ type NvidiaMIGState struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=pgpu,categories=deckhouse;gpu
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.status.nodeInfo.nodeName`
-// +kubebuilder:printcolumn:name="Vendor",type=string,JSONPath=`.metadata.labels.gpu\.deckhouse\.io/vendor`
+// +kubebuilder:printcolumn:name="Vendor",type=string,JSONPath=`.status.pciInfo.vendor.name`
+// +kubebuilder:printcolumn:name="Device",type=string,JSONPath=`.status.pciInfo.device.name`
+// +kubebuilder:printcolumn:name="DriverReady",type=string,JSONPath=`.status.conditions[?(@.type=="DriverReady")].status`
+// +kubebuilder:printcolumn:name="HardwareHealthy",type=string,JSONPath=`.status.conditions[?(@.type=="HardwareHealthy")].status`
+// +kubebuilder:printcolumn:name="DriverVersion",type=string,JSONPath=`.status.currentState.vendor.nvidia.driverVersion`,priority=1
+// +kubebuilder:printcolumn:name="CUDAVersion",type=string,JSONPath=`.status.currentState.vendor.nvidia.cudaVersion`,priority=1
+// +kubebuilder:printcolumn:name="ComputeCap",type=string,JSONPath=`.status.capabilities.vendor.nvidia.computeCap`,priority=1
+// +kubebuilder:printcolumn:name="MIGSupported",type=string,JSONPath=`.status.capabilities.vendor.nvidia.migSupported`,priority=1
 
 // PhysicalGPU is the Schema for the physicalgpus API.
 type PhysicalGPU struct {

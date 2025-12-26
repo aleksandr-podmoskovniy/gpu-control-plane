@@ -53,6 +53,12 @@ func (s jsonSnapshot) UnmarshalTo(target any) error {
 			return nil
 		}
 	}
+	if snapshot, ok := s.value.(physicalSnapshot); ok {
+		if out, ok := target.(*physicalSnapshot); ok {
+			*out = snapshot
+			return nil
+		}
+	}
 	raw, err := json.Marshal(s.value)
 	if err != nil {
 		return err
@@ -333,5 +339,52 @@ func TestHandleBootstrapStateSyncIncludesEmptyComponents(t *testing.T) {
 		if hash := data["hash"].(string); hash != hashStrings(nil) {
 			t.Fatalf("component %s hash expected %s for empty nodes, got %s", component, hashStrings(nil), hash)
 		}
+	}
+}
+
+func TestHandleBootstrapStateSyncPrefersPhysicalGPUForValidator(t *testing.T) {
+	input, patchable := newHookInput(t, map[string]any{}, map[string][]pkg.Snapshot{
+		bootstrapStateSnapshot: {
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-a",
+				Status: snapshotStatus{Conditions: []metav1.Condition{
+					{Type: "DriverReady", Status: metav1.ConditionTrue},
+					{Type: "ToolkitReady", Status: metav1.ConditionTrue},
+				}},
+			}},
+			jsonSnapshot{value: inventorySnapshot{
+				Name: "node-b",
+				Status: snapshotStatus{Conditions: []metav1.Condition{
+					{Type: "DriverReady", Status: metav1.ConditionFalse},
+				}},
+			}},
+		},
+		physicalGPUSnapshot: {
+			jsonSnapshot{value: physicalSnapshot{NodeName: "node-b"}},
+		},
+	})
+
+	if err := handleBootstrapStateSync(context.Background(), input); err != nil {
+		t.Fatalf("handleBootstrapStateSync returned error: %v", err)
+	}
+
+	patches := patchable.GetPatches()
+	if len(patches) != 1 {
+		t.Fatalf("expected single patch, got %d", len(patches))
+	}
+
+	payloadValue := decodePatchValue(t, patches[0].Value).(map[string]any)
+	components := payloadValue["components"].(map[string]any)
+
+	validator := components[settings.BootstrapComponentValidator].(map[string]any)
+	validatorNodes := validator["nodes"].([]any)
+	if len(validatorNodes) != 1 || validatorNodes[0].(string) != "node-b" {
+		t.Fatalf("validator nodes expected [node-b], got %#v", validatorNodes)
+	}
+
+	gfd := components[settings.BootstrapComponentGPUFeatureDiscovery].(map[string]any)
+	gfdNodes := gfd["nodes"].([]any)
+	if len(gfdNodes) != 1 || gfdNodes[0].(string) != "node-a" {
+		t.Fatalf("gfd nodes expected [node-a], got %#v", gfdNodes)
 	}
 }

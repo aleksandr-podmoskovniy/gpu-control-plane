@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
@@ -105,6 +107,13 @@ func (p *SysfsPCIProvider) Scan(_ context.Context) ([]state.Device, error) {
 		}
 
 		devices = append(devices, device)
+	}
+
+	sort.Slice(devices, func(i, j int) bool {
+		return devices[i].Address < devices[j].Address
+	})
+	for i := range devices {
+		devices[i].Index = strconv.Itoa(i)
 	}
 
 	return devices, nil

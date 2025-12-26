@@ -50,7 +50,7 @@ func (h *ApplyHandler) Name() string {
 func (h *ApplyHandler) Handle(ctx context.Context, st state.State) error {
 	var errs []error
 	for _, dev := range st.Devices() {
-		name := state.PhysicalGPUName(st.NodeName(), dev.Address)
+		name := state.PhysicalGPUName(st.NodeName(), dev)
 		if err := h.applyDevice(ctx, name, st.NodeName(), dev, st.NodeInfo()); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}

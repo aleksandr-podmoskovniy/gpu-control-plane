@@ -119,6 +119,13 @@ deckhouse-gpu-kernel-os
 {{- end -}}
 {{- end -}}
 
+{{- define "gpuControlPlane.controlPlaneExcludedExpression" -}}
+- key: node-role.kubernetes.io/control-plane
+  operator: DoesNotExist
+- key: node-role.kubernetes.io/master
+  operator: DoesNotExist
+{{- end -}}
+
 {{- define "gpuControlPlane.managedNodeAbsentExpression" -}}
 - key: {{ include "gpuControlPlane.managedNodeLabelKey" . }}
   operator: DoesNotExist
@@ -134,10 +141,12 @@ affinity:
       nodeSelectorTerms:
         - matchExpressions:
 {{ include "gpuControlPlane.managedNodePresentExpression" $ctx | indent 10 }}
+{{ include "gpuControlPlane.controlPlaneExcludedExpression" $ctx | indent 10 }}
 {{ include "gpuControlPlane.managedNodeMatchExpression" $ctx | indent 10 }}
         {{- if $enabledByDefault }}
         - matchExpressions:
 {{ include "gpuControlPlane.managedNodePresentExpression" $ctx | indent 10 }}
+{{ include "gpuControlPlane.controlPlaneExcludedExpression" $ctx | indent 10 }}
 {{ include "gpuControlPlane.managedNodeAbsentExpression" $ctx | indent 10 }}
         {{- end }}
 {{- end -}}
