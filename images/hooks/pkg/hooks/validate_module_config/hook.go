@@ -252,7 +252,16 @@ func buildControllerConfig(cfg map[string]any) map[string]any {
 
 	moduleSection := make(map[string]any)
 	if managed, ok := cfg["managedNodes"]; ok {
-		moduleSection["managedNodes"] = managed
+		if m, ok := managed.(map[string]any); ok {
+			legacy := make(map[string]any, len(m)+1)
+			for k, v := range m {
+				legacy[k] = v
+			}
+			legacy["labelKey"] = "gpu.deckhouse.io/dp-enabled"
+			moduleSection["managedNodes"] = legacy
+		} else {
+			moduleSection["managedNodes"] = managed
+		}
 	}
 	if approval, ok := cfg["deviceApproval"]; ok {
 		moduleSection["deviceApproval"] = approval

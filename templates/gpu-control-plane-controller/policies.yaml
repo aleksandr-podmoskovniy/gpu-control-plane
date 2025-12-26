@@ -22,7 +22,7 @@ spec:
     updateMode: Initial
   resourcePolicy:
     containerPolicies:
-      - containerName: controller
+      - containerName: {{ $controllerName }}
         minAllowed:
           cpu: 25m
           memory: 128Mi

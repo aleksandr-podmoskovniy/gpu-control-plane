@@ -83,7 +83,7 @@ deckhouse-gpu-kernel-os
 {{- if and $module $module.runtime $module.runtime.controller $module.runtime.controller.nodeSelector }}
   {{- include "helm_lib_node_selector" (tuple $ctx "custom" $module.runtime.controller.nodeSelector) }}
 {{- else -}}
-  {{- include "helm_lib_node_selector" (tuple $ctx "system") }}
+  {{- include "helm_lib_node_selector" (tuple $ctx "master") }}
 {{- end }}
 {{- end -}}
 
@@ -110,7 +110,7 @@ deckhouse-gpu-kernel-os
 
 {{- define "gpuControlPlane.managedNodePresentExpression" -}}
 {{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
-{{- $presentLabel := $managed.presentLabelKey | default "gpu.deckhouse.io/present" -}}
+{{- $presentLabel := $managed.presentLabelKey | default "" -}}
 {{- if $presentLabel }}
 - key: {{ $presentLabel }}
   operator: In
