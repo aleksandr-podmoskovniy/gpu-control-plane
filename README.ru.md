@@ -67,8 +67,8 @@ MODULES_MODULE_SOURCE=127.0.0.1:5001/gpu-control-plane MODULES_MODULE_TAG=dev ma
        scheduling:
          defaultStrategy: Spread
          topologyKey: topology.kubernetes.io/zone
-       inventory:
-         resyncPeriod: "30s"
+      inventory:
+        resyncPeriod: "0s"
      version: 1
    ```
 

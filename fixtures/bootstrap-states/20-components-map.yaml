@@ -20,3 +20,19 @@ gpuControlPlane:
           phase: Ready
           nodes:
             - worker-a
+        gpu-controller:
+          phase: Ready
+          nodes:
+            - worker-a
+        gpu-node-agent:
+          phase: Ready
+          nodes:
+            - worker-a
+        gpu-dra-controller:
+          phase: Ready
+          nodes:
+            - worker-a
+        gpu-dra-plugin:
+          phase: Ready
+          nodes:
+            - worker-a

@@ -368,7 +368,7 @@ spec:
       defaultStrategy: Spread
       topologyKey: topology.kubernetes.io/zone
     inventory:
-      resyncPeriod: "30s"
+      resyncPeriod: "0s"
   version: 1
 ```
 
@@ -673,7 +673,7 @@ spec:
 
 - Интервал фонового пересъёма узлов задаётся через
   `ModuleConfig.spec.settings.inventory.resyncPeriod` (формат `<число><s|m|h>`,
-  значение по умолчанию `30s`). `gpu-inventory-controller` подписан на события
+  значение по умолчанию `0s`, периодический пересъём отключен). `gpu-inventory-controller` подписан на события
   `ModuleConfig` и без рестарта обновляет локальный таймер, поэтому изменение
   параметра немедленно отражается на всех reconcile-проходах.
 

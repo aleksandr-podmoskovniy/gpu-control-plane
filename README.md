@@ -70,7 +70,7 @@ checked by `make ensure-tools`.
           defaultStrategy: Spread
           topologyKey: topology.kubernetes.io/zone
       inventory:
-        resyncPeriod: "30s"
+        resyncPeriod: "0s"
     version: 1
    ```
 
@@ -79,7 +79,7 @@ checked by `make ensure-tools`.
  Defaults (when fields are omitted) match the example above:
  `managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
  `deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
- `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
+ `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=0s`.
 
 When the module is enabled, the hook ensures that NFD is present and creates
 the `NodeFeatureRule` required for GPU discovery.

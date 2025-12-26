@@ -5,82 +5,121 @@ spec:
         openAPIV3Schema:
           description: >
             Кластерный ресурс, описывающий физический GPU в инвентаре:
-            PCI-идентификацию, здоровье и возможности устройства.
+            PCI-идентификацию, условия готовности и возможности устройства.
           properties:
             spec:
               description: Желаемое состояние (в v0 не используется, spec пустой).
             status:
               description: Набор наблюдаемых характеристик и условий готовности.
               properties:
-                nodeName:
-                  description: Имя узла Kubernetes, где установлена карта.
-                pci:
-                  description: PCI-идентификация и информация о привязанном драйвере.
+                nodeInfo:
+                  description: Сведения о ноде, ОС и ядре.
+                  properties:
+                    nodeName:
+                      description: Имя узла Kubernetes, где обнаружена карта.
+                    os:
+                      description: Идентификаторы ОС (из /etc/os-release).
+                      properties:
+                        id:
+                          description: Идентификатор ОС (например, ubuntu).
+                        version:
+                          description: Версия ОС (например, 22.04).
+                        name:
+                          description: Человекочитаемое имя ОС.
+                    kernelRelease:
+                      description: Релиз ядра (uname -r).
+                    bareMetal:
+                      description: Признак bare-metal (true/false).
+                pciInfo:
+                  description: PCI-идентификация устройства.
                   properties:
                     address:
                       description: Полный PCI-адрес (domain:bus:slot.func).
-                    vendor:
-                      description: PCI vendor ID в шестнадцатеричном формате.
-                    device:
-                      description: PCI device ID в шестнадцатеричном формате.
                     class:
-                      description: PCI class code в шестнадцатеричном формате.
-                    driver:
-                      description: Имя kernel-драйвера, привязанного к устройству (nvidia, vfio-pci и т.п.).
-                product:
-                  description: Читаемое название модели GPU (например, NVIDIA A30).
-                conditions:
-                  description: Список условий готовности (DriverReady, HardwareHealthy, Ready).
+                      description: PCI class (base+subclass).
+                      properties:
+                        code:
+                          description: Код класса (например, 0302).
+                        name:
+                          description: Имя класса (например, 3D controller).
+                    vendor:
+                      description: PCI vendor.
+                      properties:
+                        id:
+                          description: PCI vendor ID (например, 10de).
+                        name:
+                          description: Имя vendor (например, NVIDIA Corporation).
+                    device:
+                      description: PCI device.
+                      properties:
+                        id:
+                          description: PCI device ID (например, 20b7).
+                        name:
+                          description: Имя устройства (например, GA100GL [A30 PCIe]).
                 capabilities:
-                  description: Нормализованные возможности устройства.
+                  description: Capability snapshot устройства (доступно при DriverReady=True).
                   properties:
-                    supports:
-                      description: Флаги поддержки функциональности (MIG, vGPU, Passthrough).
+                    productName:
+                      description: Название продукта (например, NVIDIA A30).
+                    memoryMiB:
+                      description: Общий объём VRAM в MiB.
+                    vendor:
+                      description: Вендор-специфичные capabilities.
                       properties:
+                        nvidia:
+                          description: NVIDIA-специфичные возможности.
+                          properties:
+                            computeCap:
+                              description: Compute Capability (например, 8.0).
+                            productArchitecture:
+                              description: Архитектура (например, Ampere).
+                            boardPartNumber:
+                              description: Board Part Number.
+                            computeTypes:
+                              description: Список поддерживаемых compute типов.
+                            migSupported:
+                              description: Поддержка MIG (true/false).
+                            mig:
+                              description: Профили MIG (только если migSupported=true).
+                              properties:
+                                totalSlices:
+                                  description: Общее число MIG-слайсов на карте.
+                                profiles:
+                                  description: Полный список поддерживаемых профилей MIG.
+                                  items:
+                                    properties:
+                                      profileID:
+                                        description: Числовой ID профиля.
+                                      name:
+                                        description: Имя профиля (например, 2g.12gb).
+                                      memoryMiB:
+                                        description: Объём памяти профиля в MiB.
+                                      sliceCount:
+                                        description: Сколько слайсов занимает профиль.
+                                      maxInstances:
+                                        description: Максимум инстансов профиля.
+                conditions:
+                  description: Список условий готовности (DriverReady, HardwareHealthy).
+                currentState:
+                  description: Текущее состояние драйвера/режимов (только при DriverReady=True).
+                  properties:
+                    driverType:
+                      description: Текущий тип драйвера (Nvidia/VFIO/ROCm).
+                      enum:
+                        - Nvidia
+                        - VFIO
+                        - ROCm
+                    nvidia:
+                      description: NVIDIA-специфичное текущее состояние.
+                      properties:
+                        gpuUUID:
+                          description: UUID GPU (как в nvidia-smi).
+                        driverVersion:
+                          description: Версия драйвера NVIDIA.
+                        cudaVersion:
+                          description: Версия CUDA.
                         mig:
-                          description: Поддерживается ли режим MIG.
-                        vgpu:
-                          description: Поддерживается ли vGPU/mdev.
-                        passthrough:
-                          description: Поддерживается ли passthrough (VFIO/IOMMU).
-                    memory:
-                      description: Характеристики видеопамяти (если доступны).
-                      properties:
-                        total:
-                          description: Общий объём VRAM.
-                        type:
-                          description: Тип памяти (HBM2/GDDR6 и т.п.), если известно.
-                nvidia:
-                  description: NVIDIA-специфичный статус (если vendor=nvidia).
-                  properties:
-                    query:
-                      description: Значения из nvidia-smi --query-gpu (ключи как у nvidia-smi).
-                    mig:
-                      description: Сведения о поддержке и профилях MIG.
-                      properties:
-                        sliceCountTotal:
-                          description: Общее число MIG-слайсов на карте.
-                        profileCaps:
-                          description: Перечень доступных профилей MIG и их ёмкостей.
-                          items:
-                            properties:
-                              profileId:
-                                description: Числовой идентификатор профиля.
-                              name:
-                                description: Имя профиля (например, 2g.12gb).
-                              instances:
-                                description: Доступные/всего инстансов этого профиля.
-                                properties:
-                                  free:
-                                    description: Количество свободных инстансов.
-                                  total:
-                                    description: Общее количество инстансов.
-                              memoryGiB:
-                                description: Объём памяти профиля в GiB (если доступно).
-                              placement:
-                                description: Подсказки по размещению слайсов.
-                                properties:
-                                  sliceCount:
-                                    description: Сколько слайсов требуется профилю.
-                                  startIndices:
-                                    description: Допустимые стартовые индексы слайсов.
+                          description: Текущий режим MIG (если поддерживается).
+                          properties:
+                            mode:
+                              description: Enabled/Disabled/NotAvailable/Unknown.

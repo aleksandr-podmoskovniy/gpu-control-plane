@@ -1,0 +1,6 @@
+# Minimal pci.ids for tests
+C 03 Display controller
+	00  VGA compatible controller
+	02  3D controller
+10de  NVIDIA Corporation
+	20b7  GA100GL [A30 PCIe]

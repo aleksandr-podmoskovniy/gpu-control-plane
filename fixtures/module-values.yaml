@@ -28,6 +28,10 @@ global:
         kubeRbacProxy: sha256:0000000000000000000000000000000000000000000000000000000000000000
       gpuControlPlane:
         gpuControlPlaneController: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gpuController: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gpuNodeAgent: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gpuDraController: sha256:0000000000000000000000000000000000000000000000000000000000000000
+        gpuDraPlugin: sha256:0000000000000000000000000000000000000000000000000000000000000000
         goHooks: sha256:0000000000000000000000000000000000000000000000000000000000000000
         preDeleteHook: sha256:0000000000000000000000000000000000000000000000000000000000000000
         kubeApiRewriter: sha256:0000000000000000000000000000000000000000000000000000000000000000
@@ -65,7 +69,7 @@ moduleConfig:
       defaultStrategy: Spread
       topologyKey: topology.kubernetes.io/zone
     inventory:
-      resyncPeriod: 30s
+      resyncPeriod: 0s
     bootstrap:
       migStrategy: single
       gfd:
@@ -96,7 +100,7 @@ gpuControlPlane:
     defaultStrategy: Spread
     topologyKey: topology.kubernetes.io/zone
   inventory:
-    resyncPeriod: 30s
+    resyncPeriod: 0s
   monitoring:
     serviceMonitor: true
   bootstrap:
@@ -120,7 +124,7 @@ gpuControlPlane:
     controller:
       replicas: 1
     inventory:
-      resyncPeriod: 30s
+      resyncPeriod: 0s
   internal:
     moduleConfig:
       enabled: true

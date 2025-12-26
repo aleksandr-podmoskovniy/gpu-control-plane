@@ -1,0 +1,79 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gpuControlPlane.draControllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draControllerName" .) "component" "dra-controller")) | nindent 2 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: {{ include "gpuControlPlane.draControllerName" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "gpuControlPlane.draControllerName" . }}
+        component: dra-controller
+        module: {{ include "gpuControlPlane.moduleName" . }}
+      annotations:
+        kubectl.kubernetes.io/default-container: {{ include "gpuControlPlane.draControllerName" . }}
+    spec:
+      serviceAccountName: {{ include "gpuControlPlane.draControllerName" . }}
+      {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
+      {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      containers:
+        - name: {{ include "gpuControlPlane.draControllerName" . }}
+          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          image: {{ include "helm_lib_module_image" (list . "gpuDraController" (include "gpuControlPlane.moduleName" .)) }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics-bind-address=127.0.0.1:8080
+            - --health-probe-bind-address=:8081
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+              ephemeral-storage: 50Mi
+            limits:
+              memory: 128Mi
+        {{- $kubeRbacProxySettings := dict }}
+        {{- $_ := set $kubeRbacProxySettings "runAsUserNobody" false }}
+        {{- $_ := set $kubeRbacProxySettings "upstreams" (list
+              (dict
+                "upstream" "http://127.0.0.1:8080/metrics"
+                "path" "/metrics"
+                "name" (include "gpuControlPlane.draControllerName" .)
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+            ) }}
+        {{- include "kube_rbac_proxy.sidecar_container" (tuple . $kubeRbacProxySettings) | nindent 8 }}
+      {{ include "gpuControlPlane.defaultNodeSelector" (list .) | nindent 6 }}
+      {{ include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      volumes:
+        - name: kube-rbac-proxy-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.metricsTLSSecretName" . }}
+{{- end }}

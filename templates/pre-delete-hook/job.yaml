@@ -29,6 +29,8 @@ spec:
         - name: gpu-control-plane-pre-delete-hook
           {{- $resources := list
                 (dict "gvr" (dict "Group" "nfd.k8s-sigs.io" "Version" "v1alpha1" "Resource" "nodefeaturerules") "name" (include "gpuControlPlane.nodeFeatureRuleName" .))
+                (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpuclasses") "name" "")
+                (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "physicalgpus") "name" "")
                 (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpudevices") "name" "")
                 (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpunodestates") "name" "")
                 (dict "gvr" (dict "Group" "gpu.deckhouse.io" "Version" "v1alpha1" "Resource" "gpupools") "name" "")

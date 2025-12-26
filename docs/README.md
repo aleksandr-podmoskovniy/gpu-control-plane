@@ -158,22 +158,22 @@ bootstrap Pods may be running even when the inventory controllers are degraded.
      scheduling:
        defaultStrategy: Spread
        topologyKey: topology.kubernetes.io/zone
-     inventory:
-       resyncPeriod: "30s"
+    inventory:
+      resyncPeriod: "0s"
    version: 1
    ```
 
    If a field is omitted the module applies defaults:
    `managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
    `deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
-   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
+   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=0s`.
 
 5. Confirm that the controller is running in the `d8-gpu-control-plane`
    namespace and that `GPUDevice`/`GPUNodeState` CRs are created for GPU
    nodes.
 
 The background rescan interval can be adjusted via
-`.spec.settings.inventory.resyncPeriod` (default `30s`).
+`.spec.settings.inventory.resyncPeriod` (default `0s`, which disables periodic resync).
 
 ## Monitoring
 

@@ -24,6 +24,7 @@ linters-settings:
         directories:
           - .bin/
           - .cache/
+          - images/gpu-artifact/bin/
           - images/gpu-control-plane-artifact/bin/
           - tools/kubeconform/kubeconform.git/
 
@@ -31,9 +32,10 @@ global:
   linters-settings:
     module:
       exclude-rules:
-        license:
-          directories:
-            - .bin/
-            - .cache/
-            - images/gpu-control-plane-artifact/bin/
-            - tools/kubeconform/kubeconform.git/
+      license:
+        directories:
+          - .bin/
+          - .cache/
+          - images/gpu-artifact/bin/
+          - images/gpu-control-plane-artifact/bin/
+          - tools/kubeconform/kubeconform.git/

@@ -5,24 +5,22 @@ spec:
         openAPIV3Schema:
           description: >
             Кластерный ресурс, задающий контракт и политику выдачи GPU
-            (конвертируется контроллером в DRA DeviceClass).
+            (в перспективе конвертируется контроллером в DRA DeviceClass).
           properties:
             spec:
               description: Желаемая политика для логического класса GPU.
               properties:
                 vendor:
-                  description: Вендор GPU (nvidia/amd/intel).
+                  description: Вендор GPU (Nvidia/Amd/Intel).
                   enum:
-                    - nvidia
-                    - amd
-                    - intel
+                    - Nvidia
+                    - Amd
+                    - Intel
                 deviceType:
-                  description: Тип устройства (Physical, MIG, Passthrough, vGPU).
+                  description: Тип устройства (Physical/MIG).
                   enum:
                     - Physical
                     - MIG
-                    - Passthrough
-                    - vGPU
                 nvidia:
                   description: NVIDIA-специфичные настройки класса.
                   properties:
@@ -31,11 +29,6 @@ spec:
                       properties:
                         profile:
                           description: Имя MIG-профиля (например, 2g.12gb).
-                    vgpu:
-                      description: Настройки vGPU (обязательны, если deviceType=vGPU).
-                      properties:
-                        profile:
-                          description: Имя профиля vGPU (как в tooling вендора).
                 sharing:
                   description: Политика совместного использования GPU.
                   properties:
@@ -71,20 +64,17 @@ spec:
                       description: Минимальный объём VRAM (например, 16Gi).
                     minComputeCapability:
                       description: Минимальная Compute Capability (например, 8.6).
-                extraSelectors:
-                  description: Список CEL-селекторов, напрямую передаваемых в DeviceClass.
             status:
-              description: Статус валидации и имя сгенерированного DeviceClass.
+              description: Статус валидации и диагностические данные.
               properties:
                 valid:
                   description: Валидна ли спецификация GPUClass.
                 message:
                   description: Диагностическое сообщение при ошибке валидации.
-                requiresWorkload:
-                  description: Ожидаемый тип нагрузки (Container, VMPassthrough, VMvGPU).
-                  enum:
-                    - Container
-                    - VMPassthrough
-                    - VMvGPU
-                deviceClassName:
-                  description: Имя созданного DRA DeviceClass.
+                generated:
+                  description: Сгенерированные идентификаторы (для диагностики).
+                  properties:
+                    deviceClassName:
+                      description: Имя созданного DRA DeviceClass.
+                    extendedResourceName:
+                      description: Имя extended resource (Kubernetes >= 1.34).

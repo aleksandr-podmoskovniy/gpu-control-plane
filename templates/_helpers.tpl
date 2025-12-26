@@ -24,6 +24,22 @@ gpu-control-plane
 {{ include "gpuControlPlane.moduleName" . }}-controller
 {{- end -}}
 
+{{- define "gpuControlPlane.gpuControllerName" -}}
+gpu-controller
+{{- end -}}
+
+{{- define "gpuControlPlane.nodeAgentName" -}}
+gpu-node-agent
+{{- end -}}
+
+{{- define "gpuControlPlane.draControllerName" -}}
+gpu-dra-controller
+{{- end -}}
+
+{{- define "gpuControlPlane.draPluginName" -}}
+gpu-dra-plugin
+{{- end -}}
+
 {{- define "gpuControlPlane.controllerConfigName" -}}
 {{ include "gpuControlPlane.controllerName" . }}-config
 {{- end -}}
@@ -106,6 +122,24 @@ deckhouse-gpu-kernel-os
 {{- define "gpuControlPlane.managedNodeAbsentExpression" -}}
 - key: {{ include "gpuControlPlane.managedNodeLabelKey" . }}
   operator: DoesNotExist
+{{- end -}}
+
+{{- define "gpuControlPlane.managedNodeAffinity" -}}
+{{- $ctx := index . 0 -}}
+{{- $managed := $ctx.Values.gpuControlPlane.managedNodes | default dict -}}
+{{- $enabledByDefault := $managed.enabledByDefault | default true -}}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+{{ include "gpuControlPlane.managedNodePresentExpression" $ctx | indent 10 }}
+{{ include "gpuControlPlane.managedNodeMatchExpression" $ctx | indent 10 }}
+        {{- if $enabledByDefault }}
+        - matchExpressions:
+{{ include "gpuControlPlane.managedNodePresentExpression" $ctx | indent 10 }}
+{{ include "gpuControlPlane.managedNodeAbsentExpression" $ctx | indent 10 }}
+        {{- end }}
 {{- end -}}
 
 {{- define "gpuControlPlane.managedNodeTolerations" -}}

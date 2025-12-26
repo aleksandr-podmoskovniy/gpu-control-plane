@@ -157,22 +157,22 @@ hostengine/exporter, watchdog, validator) на управляемых GPU-нод
      scheduling:
        defaultStrategy: Spread
        topologyKey: topology.kubernetes.io/zone
-     inventory:
-       resyncPeriod: "30s"
+    inventory:
+      resyncPeriod: "0s"
    version: 1
    ```
 
    При опущенных полях используются значения по умолчанию:
    `managedNodes.labelKey=gpu.deckhouse.io/enabled`, `managedNodes.enabledByDefault=true`,
    `deviceApproval.mode=Manual`, `scheduling.defaultStrategy=Spread`,
-   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=30s`.
+   `scheduling.topologyKey=topology.kubernetes.io/zone`, `inventory.resyncPeriod=0s`.
 
 5. Проверка работы: Deployment `gpu-control-plane-controller` в
    пространстве имён `d8-gpu-control-plane`, появление объектов
    `GPUDevice`/`GPUNodeState` для GPU-узлов.
 
 Интервал повторного опроса можно задать через
-`.spec.settings.inventory.resyncPeriod` (по умолчанию `30s`).
+`.spec.settings.inventory.resyncPeriod` (по умолчанию `0s`, периодический опрос отключен).
 
 ## Наблюдаемость
 

@@ -14,3 +14,11 @@ gpuControlPlane:
           nodes: []
         dcgm-exporter:
           nodes: []
+        gpu-controller:
+          nodes: []
+        gpu-node-agent:
+          nodes: []
+        gpu-dra-controller:
+          nodes: []
+        gpu-dra-plugin:
+          nodes: []

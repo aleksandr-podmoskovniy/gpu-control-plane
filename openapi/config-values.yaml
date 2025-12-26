@@ -146,10 +146,11 @@ properties:
       resyncPeriod:
         type: string
         pattern: '^\\d+(s|m|h)$'
-        default: "30s"
+        default: "0s"
         description: |
-          Explicit resync interval expressed as a Go duration (`30s`, `1m`, `5m`, ...).
-        x-examples: ["30s", "1m", "5m"]
+          Explicit resync interval expressed as a Go duration (`0s`, `30s`, `1m`, `5m`, ...).
+          Set to `0s` to disable periodic resync.
+        x-examples: ["0s", "30s", "1m", "5m"]
     additionalProperties: false
   https:
     type: object

@@ -1,0 +1,219 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  labels:
+    module: gpu-control-plane
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: gpuclasses.gpu.deckhouse.io
+spec:
+  group: gpu.deckhouse.io
+  names:
+    categories:
+    - deckhouse
+    - gpu
+    kind: GPUClass
+    listKind: GPUClassList
+    plural: gpuclasses
+    shortNames:
+    - gpuc
+    singular: gpuclass
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.vendor
+      name: Vendor
+      type: string
+    - jsonPath: .spec.deviceType
+      name: Type
+      type: string
+    - jsonPath: .status.valid
+      name: Valid
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: GPUClass is the Schema for the gpuclasses API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: GPUClassSpec defines the desired state of GPUClass.
+            properties:
+              deviceType:
+                description: DeviceType defines the allocation unit type.
+                enum:
+                - Physical
+                - MIG
+                type: string
+              names:
+                description: Names is an optional allowlist of device identifiers.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: atomic
+              nvidia:
+                description: Nvidia holds NVIDIA-specific profile requirements.
+                properties:
+                  mig:
+                    description: MIG profile requirements (for deviceType=MIG).
+                    properties:
+                      profile:
+                        description: Profile is the MIG profile name, for example
+                          "2g.12gb".
+                        type: string
+                    required:
+                    - profile
+                    type: object
+                type: object
+              requirements:
+                description: Requirements are optional minimum requirements.
+                properties:
+                  minComputeCapability:
+                    description: MinComputeCapability is a CUDA compute capability
+                      string (e.g. "8.0").
+                    pattern: ^\d+\.\d+$
+                    type: string
+                  minMemory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: MinMemory is the minimum framebuffer size required.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+              selector:
+                description: Selector limits eligible devices by labels.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              sharing:
+                description: Sharing defines collaborative sharing settings.
+                properties:
+                  mps:
+                    description: MPS contains MPS settings (for strategy=MPS).
+                    properties:
+                      defaultActiveThreadPercentage:
+                        description: DefaultActiveThreadPercentage sets the default
+                          MPS active thread percentage (1..100).
+                        format: int32
+                        maximum: 100
+                        minimum: 1
+                        type: integer
+                    type: object
+                  strategy:
+                    description: Strategy selects the sharing strategy.
+                    enum:
+                    - Exclusive
+                    - TimeSlicing
+                    - MPS
+                    type: string
+                  timeSlicing:
+                    description: TimeSlicing contains time-slicing settings (for strategy=TimeSlicing).
+                    properties:
+                      interval:
+                        description: Interval is a time-slicing interval hint.
+                        enum:
+                        - Default
+                        - Short
+                        - Medium
+                        - Long
+                        type: string
+                    type: object
+                required:
+                - strategy
+                type: object
+              vendor:
+                description: Vendor is the GPU vendor.
+                enum:
+                - Nvidia
+                - Amd
+                - Intel
+                type: string
+            required:
+            - deviceType
+            - vendor
+            type: object
+          status:
+            description: GPUClassStatus defines the observed state of GPUClass.
+            properties:
+              generated:
+                description: Generated holds denormalized data for diagnostics.
+                properties:
+                  deviceClassName:
+                    description: DeviceClassName is the generated DeviceClass name.
+                    type: string
+                  extendedResourceName:
+                    description: ExtendedResourceName is optional for Kubernetes >=
+                      1.34.
+                    type: string
+                type: object
+              message:
+                description: Message provides a human-readable status message.
+                type: string
+              valid:
+                description: Valid indicates whether the GPUClass spec is valid.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

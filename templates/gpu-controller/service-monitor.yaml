@@ -1,0 +1,29 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- $moduleEnabled := eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $promEnabled := has "operator-prometheus-crd" (.Values.global.enabledModules | default (list)) }}
+{{- $smEnabled := ((.Values.gpuControlPlane.monitoring | default dict).serviceMonitor | default false) }}
+{{- if and $moduleEnabled $promEnabled $smEnabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+  namespace: d8-monitoring
+  {{- include "helm_lib_module_labels" (list . (dict "prometheus" "main")) | nindent 2 }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "gpuControlPlane.namespace" . }}
+  selector:
+    matchLabels:
+      app: {{ include "gpuControlPlane.gpuControllerName" . }}
+  endpoints:
+    - bearerTokenSecret:
+        name: prometheus-token
+        key: token
+      path: /metrics
+      port: metrics
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+{{- end }}

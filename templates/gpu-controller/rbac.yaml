@@ -1,0 +1,66 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["physicalgpus"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["physicalgpus/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpuclasses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gpu.deckhouse.io"]
+    resources: ["gpuclasses/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "gpuControlPlane.gpuControllerName" . }}
+    namespace: {{ include "gpuControlPlane.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: d8:{{ .Chart.Name }}:gpu-controller-rbac-proxy
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: d8:rbac-proxy
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "gpuControlPlane.gpuControllerName" . }}
+    namespace: {{ include "gpuControlPlane.namespace" . }}
+{{- end }}

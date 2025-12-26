@@ -44,11 +44,9 @@ mount:
 shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
-    - export GOTOOLCHAIN=go1.25.2
     - cd /workspace/images/{{ .ImageName }}
     - go mod download
   setup:
-    - export GOTOOLCHAIN=go1.25.2
     - export GOOS=linux
     - export GOARCH=amd64
     - export CGO_ENABLED=0

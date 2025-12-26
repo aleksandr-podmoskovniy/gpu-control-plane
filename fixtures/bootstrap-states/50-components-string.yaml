@@ -7,3 +7,7 @@ gpuControlPlane:
         dcgm-exporter: "legacy"
         gpu-feature-discovery: "legacy"
         validator: "legacy"
+        gpu-controller: "legacy"
+        gpu-node-agent: "legacy"
+        gpu-dra-controller: "legacy"
+        gpu-dra-plugin: "legacy"

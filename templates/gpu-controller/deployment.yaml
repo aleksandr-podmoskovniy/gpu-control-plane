@@ -1,0 +1,111 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $runtime := $moduleValues.runtime | default dict }}
+{{- $controllerRuntime := $runtime.controller | default dict }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gpuControlPlane.gpuControllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
+spec:
+  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 2 $controllerRuntime.replicas) 1) }}
+  {{- if (include "helm_lib_ha_enabled" .) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: {{ include "gpuControlPlane.gpuControllerName" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "gpuControlPlane.gpuControllerName" . }}
+        component: controller
+        module: {{ include "gpuControlPlane.moduleName" . }}
+      annotations:
+        kubectl.kubernetes.io/default-container: {{ include "gpuControlPlane.gpuControllerName" . }}
+    spec:
+      serviceAccountName: {{ include "gpuControlPlane.gpuControllerName" . }}
+      {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
+      {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      containers:
+        - name: {{ include "gpuControlPlane.gpuControllerName" . }}
+          {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
+          image: {{ include "helm_lib_module_image" (list . "gpuController" (include "gpuControlPlane.moduleName" .)) }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics-bind-address=127.0.0.1:8080
+            - --health-probe-bind-address=:8081
+            - --leader-election-id=gpu-controller.deckhouse.io
+            - --leader-elect={{ if (include "helm_lib_ha_enabled" .) }}true{{ else }}false{{ end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- $resources := $controllerRuntime.resources | default dict }}
+            {{- if $resources }}
+            {{- toYaml $resources | nindent 12 }}
+            {{- else }}
+            requests:
+              cpu: 50m
+              memory: 128Mi
+              ephemeral-storage: 50Mi
+            limits:
+              memory: 256Mi
+            {{- end }}
+        {{- $kubeRbacProxySettings := dict }}
+        {{- $_ := set $kubeRbacProxySettings "runAsUserNobody" false }}
+        {{- $_ := set $kubeRbacProxySettings "upstreams" (list
+              (dict
+                "upstream" "http://127.0.0.1:8080/metrics"
+                "path" "/metrics"
+                "name" (include "gpuControlPlane.gpuControllerName" .)
+                "namespace" (include "gpuControlPlane.namespace" .)
+              )
+            ) }}
+        {{- include "kube_rbac_proxy.sidecar_container" (tuple . $kubeRbacProxySettings) | nindent 8 }}
+      {{- if $controllerRuntime.nodeSelector }}
+      nodeSelector:
+        {{- toYaml $controllerRuntime.nodeSelector | nindent 8 }}
+      {{- else }}
+      {{ include "gpuControlPlane.defaultNodeSelector" (list .) | nindent 6 }}
+      {{- end }}
+      {{- if $controllerRuntime.tolerations }}
+      tolerations:
+        {{- toYaml $controllerRuntime.tolerations | nindent 8 }}
+      {{- else }}
+      {{ include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      {{- end }}
+      volumes:
+        - name: kube-rbac-proxy-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.metricsTLSSecretName" . }}
+{{- end }}

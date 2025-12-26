@@ -36,7 +36,7 @@ git:
 ---
 image: {{ .ModuleNamePrefix }}go-hooks-artifact
 final: false
-fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/golang-alt-svace-1.24.10" }}
+fromImage: {{ eq $.SVACE_ENABLED "false" | ternary "builder/golang-bookworm-1.24" "builder/golang-alt-svace-1.24" }}
 import:
   - image: {{ .ModuleNamePrefix }}{{ .ImageName }}-src-artifact
     add: /src
@@ -51,11 +51,9 @@ secrets:
 shell:
   install:
     - export GOPROXY=$(cat /run/secrets/GOPROXY)
-    - export GOTOOLCHAIN=go1.25.1
     - cd /app/images/hooks
     - go mod download
   setup:
-    - export GOTOOLCHAIN=go1.25.1
     - cd /app/images/hooks
     - export GOOS=linux
     - export GOARCH=amd64
