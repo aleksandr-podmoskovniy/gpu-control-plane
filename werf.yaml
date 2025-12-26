@@ -38,7 +38,7 @@ build:
 {{- $_ := set . "DEBUG_COMPONENT" (env "DEBUG_COMPONENT" "") }}
 
 # svace analyze toggler
-{{- $_ := set . "SVACE_ENABLED" (env "SVACE_ENABLED" "false") }}
+{{- $_ := set . "SVACE_ENABLED" (default "false" (env "SVACE_ENABLED")) }}
 {{- $_ := set . "SVACE_ANALYZE_HOST" (env "SVACE_ANALYZE_HOST" "example.host") }}
 {{- $_ := set . "SVACE_ANALYZE_SSH_USER" (env "SVACE_ANALYZE_SSH_USER" "user") }}
 
