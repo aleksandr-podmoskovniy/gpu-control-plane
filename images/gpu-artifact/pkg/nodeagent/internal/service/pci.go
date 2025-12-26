@@ -68,10 +68,6 @@ func (p *SysfsPCIProvider) Scan(_ context.Context) ([]state.Device, error) {
 
 	devices := make([]state.Device, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
 		addr := entry.Name()
 		devicePath := filepath.Join(base, addr)
 
