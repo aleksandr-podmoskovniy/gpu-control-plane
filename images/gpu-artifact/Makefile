@@ -68,7 +68,7 @@ build: manifests generate fmt vet ## Build all binaries locally.
 	go build -o bin/gpu-controller ./cmd/gpu-controller
 	go build -o bin/gpu-node-agent ./cmd/gpu-node-agent
 	go build -o bin/gpu-dra-controller ./cmd/gpu-dra-controller
-	go build -o bin/gpu-dra-plugin ./cmd/gpu-dra-plugin
+	go build -o bin/gpu-handler ./cmd/gpu-handler
 
 .PHONY: run
 run: manifests generate fmt vet ## Run gpu-controller locally.

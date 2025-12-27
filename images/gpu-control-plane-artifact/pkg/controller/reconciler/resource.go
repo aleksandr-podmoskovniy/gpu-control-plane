@@ -70,10 +70,6 @@ func (r *Resource[T, ST]) getObjStatus(obj T) (ret ST) {
 	return
 }
 
-func (r *Resource[T, ST]) Name() types.NamespacedName {
-	return r.name
-}
-
 func (r *Resource[T, ST]) Fetch(ctx context.Context) error {
 	currentObj, err := object.FetchObject(ctx, r.name, r.client, r.objFactory())
 	if err != nil {

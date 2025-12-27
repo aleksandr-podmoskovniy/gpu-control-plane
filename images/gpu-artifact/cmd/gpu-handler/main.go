@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -28,6 +29,14 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/cdi"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/checkpoint"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/kubevirt"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/prepare"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/publisher"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
@@ -53,9 +62,21 @@ func main() {
 
 	rootLog := logger.NewLogger(logLevel, logOutput, logDebugVerbosity)
 	logger.SetDefaultLogger(rootLog)
-	log := rootLog.With(logger.SlogController("gpu-dra-plugin"))
+	log := rootLog.With(logger.SlogController("gpu-handler"))
 
 	ctx := ctrl.SetupSignalHandler()
+	ctx = logger.ToContext(ctx, slog.Default())
+
+	pubSvc := publisher.NewService(nvml.NewInventory(), k8s.NewResourceSliceWriter())
+	prepSvc := prepare.NewService(checkpoint.NewStore(), cdi.NewWriter(), kubevirt.NewHookWriter())
+	runtime := dra.NewRuntime(nil, pubSvc, prepSvc)
+	if err := runtime.RunPublisher(ctx, false); err != nil {
+		log.Error("publisher init failed", logger.SlogErr(err))
+	}
+	if err := runtime.RunPrepare(ctx); err != nil {
+		log.Error("prepare init failed", logger.SlogErr(err))
+	}
+
 	server := &http.Server{Addr: probeAddr, Handler: healthMux()}
 
 	errCh := make(chan error, 1)

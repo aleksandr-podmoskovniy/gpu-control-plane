@@ -1,5 +1,5 @@
 {{/* Copyright 2025 Flant JSC */}}
-{{- $component := "dra-plugin" }}
+{{- $component := "handler" }}
 {{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
 {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") $componentEnabled }}
@@ -7,34 +7,34 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "gpuControlPlane.draPluginName" . }}
+  name: {{ include "gpuControlPlane.handlerName" . }}
   namespace: {{ include "gpuControlPlane.namespace" . }}
-  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draPluginName" .) "component" "dra-plugin")) | nindent 2 }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.handlerName" .) "component" "handler")) | nindent 2 }}
 spec:
   selector:
     matchLabels:
-      app: {{ include "gpuControlPlane.draPluginName" . }}
+      app: {{ include "gpuControlPlane.handlerName" . }}
   template:
     metadata:
       labels:
-        app: {{ include "gpuControlPlane.draPluginName" . }}
-        component: dra-plugin
+        app: {{ include "gpuControlPlane.handlerName" . }}
+        component: handler
         module: {{ include "gpuControlPlane.moduleName" . }}
       annotations:
-        kubectl.kubernetes.io/default-container: {{ include "gpuControlPlane.draPluginName" . }}
+        kubectl.kubernetes.io/default-container: {{ include "gpuControlPlane.handlerName" . }}
         {{ if $hash }}
         gpu.deckhouse.io/bootstrap-state-hash: {{ $hash | quote }}
         {{ end }}
     spec:
-      serviceAccountName: {{ include "gpuControlPlane.draPluginName" . }}
+      serviceAccountName: {{ include "gpuControlPlane.handlerName" . }}
       {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
       {{- include "gpuControlPlane.bootstrap.affinity" (list . $component) | nindent 6 }}
       containers:
-        - name: {{ include "gpuControlPlane.draPluginName" . }}
+        - name: {{ include "gpuControlPlane.handlerName" . }}
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
-          image: {{ include "helm_lib_module_image" (list . "gpuDraPlugin" (include "gpuControlPlane.moduleName" .)) }}
+          image: {{ include "helm_lib_module_image" (list . "gpuHandler" (include "gpuControlPlane.moduleName" .)) }}
           imagePullPolicy: IfNotPresent
           args:
             - --health-probe-bind-address=:8081

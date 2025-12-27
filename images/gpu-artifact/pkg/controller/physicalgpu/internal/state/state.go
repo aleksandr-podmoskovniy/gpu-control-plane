@@ -17,20 +17,20 @@ limitations under the License.
 package state
 
 import (
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/reconciler"
+	controllersvc "github.com/aleksandr-podmoskovniy/gpu/pkg/controller/service"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/reconciler"
 )
 
 // PhysicalGPUState carries reconcile state for a PhysicalGPU.
 type PhysicalGPUState struct {
-	Client   client.Client
+	Client   controllersvc.Client
 	Resource *reconciler.Resource[*gpuv1alpha1.PhysicalGPU, gpuv1alpha1.PhysicalGPUStatus]
 }
 
 // New builds a new PhysicalGPUState.
-func New(client client.Client, resource *reconciler.Resource[*gpuv1alpha1.PhysicalGPU, gpuv1alpha1.PhysicalGPUStatus]) PhysicalGPUState {
+func New(client controllersvc.Client, resource *reconciler.Resource[*gpuv1alpha1.PhysicalGPU, gpuv1alpha1.PhysicalGPUStatus]) PhysicalGPUState {
 	return PhysicalGPUState{
 		Client:   client,
 		Resource: resource,

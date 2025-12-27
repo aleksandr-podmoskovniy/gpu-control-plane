@@ -18,6 +18,7 @@ ROOT := $(CURDIR)
 CONTROLLER_DIR := $(ROOT)/images/gpu-control-plane-artifact
 KUBE_API_REWRITER_DIR := $(ROOT)/images/kube-api-rewriter
 GFD_EXTENDER_DIR := $(ROOT)/images/gfd-extender
+GPU_ARTIFACT_DIR := $(ROOT)/images/gpu-artifact
 GOMODCACHE := $(ROOT)/.cache/gomod
 BIN_DIR := $(ROOT)/.bin
 COVERAGE_DIR := $(ROOT)/artifacts/coverage
@@ -121,7 +122,7 @@ lint: lint-go lint-docs lint-dmt
 
 test: controller-test hooks-test rewriter-test gfd-extender-test
 
-verify: lint test helm-template kubeconform
+verify: lint test deadcode helm-template kubeconform
 
 clean:
 	@rm -rf $(GOMODCACHE)
@@ -143,17 +144,17 @@ helm-template:
 
 deadcode: ensure-deadcode
 	@echo "==> deadcode (controller)"
-	@cd $(CONTROLLER_DIR) && $(DEADCODE) ./...
-	@echo "==> deadcode (api)"
-	@cd $(ROOT)/api && $(DEADCODE) ./...
+	@cd $(CONTROLLER_DIR) && $(DEADCODE) -test ./...
 	@echo "==> deadcode (hooks)"
-	@cd $(ROOT)/images/hooks && $(DEADCODE) ./...
+	@cd $(ROOT)/images/hooks && $(DEADCODE) -test ./...
+	@echo "==> deadcode (gpu-artifact)"
+	@cd $(GPU_ARTIFACT_DIR) && $(DEADCODE) -test ./...
 	@echo "==> deadcode (kube-api-rewriter)"
-	@cd $(KUBE_API_REWRITER_DIR) && $(DEADCODE) ./...
+	@cd $(KUBE_API_REWRITER_DIR) && $(DEADCODE) -test ./...
 	@echo "==> deadcode (pre-delete-hook)"
-	@cd $(ROOT)/images/pre-delete-hook && $(DEADCODE) ./...
+	@cd $(ROOT)/images/pre-delete-hook && $(DEADCODE) -test ./...
 	@echo "==> deadcode (gfd-extender, linux-only)"
-	@cd $(GFD_EXTENDER_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(DEADCODE) ./...
+	@cd $(GFD_EXTENDER_DIR) && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(DEADCODE) -test ./...
 
 e2e:
 	@echo "==> e2e (kind or target cluster)"

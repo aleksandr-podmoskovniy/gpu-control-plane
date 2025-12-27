@@ -66,7 +66,7 @@ func (r *Reconciler) SetupController(_ context.Context, mgr manager.Manager, ctr
 	}
 
 	for _, w := range []Watcher{
-		watcher.NewNodeWatcher(),
+		watcher.NewNodeWatcher(mgr.GetCache()),
 	} {
 		err := w.Watch(mgr, ctr)
 		if err != nil {

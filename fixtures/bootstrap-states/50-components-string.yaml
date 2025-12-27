@@ -10,4 +10,4 @@ gpuControlPlane:
         gpu-controller: "legacy"
         gpu-node-agent: "legacy"
         gpu-dra-controller: "legacy"
-        gpu-dra-plugin: "legacy"
+        handler: "legacy"

@@ -101,9 +101,8 @@ handlersLoop:
 				name = t.Name()
 			}
 		}
-		handlerLog := logger.FromContext(ctx).With(logger.SlogHandler(name))
-
-		res, err := r.execute(ctx, h)
+		handlerLog, handlerCtx := logger.GetHandlerContext(ctx, name)
+		res, err := r.execute(handlerCtx, h)
 		switch {
 		case err == nil:
 		case errors.Is(err, ErrStopHandlerChain):

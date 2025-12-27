@@ -32,7 +32,7 @@ gpuControlPlane:
           phase: Ready
           nodes:
             - worker-a
-        gpu-dra-plugin:
+        handler:
           phase: Ready
           nodes:
             - worker-a

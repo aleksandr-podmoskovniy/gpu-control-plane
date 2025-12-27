@@ -17,8 +17,6 @@ limitations under the License.
 package conditions
 
 import (
-	"time"
-
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -26,59 +24,6 @@ import (
 // Conder returns a condition definition.
 type Conder interface {
 	Condition() metav1.Condition
-}
-
-// SetCondition adds or updates a condition in the slice.
-func SetCondition(c Conder, conditions *[]metav1.Condition) {
-	newCondition := c.Condition()
-	if conditions == nil {
-		return
-	}
-	existingCondition := FindStatusCondition(*conditions, newCondition.Type)
-	if existingCondition == nil {
-		if newCondition.LastTransitionTime.IsZero() {
-			newCondition.LastTransitionTime = metav1.NewTime(time.Now())
-		}
-		*conditions = append(*conditions, newCondition)
-		return
-	}
-
-	if existingCondition.Status != newCondition.Status {
-		existingCondition.Status = newCondition.Status
-		if !newCondition.LastTransitionTime.IsZero() {
-			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(time.Now())
-		}
-	}
-
-	if existingCondition.Reason != newCondition.Reason {
-		existingCondition.Reason = newCondition.Reason
-		if !newCondition.LastTransitionTime.IsZero() &&
-			newCondition.LastTransitionTime.After(existingCondition.LastTransitionTime.Time) {
-			existingCondition.LastTransitionTime = newCondition.LastTransitionTime
-		} else {
-			existingCondition.LastTransitionTime = metav1.NewTime(time.Now())
-		}
-	}
-
-	if existingCondition.Message != newCondition.Message {
-		existingCondition.Message = newCondition.Message
-	}
-
-	if existingCondition.ObservedGeneration != newCondition.ObservedGeneration {
-		existingCondition.ObservedGeneration = newCondition.ObservedGeneration
-	}
-}
-
-// FindStatusCondition returns a pointer to the condition with the given type.
-func FindStatusCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
-	for i := range conditions {
-		if conditions[i].Type == conditionType {
-			return &conditions[i]
-		}
-	}
-	return nil
 }
 
 // RemoveCondition removes a condition from the slice.
@@ -142,11 +87,5 @@ func (c *ConditionBuilder) Message(msg string) *ConditionBuilder {
 // Generation sets the observed generation.
 func (c *ConditionBuilder) Generation(generation int64) *ConditionBuilder {
 	c.generation = generation
-	return c
-}
-
-// LastTransitionTime sets the last transition time.
-func (c *ConditionBuilder) LastTransitionTime(lastTransitionTime time.Time) *ConditionBuilder {
-	c.lastTransitionTime = metav1.NewTime(lastTransitionTime)
 	return c
 }

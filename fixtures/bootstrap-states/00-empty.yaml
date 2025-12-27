@@ -20,5 +20,5 @@ gpuControlPlane:
           nodes: []
         gpu-dra-controller:
           nodes: []
-        gpu-dra-plugin:
+        handler:
           nodes: []

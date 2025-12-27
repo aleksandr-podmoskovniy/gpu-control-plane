@@ -1,4 +1,4 @@
-{{/*
+/*
 Copyright 2025 Flant JSC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,18 +12,25 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-*/}}
----
-image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-fromImage: {{ .ModuleNamePrefix }}distroless
-final: true
-import:
-- image: {{ .ModuleNamePrefix }}gpu-artifact
-  add: /out/gpu-dra-plugin
-  to: /app/gpu-dra-plugin
-  after: install
-imageSpec:
-  config:
-    user: 64535
-    workingDir: "/app"
-    entrypoint: ["/app/gpu-dra-plugin"]
+*/
+
+package checkpoint
+
+import (
+	"context"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
+)
+
+// Store is a no-op checkpoint store.
+type Store struct{}
+
+// NewStore creates a new checkpoint store.
+func NewStore() *Store {
+	return &Store{}
+}
+
+// Save implements ports.CheckpointStore.
+func (s *Store) Save(_ context.Context, _ domain.PrepareRequest) error {
+	return nil
+}

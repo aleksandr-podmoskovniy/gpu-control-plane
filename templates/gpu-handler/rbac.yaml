@@ -4,15 +4,15 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "gpuControlPlane.draPluginName" . }}
+  name: {{ include "gpuControlPlane.handlerName" . }}
   namespace: {{ include "gpuControlPlane.namespace" . }}
-  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draPluginName" .) "component" "dra-plugin")) | nindent 2 }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.handlerName" .) "component" "handler")) | nindent 2 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "gpuControlPlane.draPluginName" . }}
-  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draPluginName" .) "component" "dra-plugin")) | nindent 2 }}
+  name: {{ include "gpuControlPlane.handlerName" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.handlerName" .) "component" "handler")) | nindent 2 }}
 rules:
   - apiGroups: [""]
     resources: ["events", "nodes"]
@@ -30,14 +30,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "gpuControlPlane.draPluginName" . }}
-  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draPluginName" .) "component" "dra-plugin")) | nindent 2 }}
+  name: {{ include "gpuControlPlane.handlerName" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.handlerName" .) "component" "handler")) | nindent 2 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "gpuControlPlane.draPluginName" . }}
+  name: {{ include "gpuControlPlane.handlerName" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "gpuControlPlane.draPluginName" . }}
+    name: {{ include "gpuControlPlane.handlerName" . }}
     namespace: {{ include "gpuControlPlane.namespace" . }}
 {{- end }}

@@ -17,18 +17,17 @@ limitations under the License.
 package hostinfo
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/common/testutil"
 )
 
 func TestParseOSRelease(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "os-release")
 	content := "ID=ubuntu\nVERSION_ID=\"22.04\"\nNAME=\"Ubuntu\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write os-release: %v", err)
-	}
+	testutil.WriteFile(t, path, content)
 
 	release, err := parseOSRelease(path)
 	if err != nil {

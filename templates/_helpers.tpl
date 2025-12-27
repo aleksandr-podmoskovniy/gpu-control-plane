@@ -36,8 +36,8 @@ gpu-node-agent
 gpu-dra-controller
 {{- end -}}
 
-{{- define "gpuControlPlane.draPluginName" -}}
-gpu-dra-plugin
+{{- define "gpuControlPlane.handlerName" -}}
+gpu-handler
 {{- end -}}
 
 {{- define "gpuControlPlane.controllerConfigName" -}}

@@ -19,19 +19,17 @@ package service
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/sys/pci"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/sys/pciids"
 )
 
 const (
-	defaultHostSysRoot = "/host-sys"
-	defaultSysRoot     = "/sys"
+	nvidiaVendorID = "10de"
 )
 
 // PCIProvider lists GPU-like PCI devices on a node.
@@ -43,57 +41,45 @@ type PCIProvider interface {
 type SysfsPCIProvider struct {
 	SysRoot  string
 	Resolver *pciids.Resolver
+	Reader   pci.Reader
 }
 
 // NewSysfsPCIProvider creates a sysfs-based PCI provider.
 func NewSysfsPCIProvider(sysRoot string, resolver *pciids.Resolver) *SysfsPCIProvider {
-	return &SysfsPCIProvider{SysRoot: sysRoot, Resolver: resolver}
+	return &SysfsPCIProvider{
+		SysRoot:  sysRoot,
+		Resolver: resolver,
+		Reader:   pci.NewSysfsReader(sysRoot),
+	}
 }
 
 // Scan returns detected GPU-like PCI devices.
-func (p *SysfsPCIProvider) Scan(_ context.Context) ([]state.Device, error) {
-	root := p.SysRoot
-	if root == "" {
-		root = defaultHostSysRoot
+func (p *SysfsPCIProvider) Scan(ctx context.Context) ([]state.Device, error) {
+	reader := p.Reader
+	if reader == nil {
+		reader = pci.NewSysfsReader(p.SysRoot)
 	}
-	base := filepath.Join(root, "bus/pci/devices")
-	if _, err := os.Stat(base); err != nil {
-		base = filepath.Join(defaultSysRoot, "bus/pci/devices")
-	}
-
-	entries, err := os.ReadDir(base)
+	rawDevices, err := reader.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("read pci devices: %w", err)
+		return nil, fmt.Errorf("list pci devices: %w", err)
 	}
 
-	devices := make([]state.Device, 0, len(entries))
-	for _, entry := range entries {
-		addr := entry.Name()
-		devicePath := filepath.Join(base, addr)
-
-		classRaw, err := readTrim(filepath.Join(devicePath, "class"))
-		if err != nil {
+	devices := make([]state.Device, 0, len(rawDevices))
+	for _, raw := range rawDevices {
+		if !isGPUClass(raw.ClassCode) {
 			continue
 		}
-		classCode := normalizeClassCode(classRaw)
-		if classCode == "" || !isGPUClass(classCode) {
-			continue
-		}
-
-		vendorRaw, err := readTrim(filepath.Join(devicePath, "vendor"))
-		if err != nil {
-			continue
-		}
-		deviceRaw, err := readTrim(filepath.Join(devicePath, "device"))
-		if err != nil {
+		// v0: only NVIDIA devices. TODO: add AMD/Intel when supported.
+		if raw.VendorID != nvidiaVendorID {
 			continue
 		}
 
 		device := state.Device{
-			Address:   addr,
-			ClassCode: classCode,
-			VendorID:  normalizeHexID(vendorRaw),
-			DeviceID:  normalizeHexID(deviceRaw),
+			Address:    raw.Address,
+			ClassCode:  raw.ClassCode,
+			VendorID:   raw.VendorID,
+			DeviceID:   raw.DeviceID,
+			DriverName: raw.DriverName,
 		}
 
 		if p.Resolver != nil {
@@ -117,26 +103,4 @@ func (p *SysfsPCIProvider) Scan(_ context.Context) ([]state.Device, error) {
 
 func isGPUClass(classCode string) bool {
 	return strings.HasPrefix(strings.ToLower(classCode), "03")
-}
-
-func normalizeHexID(raw string) string {
-	value := strings.TrimSpace(raw)
-	value = strings.TrimPrefix(strings.ToLower(value), "0x")
-	return value
-}
-
-func normalizeClassCode(raw string) string {
-	value := normalizeHexID(raw)
-	if len(value) < 4 {
-		return ""
-	}
-	return value[:4]
-}
-
-func readTrim(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(data)), nil
 }

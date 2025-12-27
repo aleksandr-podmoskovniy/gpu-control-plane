@@ -56,6 +56,6 @@ shell:
     {{- $_ := set $ "ProjectName" (list $.ImageName "gpu-dra-controller" | join "/") }}
     {{- include "image-build.build" (set $ "BuildCommand" `go build -trimpath -ldflags="-s -w" -v -o /out/gpu-dra-controller ./cmd/gpu-dra-controller`) | nindent 4 }}
   - |
-    echo "Build gpu-dra-plugin binary"
-    {{- $_ := set $ "ProjectName" (list $.ImageName "gpu-dra-plugin" | join "/") }}
-    {{- include "image-build.build" (set $ "BuildCommand" `go build -trimpath -ldflags="-s -w" -v -o /out/gpu-dra-plugin ./cmd/gpu-dra-plugin`) | nindent 4 }}
+    echo "Build gpu-handler binary"
+    {{- $_ := set $ "ProjectName" (list $.ImageName "gpu-handler" | join "/") }}
+    {{- include "image-build.build" (set $ "BuildCommand" `go build -trimpath -ldflags="-s -w" -v -o /out/gpu-handler ./cmd/gpu-handler`) | nindent 4 }}

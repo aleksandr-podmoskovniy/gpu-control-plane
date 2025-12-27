@@ -27,7 +27,9 @@ import (
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/handler"
+	internalindexer "github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
@@ -46,6 +48,11 @@ func boolPtr(v bool) *bool {
 func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger) error {
 	recorder := eventrecord.NewEventRecorderLogger(mgr, ControllerName).WithLogging(log)
 	validator := service.NewValidator(mgr.GetClient(), namespaceFromEnv())
+
+	internalindexer.Register()
+	if err := indexer.IndexALL(ctx, mgr); err != nil {
+		return err
+	}
 
 	handlers := []Handler{
 		handler.NewValidatorHandler(validator),

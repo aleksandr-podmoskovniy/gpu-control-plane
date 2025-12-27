@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -148,5 +149,29 @@ func buildStatus(obj *gpuv1alpha1.PhysicalGPU, dev state.Device, nodeName string
 	}
 	status.PCIInfo = pci
 
+	if driverType := driverTypeFromName(dev.DriverName); driverType != "" || status.CurrentState != nil {
+		current := status.CurrentState
+		if current == nil {
+			current = &gpuv1alpha1.GPUCurrentState{}
+		}
+		if driverType != "" {
+			current.DriverType = driverType
+		}
+		status.CurrentState = current
+	}
+
 	return status
+}
+
+func driverTypeFromName(name string) gpuv1alpha1.DriverType {
+	switch strings.ToLower(name) {
+	case "nvidia":
+		return gpuv1alpha1.DriverTypeNvidia
+	case "vfio-pci":
+		return gpuv1alpha1.DriverTypeVFIO
+	case "amdgpu":
+		return gpuv1alpha1.DriverTypeROCm
+	default:
+		return ""
+	}
 }

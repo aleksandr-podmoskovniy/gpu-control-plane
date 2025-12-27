@@ -142,6 +142,7 @@ func (r *Resource[T, ST]) Update(ctx context.Context) error {
 		metadataPatch.Append(r.jsonPatchOpsForLabels()...)
 	}
 
+	ops := metadataPatch.Operations()
 	if metadataPatch.Len() == 0 {
 		return nil
 	}
@@ -155,28 +156,66 @@ func (r *Resource[T, ST]) Update(ctx context.Context) error {
 		if r.changedObj.GetDeletionTimestamp() != nil && len(r.changedObj.GetFinalizers()) == 0 && kerrors.IsNotFound(err) {
 			return nil
 		}
-		return fmt.Errorf("error patching metadata (%s): %w", string(metadataPatchBytes), err)
+		return fmt.Errorf("error patching metadata (%s, ops=%d): %w", string(metadataPatchBytes), len(ops), err)
 	}
 
 	return nil
 }
 
 func (r *Resource[T, ST]) jsonPatchOpsForFinalizers() []patch.JSONPatchOperation {
-	return []patch.JSONPatchOperation{
-		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/finalizers", r.changedObj.GetFinalizers()),
+	current := r.currentObj.GetFinalizers()
+	desired := r.changedObj.GetFinalizers()
+	switch {
+	case len(current) == 0 && len(desired) == 0:
+		return nil
+	case len(current) == 0 && len(desired) > 0:
+		return []patch.JSONPatchOperation{patch.WithAdd("/metadata/finalizers", desired)}
+	case len(current) > 0 && len(desired) == 0:
+		return []patch.JSONPatchOperation{patch.WithRemove("/metadata/finalizers")}
+	default:
+		return []patch.JSONPatchOperation{patch.WithReplace("/metadata/finalizers", desired)}
 	}
 }
 
 func (r *Resource[T, ST]) jsonPatchOpsForAnnotations() []patch.JSONPatchOperation {
-	return []patch.JSONPatchOperation{
-		patch.NewJSONPatchOperation(patch.PatchTestOp, "/metadata/annotations", r.currentObj.GetAnnotations()),
-		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/annotations", r.changedObj.GetAnnotations()),
-	}
+	return jsonPatchOpsForMap("/metadata/annotations", r.currentObj.GetAnnotations(), r.changedObj.GetAnnotations())
 }
 
 func (r *Resource[T, ST]) jsonPatchOpsForLabels() []patch.JSONPatchOperation {
-	return []patch.JSONPatchOperation{
-		patch.NewJSONPatchOperation(patch.PatchTestOp, "/metadata/labels", r.currentObj.GetLabels()),
-		patch.NewJSONPatchOperation(patch.PatchReplaceOp, "/metadata/labels", r.changedObj.GetLabels()),
+	return jsonPatchOpsForMap("/metadata/labels", r.currentObj.GetLabels(), r.changedObj.GetLabels())
+}
+
+func jsonPatchOpsForMap(path string, current, desired map[string]string) []patch.JSONPatchOperation {
+	switch {
+	case current == nil && desired == nil:
+		return nil
+	case current == nil && desired != nil:
+		return []patch.JSONPatchOperation{patch.WithAdd(path, desired)}
+	case current != nil && desired == nil:
+		return []patch.JSONPatchOperation{patch.WithRemove(path)}
 	}
+
+	ops := []patch.JSONPatchOperation{
+		patch.NewJSONPatchOperation(patch.PatchTestOp, path, current),
+	}
+
+	for key := range current {
+		if _, ok := desired[key]; ok {
+			continue
+		}
+		ops = append(ops, patch.WithRemove(path+"/"+patch.EscapeJSONPointer(key)))
+	}
+
+	for key, value := range desired {
+		currentValue, ok := current[key]
+		pathKey := path + "/" + patch.EscapeJSONPointer(key)
+		switch {
+		case !ok:
+			ops = append(ops, patch.WithAdd(pathKey, value))
+		case currentValue != value:
+			ops = append(ops, patch.WithReplace(pathKey, value))
+		}
+	}
+
+	return ops
 }

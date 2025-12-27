@@ -6,7 +6,7 @@ binaries:
 - gpu-controller
 - gpu-node-agent
 - gpu-dra-controller
-- gpu-dra-plugin
+- gpu-handler
 
 Deployment manifests and CRDs for the module live at the repository root (`templates/`, `crds/`).
 Local CRD generation output is written to `crds/` at the repository root.

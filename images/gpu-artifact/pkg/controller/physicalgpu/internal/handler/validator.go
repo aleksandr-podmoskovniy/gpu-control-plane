@@ -61,6 +61,8 @@ func (h *ValidatorHandler) Handle(ctx context.Context, st state.PhysicalGPUState
 	}
 
 	if obj.Labels[labelVendor] != "nvidia" {
+		conditions.RemoveCondition(conditionDriverReady, &obj.Status.Conditions)
+		conditions.RemoveCondition(conditionHardwareHealthy, &obj.Status.Conditions)
 		return reconcile.Result{}, nil
 	}
 
@@ -85,16 +87,16 @@ func (h *ValidatorHandler) Handle(ctx context.Context, st state.PhysicalGPUState
 			Reason(reasonValidatorNotReady).
 			Message(res.Message)
 	}
-	conditions.SetCondition(driverReady, &obj.Status.Conditions)
 
-	if conditions.FindStatusCondition(obj.Status.Conditions, conditionHardwareHealthy.String()) == nil {
-		hardware := conditions.NewConditionBuilder(conditionHardwareHealthy).
-			Generation(gen).
-			Status(metav1.ConditionUnknown).
-			Reason(reasonNotChecked).
-			Message("hardware health is not checked yet")
-		conditions.SetCondition(hardware, &obj.Status.Conditions)
-	}
+	mgr := conditions.NewManager(obj.Status.Conditions)
+	mgr.Update(driverReady.Condition())
+	hardware := conditions.NewConditionBuilder(conditionHardwareHealthy).
+		Generation(gen).
+		Status(metav1.ConditionUnknown).
+		Reason(reasonNotChecked).
+		Message("hardware health is not checked yet")
+	mgr.Add(hardware.Condition())
+	obj.Status.Conditions = mgr.Generate()
 
 	return reconcile.Result{}, nil
 }

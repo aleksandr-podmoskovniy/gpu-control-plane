@@ -175,13 +175,6 @@ func expectCounterInc(t *testing.T, provider *stubMetricsProvider, key string, w
 	}
 }
 
-func expectCounterExists(t *testing.T, provider *stubMetricsProvider, key string) {
-	t.Helper()
-	if _, ok := provider.counters[key]; !ok {
-		t.Fatalf("counter %s not recorded", key)
-	}
-}
-
 func expectCounterAdds(t *testing.T, provider *stubMetricsProvider, key string, want []float64) {
 	t.Helper()
 	counter, ok := provider.counters[key]

@@ -36,7 +36,7 @@ spec:
             - --resync-period={{ $resyncPeriod }}
             - --sysfs-path=/host-sys
             - --os-release-path=/host-etc/os-release
-            - --pci-ids-paths=/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids
+            - --pci-ids-paths=/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids,/host-usr-share/pci.ids,/host-usr-share/pciids/pci.ids
           env:
             - name: NODE_NAME
               valueFrom:

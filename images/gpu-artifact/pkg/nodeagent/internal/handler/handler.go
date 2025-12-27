@@ -61,7 +61,7 @@ func NewChain(handlers ...Handler) Chain {
 func (c Chain) Run(ctx context.Context, st state.State, log *log.Logger) error {
 	var errs []error
 	for _, h := range c.handlers {
-		handlerLog := log.With(logger.SlogHandler(h.Name()))
+		handlerLog := log.With(logger.SlogHandler(h.Name()), logger.SlogStep("run"))
 		if err := h.Handle(ctx, st); err != nil {
 			wrapped := fmt.Errorf("%s: %w", h.Name(), err)
 			if errors.Is(err, ErrStopHandlerChain) {

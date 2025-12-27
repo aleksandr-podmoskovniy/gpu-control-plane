@@ -18,6 +18,7 @@ package nodeagent
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -103,6 +104,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) sync(ctx context.Context) error {
+	ctx = logger.ToContext(ctx, slog.Default())
 	st := state.New(a.cfg.NodeName)
 	if err := a.chain.Run(ctx, st, a.log); err != nil {
 		return err

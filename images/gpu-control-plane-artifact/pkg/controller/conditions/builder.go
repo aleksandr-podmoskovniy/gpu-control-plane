@@ -19,23 +19,11 @@ package conditions
 import (
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Conder interface {
 	Condition() metav1.Condition
-}
-
-func HasCondition(conditionType Stringer, conditions []metav1.Condition) bool {
-	for _, condition := range conditions {
-		if condition.Type == conditionType.String() {
-			return true
-		}
-	}
-
-	return false
 }
 
 func SetCondition(c Conder, conditions *[]metav1.Condition) {
@@ -90,23 +78,6 @@ func FindStatusCondition(conditions []metav1.Condition, conditionType string) *m
 	return nil
 }
 
-func RemoveCondition(conditionType Stringer, conditions *[]metav1.Condition) {
-	meta.RemoveStatusCondition(conditions, conditionType.String())
-}
-
-func GetCondition(condType Stringer, conditions []metav1.Condition) (metav1.Condition, bool) {
-	for _, condition := range conditions {
-		if condition.Type == condType.String() {
-			return condition, true
-		}
-	}
-
-	return metav1.Condition{}, false
-}
-
-func IsLastUpdated(condition metav1.Condition, obj client.Object) bool {
-	return condition.ObservedGeneration == obj.GetGeneration()
-}
 
 func NewConditionBuilder(conditionType Stringer) *ConditionBuilder {
 	return &ConditionBuilder{

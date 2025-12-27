@@ -64,40 +64,47 @@ spec:
                     memoryMiB:
                       description: Общий объём VRAM в MiB.
                     vendor:
-                      description: Вендор-специфичные capabilities.
+                      description: Вендор устройства (Nvidia/Amd/Intel).
+                      enum:
+                        - Nvidia
+                        - Amd
+                        - Intel
+                    nvidia:
+                      description: NVIDIA-специфичные возможности (только если vendor=Nvidia).
                       properties:
-                        nvidia:
-                          description: NVIDIA-специфичные возможности.
+                        computeCap:
+                          description: Compute Capability (например, 8.0).
+                        productArchitecture:
+                          description: Архитектура (например, Ampere).
+                        boardPartNumber:
+                          description: Board Part Number.
+                        computeTypes:
+                          description: Список поддерживаемых compute типов.
+                        powerLimitMinW:
+                          description: Минимальный поддерживаемый power limit в ваттах.
+                        powerLimitMaxW:
+                          description: Максимальный поддерживаемый power limit в ваттах.
+                        migSupported:
+                          description: Поддержка MIG (true/false).
+                        mig:
+                          description: Профили MIG (только если migSupported=true).
                           properties:
-                            computeCap:
-                              description: Compute Capability (например, 8.0).
-                            productArchitecture:
-                              description: Архитектура (например, Ampere).
-                            boardPartNumber:
-                              description: Board Part Number.
-                            computeTypes:
-                              description: Список поддерживаемых compute типов.
-                            migSupported:
-                              description: Поддержка MIG (true/false).
-                            mig:
-                              description: Профили MIG (только если migSupported=true).
-                              properties:
-                                totalSlices:
-                                  description: Общее число MIG-слайсов на карте.
-                                profiles:
-                                  description: Полный список поддерживаемых профилей MIG.
-                                  items:
-                                    properties:
-                                      profileID:
-                                        description: Числовой ID профиля.
-                                      name:
-                                        description: Имя профиля (например, 2g.12gb).
-                                      memoryMiB:
-                                        description: Объём памяти профиля в MiB.
-                                      sliceCount:
-                                        description: Сколько слайсов занимает профиль.
-                                      maxInstances:
-                                        description: Максимум инстансов профиля.
+                            totalSlices:
+                              description: Общее число MIG-слайсов на карте.
+                            profiles:
+                              description: Полный список поддерживаемых профилей MIG.
+                              items:
+                                properties:
+                                  profileID:
+                                    description: Числовой ID профиля.
+                                  name:
+                                    description: Имя профиля (например, 2g.12gb).
+                                  memoryMiB:
+                                    description: Объём памяти профиля в MiB.
+                                  sliceCount:
+                                    description: Сколько слайсов занимает профиль.
+                                  maxInstances:
+                                    description: Максимум инстансов профиля.
                 conditions:
                   description: Список условий готовности (DriverReady, HardwareHealthy).
                 currentState:
@@ -118,6 +125,10 @@ spec:
                           description: Версия драйвера NVIDIA.
                         cudaVersion:
                           description: Версия CUDA.
+                        powerLimitCurrentW:
+                          description: Текущий power limit в ваттах.
+                        powerLimitEnforcedW:
+                          description: Принудительный (enforced) power limit в ваттах.
                         mig:
                           description: Текущий режим MIG (если поддерживается).
                           properties:

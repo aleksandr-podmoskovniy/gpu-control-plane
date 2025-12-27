@@ -62,7 +62,7 @@ func main() {
 	flag.DurationVar(&resyncPeriod, "resync-period", 0, "Resync period for scanning PCI devices (0s disables periodic resync).")
 	flag.StringVar(&sysRoot, "sysfs-path", "/host-sys", "Path to the host sysfs mount.")
 	flag.StringVar(&osReleasePath, "os-release-path", "/host-etc/os-release", "Path to the host os-release file.")
-	flag.StringVar(&pciIDsPaths, "pci-ids-paths", "/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids", "Comma-separated list of pci.ids paths.")
+	flag.StringVar(&pciIDsPaths, "pci-ids-paths", "/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids,/host-usr-share/pci.ids,/host-usr-share/pciids/pci.ids", "Comma-separated list of pci.ids paths.")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")

@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	controllersvc "github.com/aleksandr-podmoskovniy/gpu/pkg/controller/service"
 )
 
 const (
@@ -42,12 +44,12 @@ type ValidationResult struct {
 
 // Validator checks readiness of bootstrap validator pods.
 type Validator struct {
-	client    client.Client
+	client    controllersvc.Client
 	namespace string
 }
 
 // NewValidator creates a validator checker.
-func NewValidator(cl client.Client, namespace string) *Validator {
+func NewValidator(cl controllersvc.Client, namespace string) *Validator {
 	return &Validator{client: cl, namespace: namespace}
 }
 

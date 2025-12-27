@@ -17,10 +17,7 @@ limitations under the License.
 package indexer
 
 import (
-	"context"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	commonannotations "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/annotations"
 )
@@ -49,14 +46,4 @@ var IndexGetters = []IndexGetter{
 	IndexGPUDeviceByClusterAssignment,
 	IndexGPUPoolByName,
 	IndexNodeByTaintKey,
-}
-
-func IndexALL(ctx context.Context, mgr manager.Manager) error {
-	for _, fn := range IndexGetters {
-		obj, field, indexFunc := fn()
-		if err := mgr.GetFieldIndexer().IndexField(ctx, obj, field, indexFunc); err != nil {
-			return err
-		}
-	}
-	return nil
 }

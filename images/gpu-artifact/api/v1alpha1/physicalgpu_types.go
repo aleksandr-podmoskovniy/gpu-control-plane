@@ -103,13 +103,9 @@ type GPUCapabilities struct {
 	ProductName string `json:"productName,omitempty"`
 	// MemoryMiB is the total framebuffer memory in MiB.
 	MemoryMiB *int64 `json:"memoryMiB,omitempty"`
-	// Vendor holds vendor-specific capabilities.
-	Vendor *GPUVendorCapabilities `json:"vendor,omitempty"`
-}
-
-// GPUVendorCapabilities contains vendor-specific capability snapshots.
-type GPUVendorCapabilities struct {
-	// Nvidia holds NVIDIA-specific capabilities.
+	// Vendor is the GPU vendor (Nvidia/Amd/Intel).
+	Vendor VendorName `json:"vendor,omitempty"`
+	// Nvidia holds NVIDIA-specific capabilities (only when Vendor is Nvidia).
 	Nvidia *NvidiaCapabilities `json:"nvidia,omitempty"`
 }
 
@@ -124,6 +120,10 @@ type NvidiaCapabilities struct {
 	// ComputeTypes lists supported compute types.
 	// +listType=atomic
 	ComputeTypes []string `json:"computeTypes,omitempty"`
+	// PowerLimitMinW is the minimum supported power limit in watts.
+	PowerLimitMinW *int64 `json:"powerLimitMinW,omitempty"`
+	// PowerLimitMaxW is the maximum supported power limit in watts.
+	PowerLimitMaxW *int64 `json:"powerLimitMaxW,omitempty"`
 	// MIGSupported indicates whether MIG is supported.
 	MIGSupported *bool `json:"migSupported,omitempty"`
 	// MIG contains MIG capabilities (only when MIGSupported is true).
@@ -169,6 +169,10 @@ type NvidiaCurrentState struct {
 	DriverVersion string `json:"driverVersion,omitempty"`
 	// CUDAVersion is the reported CUDA version string.
 	CUDAVersion string `json:"cudaVersion,omitempty"`
+	// PowerLimitCurrentW is the current power limit in watts.
+	PowerLimitCurrentW *int64 `json:"powerLimitCurrentW,omitempty"`
+	// PowerLimitEnforcedW is the enforced power limit in watts.
+	PowerLimitEnforcedW *int64 `json:"powerLimitEnforcedW,omitempty"`
 	// MIG describes the current MIG mode (when supported).
 	MIG *NvidiaMIGState `json:"mig,omitempty"`
 }
@@ -187,10 +191,10 @@ type NvidiaMIGState struct {
 // +kubebuilder:printcolumn:name="Device",type=string,JSONPath=`.status.pciInfo.device.name`
 // +kubebuilder:printcolumn:name="DriverReady",type=string,JSONPath=`.status.conditions[?(@.type=="DriverReady")].status`
 // +kubebuilder:printcolumn:name="HardwareHealthy",type=string,JSONPath=`.status.conditions[?(@.type=="HardwareHealthy")].status`
-// +kubebuilder:printcolumn:name="DriverVersion",type=string,JSONPath=`.status.currentState.vendor.nvidia.driverVersion`,priority=1
-// +kubebuilder:printcolumn:name="CUDAVersion",type=string,JSONPath=`.status.currentState.vendor.nvidia.cudaVersion`,priority=1
-// +kubebuilder:printcolumn:name="ComputeCap",type=string,JSONPath=`.status.capabilities.vendor.nvidia.computeCap`,priority=1
-// +kubebuilder:printcolumn:name="MIGSupported",type=string,JSONPath=`.status.capabilities.vendor.nvidia.migSupported`,priority=1
+// +kubebuilder:printcolumn:name="DriverVersion",type=string,JSONPath=`.status.currentState.nvidia.driverVersion`,priority=1
+// +kubebuilder:printcolumn:name="CUDAVersion",type=string,JSONPath=`.status.currentState.nvidia.cudaVersion`,priority=1
+// +kubebuilder:printcolumn:name="ComputeCap",type=string,JSONPath=`.status.capabilities.nvidia.computeCap`,priority=1
+// +kubebuilder:printcolumn:name="MIGSupported",type=string,JSONPath=`.status.capabilities.nvidia.migSupported`,priority=1
 
 // PhysicalGPU is the Schema for the physicalgpus API.
 type PhysicalGPU struct {

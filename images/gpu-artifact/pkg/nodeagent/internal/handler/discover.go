@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
 )
@@ -48,13 +49,17 @@ func (h *DiscoverHandler) Handle(ctx context.Context, st state.State) error {
 		return StopHandlerChain(errors.New("node name is empty"))
 	}
 
-	devices, err := h.pci.Scan(ctx)
+	pciLog, pciCtx := logger.GetDataSourceContext(ctx, "pci")
+	devices, err := h.pci.Scan(pciCtx)
 	if err != nil {
 		return StopHandlerChain(err)
 	}
+	pciLog.Debug("PCI scan completed", "devices", len(devices))
 
+	hostLog, hostCtx := logger.GetDataSourceContext(ctx, "host-info")
 	st.SetDevices(devices)
-	st.SetNodeInfo(h.hostInfo.NodeInfo(ctx))
+	st.SetNodeInfo(h.hostInfo.NodeInfo(hostCtx))
+	hostLog.Debug("Host info collected")
 
 	return nil
 }

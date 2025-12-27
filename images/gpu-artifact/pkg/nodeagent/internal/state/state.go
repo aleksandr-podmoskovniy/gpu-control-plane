@@ -43,6 +43,7 @@ type Device struct {
 	VendorName string
 	DeviceID   string
 	DeviceName string
+	DriverName string
 }
 
 // State provides access to a node-agent sync snapshot.

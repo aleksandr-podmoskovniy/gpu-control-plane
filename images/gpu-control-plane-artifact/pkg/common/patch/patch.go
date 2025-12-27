@@ -17,7 +17,6 @@ package patch
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -49,51 +48,12 @@ func NewJSONPatchOperation(op, path string, value interface{}) JSONPatchOperatio
 	}
 }
 
-func WithAdd(path string, value interface{}) JSONPatchOperation {
-	return NewJSONPatchOperation(PatchAddOp, path, value)
-}
-
-func WithRemove(path string) JSONPatchOperation {
-	return NewJSONPatchOperation(PatchRemoveOp, path, nil)
-}
-
-func WithReplace(path string, value interface{}) JSONPatchOperation {
-	return NewJSONPatchOperation(PatchReplaceOp, path, value)
-}
-
-func (jp *JSONPatch) Operations() []JSONPatchOperation {
-	return jp.operations
-}
-
 func (jp *JSONPatch) Append(patches ...JSONPatchOperation) {
 	jp.operations = append(jp.operations, patches...)
 }
 
-func (jp *JSONPatch) Delete(op, path string) {
-	var idx int
-	var found bool
-	for i, o := range jp.operations {
-		if o.Op == op && o.Path == path {
-			idx = i
-			found = true
-			break
-		}
-	}
-	if found {
-		jp.operations = append(jp.operations[:idx], jp.operations[idx+1:]...)
-	}
-}
-
 func (jp *JSONPatch) Len() int {
 	return len(jp.operations)
-}
-
-func (jp *JSONPatch) String() (string, error) {
-	bytes, err := jp.Bytes()
-	if err != nil {
-		return "", err
-	}
-	return string(bytes), nil
 }
 
 func (jp *JSONPatch) Bytes() ([]byte, error) {
@@ -101,10 +61,4 @@ func (jp *JSONPatch) Bytes() ([]byte, error) {
 		return nil, fmt.Errorf("list of patches is empty")
 	}
 	return json.Marshal(jp.operations)
-}
-
-func EscapeJSONPointer(path string) string {
-	path = strings.ReplaceAll(path, "~", "~0")
-	path = strings.ReplaceAll(path, "/", "~1")
-	return path
 }

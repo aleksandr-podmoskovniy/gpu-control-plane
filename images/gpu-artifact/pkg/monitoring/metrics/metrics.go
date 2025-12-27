@@ -16,7 +16,11 @@ limitations under the License.
 
 package metrics
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/monitoring/metrics/promutil"
+)
 
 const (
 	MetricNamespace = "gpu"
@@ -30,6 +34,9 @@ type MetricInfo struct {
 
 // NewMetricInfo creates a metric descriptor with module namespace.
 func NewMetricInfo(metricName, help string, t prometheus.ValueType, labels []string, constLabels prometheus.Labels) MetricInfo {
+	if len(constLabels) > 0 {
+		constLabels = promutil.WrapPrometheusLabels(constLabels, "", nil)
+	}
 	return MetricInfo{
 		Desc: prometheus.NewDesc(
 			prometheus.BuildFQName(MetricNamespace, "", metricName),

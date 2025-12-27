@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -29,6 +30,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/allocator"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
@@ -60,6 +65,14 @@ func main() {
 	log := rootLog.With(logger.SlogController("gpu-dra-controller"))
 
 	ctx := ctrl.SetupSignalHandler()
+	ctx = logger.ToContext(ctx, slog.Default())
+
+	allocSvc := allocator.NewService(nvml.NewInventory(), k8s.NewAllocationWriter())
+	runtime := dra.NewRuntime(allocSvc, nil, nil)
+	if err := runtime.RunAllocator(ctx); err != nil {
+		log.Error("allocator init failed", logger.SlogErr(err))
+	}
+
 	server := &http.Server{Addr: probeAddr, Handler: healthMux()}
 	metricsServer := &http.Server{Addr: metricsAddr, Handler: promhttp.Handler()}
 

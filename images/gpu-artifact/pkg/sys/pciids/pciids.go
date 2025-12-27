@@ -102,12 +102,12 @@ func Load(path string) (*Resolver, error) {
 				continue
 			}
 			id := strings.ToLower(fields[0])
-			if !isHex(id) || len(id) != 4 {
-				continue
-			}
 			name := strings.Join(fields[1:], " ")
 			switch mode {
 			case "vendor":
+				if !isHex(id) || len(id) != 4 {
+					continue
+				}
 				if currentVendor == "" {
 					continue
 				}
@@ -116,6 +116,9 @@ func Load(path string) (*Resolver, error) {
 				}
 				res.devices[currentVendor][id] = name
 			case "class":
+				if !isHex(id) || len(id) != 2 {
+					continue
+				}
 				if currentClass == "" {
 					continue
 				}

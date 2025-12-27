@@ -37,19 +37,19 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="HardwareHealthy")].status
       name: HardwareHealthy
       type: string
-    - jsonPath: .status.currentState.vendor.nvidia.driverVersion
+    - jsonPath: .status.currentState.nvidia.driverVersion
       name: DriverVersion
       priority: 1
       type: string
-    - jsonPath: .status.currentState.vendor.nvidia.cudaVersion
+    - jsonPath: .status.currentState.nvidia.cudaVersion
       name: CUDAVersion
       priority: 1
       type: string
-    - jsonPath: .status.capabilities.vendor.nvidia.computeCap
+    - jsonPath: .status.capabilities.nvidia.computeCap
       name: ComputeCap
       priority: 1
       type: string
-    - jsonPath: .status.capabilities.vendor.nvidia.migSupported
+    - jsonPath: .status.capabilities.nvidia.migSupported
       name: MIGSupported
       priority: 1
       type: string
@@ -90,82 +90,94 @@ spec:
                     description: MemoryMiB is the total framebuffer memory in MiB.
                     format: int64
                     type: integer
+                  nvidia:
+                    description: Nvidia holds NVIDIA-specific capabilities (only when
+                      Vendor is Nvidia).
+                    properties:
+                      boardPartNumber:
+                        description: BoardPartNumber is the NVIDIA board part number.
+                        type: string
+                      computeCap:
+                        description: ComputeCap is the CUDA compute capability string
+                          (for example "8.0").
+                        type: string
+                      computeTypes:
+                        description: ComputeTypes lists supported compute types.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      mig:
+                        description: MIG contains MIG capabilities (only when MIGSupported
+                          is true).
+                        properties:
+                          profiles:
+                            description: Profiles lists supported MIG profiles.
+                            items:
+                              description: NvidiaMIGProfile describes a supported
+                                MIG profile.
+                              properties:
+                                maxInstances:
+                                  description: MaxInstances is the maximum number
+                                    of instances for this profile.
+                                  format: int32
+                                  type: integer
+                                memoryMiB:
+                                  description: MemoryMiB is the framebuffer size for
+                                    the profile.
+                                  format: int32
+                                  type: integer
+                                name:
+                                  description: Name is the profile name, for example
+                                    "2g.12gb".
+                                  type: string
+                                profileID:
+                                  description: ProfileID is the numeric profile ID.
+                                  format: int32
+                                  type: integer
+                                sliceCount:
+                                  description: SliceCount is the number of slices
+                                    consumed by the profile.
+                                  format: int32
+                                  type: integer
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          totalSlices:
+                            description: TotalSlices is the total number of MIG slices
+                              on the GPU.
+                            format: int32
+                            type: integer
+                        type: object
+                      migSupported:
+                        description: MIGSupported indicates whether MIG is supported.
+                        type: boolean
+                      powerLimitMaxW:
+                        description: PowerLimitMaxW is the maximum supported power
+                          limit in watts.
+                        format: int64
+                        type: integer
+                      powerLimitMinW:
+                        description: PowerLimitMinW is the minimum supported power
+                          limit in watts.
+                        format: int64
+                        type: integer
+                      productArchitecture:
+                        description: ProductArchitecture is the NVIDIA architecture
+                          name (for example "Ampere").
+                        type: string
+                    type: object
                   productName:
                     description: ProductName is the GPU product name (for example
                       "NVIDIA A30").
                     type: string
                   vendor:
-                    description: Vendor holds vendor-specific capabilities.
-                    properties:
-                      nvidia:
-                        description: Nvidia holds NVIDIA-specific capabilities.
-                        properties:
-                          boardPartNumber:
-                            description: BoardPartNumber is the NVIDIA board part
-                              number.
-                            type: string
-                          computeCap:
-                            description: ComputeCap is the CUDA compute capability
-                              string (for example "8.0").
-                            type: string
-                          computeTypes:
-                            description: ComputeTypes lists supported compute types.
-                            items:
-                              type: string
-                            type: array
-                            x-kubernetes-list-type: atomic
-                          mig:
-                            description: MIG contains MIG capabilities (only when
-                              MIGSupported is true).
-                            properties:
-                              profiles:
-                                description: Profiles lists supported MIG profiles.
-                                items:
-                                  description: NvidiaMIGProfile describes a supported
-                                    MIG profile.
-                                  properties:
-                                    maxInstances:
-                                      description: MaxInstances is the maximum number
-                                        of instances for this profile.
-                                      format: int32
-                                      type: integer
-                                    memoryMiB:
-                                      description: MemoryMiB is the framebuffer size
-                                        for the profile.
-                                      format: int32
-                                      type: integer
-                                    name:
-                                      description: Name is the profile name, for example
-                                        "2g.12gb".
-                                      type: string
-                                    profileID:
-                                      description: ProfileID is the numeric profile
-                                        ID.
-                                      format: int32
-                                      type: integer
-                                    sliceCount:
-                                      description: SliceCount is the number of slices
-                                        consumed by the profile.
-                                      format: int32
-                                      type: integer
-                                  type: object
-                                type: array
-                                x-kubernetes-list-type: atomic
-                              totalSlices:
-                                description: TotalSlices is the total number of MIG
-                                  slices on the GPU.
-                                format: int32
-                                type: integer
-                            type: object
-                          migSupported:
-                            description: MIGSupported indicates whether MIG is supported.
-                            type: boolean
-                          productArchitecture:
-                            description: ProductArchitecture is the NVIDIA architecture
-                              name (for example "Ampere").
-                            type: string
-                        type: object
-                    type: object
+                    description: Vendor is the GPU vendor (Nvidia/Amd/Intel).
+                    enum:
+                    - Nvidia
+                    - Amd
+                    - Intel
+                    type: string
                 type: object
               conditions:
                 description: Conditions represent the health and readiness of the
@@ -262,6 +274,16 @@ spec:
                             - Unknown
                             type: string
                         type: object
+                      powerLimitCurrentW:
+                        description: PowerLimitCurrentW is the current power limit
+                          in watts.
+                        format: int64
+                        type: integer
+                      powerLimitEnforcedW:
+                        description: PowerLimitEnforcedW is the enforced power limit
+                          in watts.
+                        format: int64
+                        type: integer
                     type: object
                 type: object
               nodeInfo:

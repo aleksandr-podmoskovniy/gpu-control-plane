@@ -15,39 +15,15 @@
 package indexer
 
 import (
-	"context"
-	"errors"
 	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	commonannotations "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/annotations"
 )
-
-type capturingFieldIndexer struct {
-	fields []string
-	err    error
-}
-
-func (f *capturingFieldIndexer) IndexField(_ context.Context, _ client.Object, field string, _ client.IndexerFunc) error {
-	f.fields = append(f.fields, field)
-	return f.err
-}
-
-type stubManager struct {
-	manager.Manager
-	fieldIndexer client.FieldIndexer
-}
-
-func (s *stubManager) GetFieldIndexer() client.FieldIndexer {
-	return s.fieldIndexer
-}
 
 func TestIndexGPUDeviceByNode(t *testing.T) {
 	obj, field, extractor := IndexGPUDeviceByNode()
@@ -210,30 +186,21 @@ func TestIndexNodeByTaintKey(t *testing.T) {
 	})
 }
 
-func TestIndexALLRegistersIndexers(t *testing.T) {
-	idx := &capturingFieldIndexer{}
-	mgr := &stubManager{fieldIndexer: idx}
-
-	if err := IndexALL(context.Background(), mgr); err != nil {
-		t.Fatalf("unexpected index error: %v", err)
+func TestIndexGettersList(t *testing.T) {
+	expected := []string{
+		GPUDeviceNodeField,
+		GPUDevicePoolRefNameField,
+		GPUDeviceNamespacedAssignmentField,
+		GPUDeviceClusterAssignmentField,
+		GPUPoolNameField,
+		NodeTaintKeyField,
 	}
-
-	expected := make([]string, 0, len(IndexGetters))
+	fields := make([]string, 0, len(IndexGetters))
 	for _, getter := range IndexGetters {
 		_, field, _ := getter()
-		expected = append(expected, field)
+		fields = append(fields, field)
 	}
-
-	if !reflect.DeepEqual(idx.fields, expected) {
-		t.Fatalf("unexpected registered fields: %+v", idx.fields)
-	}
-}
-
-func TestIndexALLPropagatesErrors(t *testing.T) {
-	idx := &capturingFieldIndexer{err: errors.New("index failed")}
-	mgr := &stubManager{fieldIndexer: idx}
-
-	if err := IndexALL(context.Background(), mgr); err == nil {
-		t.Fatalf("expected index error")
+	if !reflect.DeepEqual(fields, expected) {
+		t.Fatalf("unexpected fields list: %+v", fields)
 	}
 }

@@ -81,23 +81,15 @@ func TestConditionHelpers(t *testing.T) {
 		{Type: "Synced", Status: metav1.ConditionFalse},
 	}
 
-	if !HasCondition(ConditionType("Ready"), conds) {
+	if FindStatusCondition(conds, "Ready") == nil {
 		t.Fatalf("expected Ready condition to exist")
 	}
-	if HasCondition(ConditionType("Missing"), conds) {
+	if FindStatusCondition(conds, "Missing") != nil {
 		t.Fatalf("did not expect Missing condition to exist")
 	}
 
 	if cond := FindStatusCondition(conds, "Synced"); cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatalf("expected to find Synced condition, got %+v", cond)
-	}
-
-	if cond, ok := GetCondition(ConditionType("Ready"), conds); !ok || cond.Status != metav1.ConditionTrue {
-		t.Fatalf("expected to get Ready condition, got %+v", cond)
-	}
-
-	if cond, ok := GetCondition(ConditionType("Missing"), conds); ok || cond.Type != "" {
-		t.Fatalf("expected missing condition to be absent, got %+v", cond)
 	}
 }
 

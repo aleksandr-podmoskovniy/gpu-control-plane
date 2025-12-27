@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/monitoring/metrics/promutil"
 	"github.com/deckhouse/deckhouse/pkg/log"
 )
 
@@ -39,9 +40,9 @@ func (s *scraper) Report(m *dataMetric) {
 
 func (s *scraper) defaultUpdate(name string, value float64, m *dataMetric) {
 	info := physicalGPUMetrics[name]
-	metric, err := prometheus.NewConstMetric(info.Desc, info.Type, value, m.labelValues()...)
+	metric, err := promutil.NewDynamicMetric(info.Desc, info.Type, value, m.labelValues(), nil)
 	if err != nil {
-		s.log.Warn(fmt.Sprintf("Error creating the new const metric for %s: %s", info.Desc, err))
+		s.log.Warn(fmt.Sprintf("Error creating the metric for %s: %s", info.Desc, err))
 		return
 	}
 	s.ch <- metric
