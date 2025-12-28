@@ -18,6 +18,7 @@ package nodeagent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -25,10 +26,14 @@ import (
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
+
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/handler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/trigger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/sys/pciids"
 )
 
@@ -38,7 +43,7 @@ type Config struct {
 	SysRoot       string
 	OSReleasePath string
 	PCIIDsPaths   []string
-	ResyncPeriod  time.Duration
+	KubeConfig    *rest.Config
 }
 
 // Agent reconciles PhysicalGPU objects based on local PCI scan.
@@ -47,6 +52,8 @@ type Agent struct {
 	log   *log.Logger
 	chain handler.Chain
 }
+
+const eventQuietPeriod = time.Second
 
 // New creates a new node-agent.
 func New(client client.Client, cfg Config, log *log.Logger) *Agent {
@@ -76,28 +83,61 @@ func New(client client.Client, cfg Config, log *log.Logger) *Agent {
 	}
 }
 
-// Run starts the periodic sync loop.
+// Run starts the event-driven sync loop.
 func (a *Agent) Run(ctx context.Context) error {
-	if err := a.sync(ctx); err != nil {
-		a.log.Error("initial sync failed", logger.SlogErr(err))
+	if a.cfg.KubeConfig == nil {
+		return fmt.Errorf("kube config is required")
 	}
 
-	period := a.cfg.ResyncPeriod
-	if period <= 0 {
-		<-ctx.Done()
-		return nil
+	notifyCh := make(chan struct{}, 1)
+	notify := func() {
+		select {
+		case notifyCh <- struct{}{}:
+		default:
+		}
 	}
 
-	ticker := time.NewTicker(period)
-	defer ticker.Stop()
+	dyn, err := dynamic.NewForConfig(a.cfg.KubeConfig)
+	if err != nil {
+		return fmt.Errorf("create dynamic client: %w", err)
+	}
+
+	sources := []trigger.Source{
+		trigger.NewUdevPCI(a.log),
+		trigger.NewPhysicalGPUWatcher(dyn, a.cfg.NodeName, a.log),
+	}
+
+	errCh := make(chan error, len(sources))
+	for _, source := range sources {
+		source := source
+		go func() {
+			if err := source.Run(ctx, notify); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+
+	timer := time.NewTimer(eventQuietPeriod)
+	defer timer.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case err := <-errCh:
+			return err
+		case <-notifyCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(eventQuietPeriod)
+		case <-timer.C:
 			if err := a.sync(ctx); err != nil {
 				a.log.Error("sync failed", logger.SlogErr(err))
+				notify()
 			}
 		}
 	}

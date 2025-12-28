@@ -1,6 +1,5 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
-{{- $resyncPeriod := dig "inventory" "resyncPeriod" "0s" .Values.gpuControlPlane }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -25,7 +24,7 @@ spec:
       {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
-      {{- include "gpuControlPlane.managedNodeAffinity" (list .) | nindent 6 }}
+      {{- include "gpuControlPlane.nonControlPlaneAffinity" . | nindent 6 }}
       containers:
         - name: {{ include "gpuControlPlane.nodeAgentName" . }}
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
@@ -33,7 +32,6 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --health-probe-bind-address=:8081
-            - --resync-period={{ $resyncPeriod }}
             - --sysfs-path=/host-sys
             - --os-release-path=/host-etc/os-release
             - --pci-ids-paths=/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids,/host-usr-share/pci.ids,/host-usr-share/pciids/pci.ids

@@ -35,6 +35,7 @@ spec:
       serviceAccountName: {{ include "gpuControlPlane.gpuControllerName" . }}
       {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
+      {{- include "helm_lib_pod_anti_affinity_for_ha" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .))) | nindent 6 }}
       containers:
         - name: {{ include "gpuControlPlane.gpuControllerName" . }}
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
@@ -96,13 +97,13 @@ spec:
       nodeSelector:
         {{- toYaml $controllerRuntime.nodeSelector | nindent 8 }}
       {{- else }}
-      {{ include "gpuControlPlane.defaultNodeSelector" (list .) | nindent 6 }}
+      {{- include "helm_lib_node_selector" (tuple . "system") | nindent 6 }}
       {{- end }}
       {{- if $controllerRuntime.tolerations }}
       tolerations:
         {{- toYaml $controllerRuntime.tolerations | nindent 8 }}
       {{- else }}
-      {{ include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
+      {{- include "helm_lib_tolerations" (tuple . "system") | nindent 6 }}
       {{- end }}
       volumes:
         - name: kube-rbac-proxy-tls

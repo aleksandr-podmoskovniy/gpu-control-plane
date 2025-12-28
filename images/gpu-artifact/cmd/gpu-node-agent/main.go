@@ -48,7 +48,6 @@ const (
 func main() {
 	var probeAddr string
 	var nodeName string
-	var resyncPeriod time.Duration
 	var sysRoot string
 	var osReleasePath string
 	var pciIDsPaths string
@@ -59,7 +58,6 @@ func main() {
 
 	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
 	flag.StringVar(&nodeName, "node-name", "", "Node name (defaults to NODE_NAME env var).")
-	flag.DurationVar(&resyncPeriod, "resync-period", 0, "Resync period for scanning PCI devices (0s disables periodic resync).")
 	flag.StringVar(&sysRoot, "sysfs-path", "/host-sys", "Path to the host sysfs mount.")
 	flag.StringVar(&osReleasePath, "os-release-path", "/host-etc/os-release", "Path to the host os-release file.")
 	flag.StringVar(&pciIDsPaths, "pci-ids-paths", "/host-usr-share/hwdata/pci.ids,/host-usr-share/misc/pci.ids,/host-usr-share/pci.ids,/host-usr-share/pciids/pci.ids", "Comma-separated list of pci.ids paths.")
@@ -84,7 +82,8 @@ func main() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(gpuv1alpha1.AddToScheme(scheme))
 
-	k8sClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	restConfig := ctrl.GetConfigOrDie()
+	k8sClient, err := client.New(restConfig, client.Options{Scheme: scheme})
 	if err != nil {
 		log.Error("unable to create Kubernetes client", logger.SlogErr(err))
 		os.Exit(1)
@@ -95,7 +94,7 @@ func main() {
 		SysRoot:       sysRoot,
 		OSReleasePath: osReleasePath,
 		PCIIDsPaths:   splitComma(pciIDsPaths),
-		ResyncPeriod:  resyncPeriod,
+		KubeConfig:    restConfig,
 	}, log)
 
 	ctx := ctrl.SetupSignalHandler()

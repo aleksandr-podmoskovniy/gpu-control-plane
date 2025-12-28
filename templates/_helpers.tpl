@@ -151,6 +151,15 @@ affinity:
         {{- end }}
 {{- end -}}
 
+{{- define "gpuControlPlane.nonControlPlaneAffinity" -}}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+{{ include "gpuControlPlane.controlPlaneExcludedExpression" . | indent 10 }}
+{{- end -}}
+
 {{- define "gpuControlPlane.managedNodeTolerations" -}}
 {{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
 {{- if $managed.tolerations }}

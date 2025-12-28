@@ -31,7 +31,6 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/handler"
 	internalindexer "github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/indexer"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/service"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	physicalgpumetrics "github.com/aleksandr-podmoskovniy/gpu/pkg/monitoring/metrics/physicalgpu"
 )
@@ -46,7 +45,6 @@ func boolPtr(v bool) *bool {
 
 // SetupController wires the PhysicalGPU controller using the virtualization-style pattern.
 func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger) error {
-	recorder := eventrecord.NewEventRecorderLogger(mgr, ControllerName).WithLogging(log)
 	validator := service.NewValidator(mgr.GetClient(), namespaceFromEnv())
 
 	internalindexer.Register()
@@ -56,7 +54,6 @@ func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger) 
 
 	handlers := []Handler{
 		handler.NewValidatorHandler(validator),
-		handler.NewNoopHandler(recorder),
 	}
 
 	r := NewReconciler(mgr.GetClient(), handlers...)
