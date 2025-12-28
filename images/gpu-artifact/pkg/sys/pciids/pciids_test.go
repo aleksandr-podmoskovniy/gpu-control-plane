@@ -17,6 +17,7 @@ limitations under the License.
 package pciids
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -38,6 +39,26 @@ func TestResolverLookups(t *testing.T) {
 		t.Fatalf("unexpected class name %q", got)
 	}
 	if got := res.ClassName("0300"); got != "VGA compatible controller" {
+		t.Fatalf("unexpected class name %q", got)
+	}
+}
+
+func TestResolverLookupsWithSpaceIndent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pci.ids")
+	content := []byte("10de  NVIDIA Corporation\n  2203  GA102 [GeForce RTX 3090 Ti]\nC 03  Display controller\n  02  3D controller\n")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write pci.ids: %v", err)
+	}
+
+	res, err := Load(path)
+	if err != nil {
+		t.Fatalf("load pci.ids: %v", err)
+	}
+	if got := res.DeviceName("10de", "2203"); got != "GA102 [GeForce RTX 3090 Ti]" {
+		t.Fatalf("unexpected device name %q", got)
+	}
+	if got := res.ClassName("0302"); got != "3D controller" {
 		t.Fatalf("unexpected class name %q", got)
 	}
 }

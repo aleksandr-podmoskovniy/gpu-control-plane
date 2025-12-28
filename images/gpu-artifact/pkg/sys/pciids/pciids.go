@@ -61,9 +61,9 @@ func Load(path string) (*Resolver, error) {
 			continue
 		}
 
-		tabs := leadingTabs(line)
-		trimmed := strings.TrimLeft(line, "\t")
-		if tabs == 0 {
+		indentTabs, indentSpaces := leadingIndent(line)
+		trimmed := strings.TrimLeft(line, " \t")
+		if indentTabs == 0 && indentSpaces == 0 {
 			currentVendor = ""
 			currentClass = ""
 
@@ -96,7 +96,10 @@ func Load(path string) (*Resolver, error) {
 			continue
 		}
 
-		if tabs == 1 {
+		if indentTabs >= 2 {
+			continue
+		}
+		if indentTabs == 1 || (indentTabs == 0 && indentSpaces > 0) {
 			fields := strings.Fields(trimmed)
 			if len(fields) < 2 {
 				continue
@@ -107,6 +110,11 @@ func Load(path string) (*Resolver, error) {
 			case "vendor":
 				if !isHex(id) || len(id) != 4 {
 					continue
+				}
+				if indentTabs == 0 && indentSpaces > 0 {
+					if len(fields) >= 2 && isHex(fields[1]) && len(fields[1]) == 4 {
+						continue
+					}
 				}
 				if currentVendor == "" {
 					continue
@@ -202,15 +210,18 @@ func (r *Resolver) ClassName(classCode string) string {
 	return r.classBase[base]
 }
 
-func leadingTabs(line string) int {
-	count := 0
+func leadingIndent(line string) (tabs, spaces int) {
 	for i := 0; i < len(line); i++ {
-		if line[i] != '\t' {
-			break
+		switch line[i] {
+		case '\t':
+			tabs++
+		case ' ':
+			spaces++
+		default:
+			return tabs, spaces
 		}
-		count++
 	}
-	return count
+	return tabs, spaces
 }
 
 func isHex(value string) bool {
