@@ -43,6 +43,7 @@ type Settings struct {
 	Scheduling     SchedulingSettings
 	Placement      PlacementSettings
 	Monitoring     MonitoringSettings
+	LogLevel       string
 }
 
 type ManagedNodesSettings struct {

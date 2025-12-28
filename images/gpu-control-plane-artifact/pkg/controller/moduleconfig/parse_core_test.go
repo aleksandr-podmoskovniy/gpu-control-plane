@@ -47,6 +47,9 @@ func TestParse(t *testing.T) {
 				if !got.Settings.Monitoring.ServiceMonitor {
 					t.Fatalf("expected monitoring serviceMonitor default true")
 				}
+				if got.Settings.LogLevel != DefaultLogLevel {
+					t.Fatalf("unexpected log level default: %s", got.Settings.LogLevel)
+				}
 				if got.HighAvailability != nil {
 					t.Fatalf("expected highAvailability=nil")
 				}
@@ -69,6 +72,7 @@ func TestParse(t *testing.T) {
 					},
 					"scheduling": map[string]any{"defaultStrategy": "BinPack", "topologyKey": " zone "},
 					"monitoring": map[string]any{"serviceMonitor": false},
+					"logLevel":   "debug",
 					"inventory":  map[string]any{"resyncPeriod": "45s"},
 					"https": map[string]any{
 						"mode":              "CustomCertificate",
@@ -95,6 +99,9 @@ func TestParse(t *testing.T) {
 				}
 				if got.Settings.Monitoring.ServiceMonitor {
 					t.Fatalf("expected monitoring serviceMonitor to be false")
+				}
+				if got.Settings.LogLevel != "Debug" {
+					t.Fatalf("unexpected log level: %s", got.Settings.LogLevel)
 				}
 				if got.HTTPS.Mode != HTTPSModeCustomCertificate || got.HTTPS.CustomCertificateSecret != "corp-secret" {
 					t.Fatalf("unexpected HTTPS settings: %+v", got.HTTPS)
@@ -147,6 +154,8 @@ func TestParseErrors(t *testing.T) {
 		{"selector error", Input{Settings: map[string]any{"deviceApproval": map[string]any{"mode": "Selector", "selector": map[string]any{"matchLabels": map[string]any{"": "value"}}}}}, "matchLabels"},
 		{"scheduling error", Input{Settings: map[string]any{"scheduling": map[string]any{"defaultStrategy": "invalid"}}}, "unknown scheduling"},
 		{"monitoring decode", Input{Settings: map[string]any{"monitoring": "oops"}}, "decode monitoring"},
+		{"logLevel decode", Input{Settings: map[string]any{"logLevel": 42}}, "decode logLevel"},
+		{"logLevel unknown", Input{Settings: map[string]any{"logLevel": "verbose"}}, "unknown logLevel"},
 		{"inventory decode", Input{Settings: map[string]any{"inventory": "oops"}}, "decode inventory settings"},
 		{"inventory error", Input{Settings: map[string]any{"inventory": map[string]any{"resyncPeriod": "bad"}}}, "parse inventory"},
 		{"inventory duration overflow", Input{Settings: map[string]any{"inventory": map[string]any{"resyncPeriod": "9223372036854775808h"}}}, "parse inventory"},

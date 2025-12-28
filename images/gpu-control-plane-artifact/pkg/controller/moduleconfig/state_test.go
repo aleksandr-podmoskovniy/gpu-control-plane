@@ -33,6 +33,7 @@ func TestValues(t *testing.T) {
 			},
 			Scheduling: SchedulingSettings{DefaultStrategy: "BinPack", TopologyKey: "zone"},
 			Monitoring: MonitoringSettings{ServiceMonitor: false},
+			LogLevel:   "Debug",
 		},
 		Inventory:        InventorySettings{ResyncPeriod: "45s"},
 		HTTPS:            HTTPSSettings{Mode: HTTPSModeCustomCertificate, CustomCertificateSecret: "secret"},
@@ -50,6 +51,9 @@ func TestValues(t *testing.T) {
 	}
 	if monitor := values["monitoring"].(map[string]any)["serviceMonitor"].(bool); monitor {
 		t.Fatalf("expected serviceMonitor value propagated")
+	}
+	if level := values["logLevel"].(string); level != "Debug" {
+		t.Fatalf("expected logLevel value propagated")
 	}
 
 	state.HTTPS = HTTPSSettings{Mode: HTTPSModeCertManager, CertManagerIssuer: "issuer"}

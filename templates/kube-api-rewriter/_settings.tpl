@@ -7,10 +7,7 @@
 {{- define "kube_api_rewriter.monitoring_port" -}}9090{{- end -}}
 
 {{- define "kube_api_rewriter.log_level" -}}
-{{- $module := .Values.gpuControlPlane | default dict -}}
-{{- $runtime := $module.runtime | default dict -}}
-{{- $controller := $runtime.controller | default dict -}}
-{{- default "info" $controller.logLevel -}}
+{{- include "gpuControlPlane.moduleLogLevel" . -}}
 {{- end -}}
 
 {{- define "kube_api_rewriter.resources" -}}

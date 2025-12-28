@@ -21,6 +21,7 @@ const (
 	DefaultSchedulingTopology     = "topology.kubernetes.io/zone"
 	DefaultMonitoringService      = true
 	DefaultInventoryResyncPeriod  = ""
+	DefaultLogLevel               = "Info"
 	DefaultHTTPSMode              = HTTPSModeCertManager
 	DefaultHTTPSCertManagerIssuer = "letsencrypt"
 )
@@ -32,6 +33,7 @@ func DefaultState() State {
 		Scheduling:     SchedulingSettings{DefaultStrategy: DefaultSchedulingStrategy, TopologyKey: DefaultSchedulingTopology},
 		Placement:      PlacementSettings{},
 		Monitoring:     MonitoringSettings{ServiceMonitor: DefaultMonitoringService},
+		LogLevel:       DefaultLogLevel,
 	}
 	sanitized := map[string]any{
 		"managedNodes":   map[string]any{"labelKey": DefaultNodeLabelKey, "enabledByDefault": true},
@@ -39,6 +41,7 @@ func DefaultState() State {
 		"scheduling":     map[string]any{"defaultStrategy": DefaultSchedulingStrategy, "topologyKey": DefaultSchedulingTopology},
 		"placement":      map[string]any{"customTolerationKeys": []string{}},
 		"monitoring":     map[string]any{"serviceMonitor": DefaultMonitoringService},
+		"logLevel":       DefaultLogLevel,
 		"inventory":      map[string]any{"resyncPeriod": DefaultInventoryResyncPeriod},
 		"https":          map[string]any{"mode": string(DefaultHTTPSMode), "certManager": map[string]any{"clusterIssuerName": DefaultHTTPSCertManagerIssuer}},
 	}

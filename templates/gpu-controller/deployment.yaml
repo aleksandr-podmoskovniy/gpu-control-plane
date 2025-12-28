@@ -3,6 +3,8 @@
 {{- $moduleValues := .Values.gpuControlPlane | default dict }}
 {{- $runtime := $moduleValues.runtime | default dict }}
 {{- $controllerRuntime := $runtime.controller | default dict }}
+{{- $logLevel := include "gpuControlPlane.moduleLogLevel" . }}
+{{- $logLevelLower := lower $logLevel }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -11,7 +13,7 @@ metadata:
   namespace: {{ include "gpuControlPlane.namespace" . }}
   {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.gpuControllerName" .) "component" "controller")) | nindent 2 }}
 spec:
-  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 2 $controllerRuntime.replicas) 1) }}
+  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 3 $controllerRuntime.replicas) 1) }}
   {{- if (include "helm_lib_ha_enabled" .) }}
   strategy:
     type: RollingUpdate
@@ -43,7 +45,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --metrics-bind-address=127.0.0.1:8080
-            - --health-probe-bind-address=:8081
+            - --health-probe-bind-address=:8083
             - --leader-election-id=gpu-controller.deckhouse.io
             - --leader-elect={{ if (include "helm_lib_ha_enabled" .) }}true{{ else }}false{{ end }}
           env:
@@ -51,12 +53,23 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: {{ $logLevel | quote }}
+            {{- if eq $logLevelLower "debug" }}
+            - name: LOG_DEBUG_VERBOSITY
+              value: "10"
+            - name: PPROF_BIND_ADDRESS
+              value: ":8081"
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
               protocol: TCP
-            - name: health
+            - name: pprof
               containerPort: 8081
+              protocol: TCP
+            - name: health
+              containerPort: 8083
               protocol: TCP
           livenessProbe:
             httpGet:
@@ -97,13 +110,13 @@ spec:
       nodeSelector:
         {{- toYaml $controllerRuntime.nodeSelector | nindent 8 }}
       {{- else }}
-      {{- include "helm_lib_node_selector" (tuple . "system") | nindent 6 }}
+      {{- include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
       {{- end }}
       {{- if $controllerRuntime.tolerations }}
       tolerations:
         {{- toYaml $controllerRuntime.tolerations | nindent 8 }}
       {{- else }}
-      {{- include "helm_lib_tolerations" (tuple . "system") | nindent 6 }}
+      {{- include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
       {{- end }}
       volumes:
         - name: kube-rbac-proxy-tls

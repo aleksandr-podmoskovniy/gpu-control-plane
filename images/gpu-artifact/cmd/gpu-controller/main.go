@@ -46,6 +46,7 @@ const (
 
 	metricsBindAddrEnv     = "METRICS_BIND_ADDRESS"
 	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
+	pprofBindAddrEnv       = "PPROF_BIND_ADDRESS"
 )
 
 var (
@@ -60,6 +61,7 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var pprofAddr string
 	var enableLeaderElection bool
 	var leaderElectionID string
 
@@ -69,7 +71,8 @@ func main() {
 	logDebugControllerList := parseCSVEnv(logDebugControllerListEnv)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", envOr(metricsBindAddrEnv, ":8080"), "The address the metrics endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8083"), "The address the probe endpoint binds to.")
+	flag.StringVar(&pprofAddr, "pprof-bind-address", envOr(pprofBindAddrEnv, ""), "Enable pprof endpoint when set.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for the controller manager.")
 	flag.StringVar(&leaderElectionID, "leader-election-id", "gpu-controller.deckhouse.io", "Leader election ID.")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
@@ -81,14 +84,19 @@ func main() {
 	logger.SetDefaultLogger(rootLog)
 	setupLog := rootLog.With(logger.SlogController("setup"))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	managerOpts := ctrl.Options{
 		Scheme:                        scheme,
 		Metrics:                       metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress:        probeAddr,
 		LeaderElection:                enableLeaderElection,
 		LeaderElectionID:              leaderElectionID,
 		LeaderElectionReleaseOnCancel: true,
-	})
+	}
+	if pprofAddr != "" {
+		managerOpts.PprofBindAddress = pprofAddr
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOpts)
 	if err != nil {
 		setupLog.Error("unable to start manager", logger.SlogErr(err))
 		os.Exit(1)

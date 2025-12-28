@@ -93,6 +93,10 @@ deckhouse-gpu-kernel-os
 {{- $labelKey -}}
 {{- end -}}
 
+{{- define "gpuControlPlane.moduleLogLevel" -}}
+{{- default "Info" (dig "logLevel" "" .Values.gpuControlPlane) -}}
+{{- end -}}
+
 {{- define "gpuControlPlane.managedNodeMatchExpression" -}}
 {{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
 {{- $enabledByDefault := $managed.enabledByDefault | default true -}}

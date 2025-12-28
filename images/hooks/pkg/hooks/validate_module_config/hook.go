@@ -101,6 +101,7 @@ func handleValidateModuleConfig(_ context.Context, input *pkg.HookInput) error {
 	setValueOrRemove(input, settings.ConfigRoot+".deviceApproval", sanitized["deviceApproval"])
 	setValueOrRemove(input, settings.ConfigRoot+".scheduling", sanitized["scheduling"])
 	setValueOrRemove(input, settings.ConfigRoot+".monitoring", sanitized["monitoring"])
+	setValueOrRemove(input, settings.ConfigRoot+".logLevel", sanitized["logLevel"])
 	setInventoryResyncPeriod(input, sanitized["inventory"])
 
 	var userHTTPS map[string]any

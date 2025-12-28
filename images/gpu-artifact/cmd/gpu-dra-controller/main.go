@@ -18,43 +18,63 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
-	"net/http"
 	"os"
 	"strconv"
-	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.).
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/allocator"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
+
+	"github.com/deckhouse/deckhouse/pkg/log"
 )
 
 const (
-	logDebugVerbosityEnv   = "LOG_DEBUG_VERBOSITY"
-	logLevelEnv            = "LOG_LEVEL"
-	logOutputEnv           = "LOG_OUTPUT"
-	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
+	logDebugVerbosityEnv = "LOG_DEBUG_VERBOSITY"
+	logLevelEnv          = "LOG_LEVEL"
+	logOutputEnv         = "LOG_OUTPUT"
+
 	metricsBindAddrEnv     = "METRICS_BIND_ADDRESS"
+	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
+	pprofBindAddrEnv       = "PPROF_BIND_ADDRESS"
+	podNamespaceEnv        = "POD_NAMESPACE"
 )
 
+var scheme = runtime.NewScheme()
+
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+}
+
 func main() {
-	var probeAddr string
 	var metricsAddr string
+	var probeAddr string
+	var pprofAddr string
+	var enableLeaderElection bool
+	var leaderElectionID string
 
 	logLevel := os.Getenv(logLevelEnv)
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
 
-	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", envOr(metricsBindAddrEnv, "127.0.0.1:8080"), "The address the metrics endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", envOr(metricsBindAddrEnv, ":8080"), "The address the metrics endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8083"), "The address the probe endpoint binds to.")
+	flag.StringVar(&pprofAddr, "pprof-bind-address", envOr(pprofBindAddrEnv, ""), "Enable pprof endpoint when set.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for the controller.")
+	flag.StringVar(&leaderElectionID, "leader-election-id", "gpu-dra-controller.deckhouse.io", "Leader election ID.")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")
@@ -62,66 +82,64 @@ func main() {
 
 	rootLog := logger.NewLogger(logLevel, logOutput, logDebugVerbosity)
 	logger.SetDefaultLogger(rootLog)
-	log := rootLog.With(logger.SlogController("gpu-dra-controller"))
+	setupLog := rootLog.With(logger.SlogController("gpu-dra-controller"))
 
-	ctx := ctrl.SetupSignalHandler()
-	ctx = logger.ToContext(ctx, slog.Default())
+	leaderElectionNS := envOr(podNamespaceEnv, "default")
+	managerOpts := ctrl.Options{
+		Scheme:                        scheme,
+		Metrics:                       metricsserver.Options{BindAddress: metricsAddr},
+		HealthProbeBindAddress:        probeAddr,
+		LeaderElection:                enableLeaderElection,
+		LeaderElectionNamespace:       leaderElectionNS,
+		LeaderElectionID:              leaderElectionID,
+		LeaderElectionReleaseOnCancel: true,
+	}
+	if pprofAddr != "" {
+		managerOpts.PprofBindAddress = pprofAddr
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), managerOpts)
+	if err != nil {
+		setupLog.Error("unable to start manager", logger.SlogErr(err))
+		os.Exit(1)
+	}
 
 	allocSvc := allocator.NewService(nvml.NewInventory(), k8s.NewAllocationWriter())
 	runtime := dra.NewRuntime(allocSvc, nil, nil)
-	if err := runtime.RunAllocator(ctx); err != nil {
-		log.Error("allocator init failed", logger.SlogErr(err))
-	}
-
-	server := &http.Server{Addr: probeAddr, Handler: healthMux()}
-	metricsServer := &http.Server{Addr: metricsAddr, Handler: promhttp.Handler()}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("starting health server", "addr", probeAddr)
-		errCh <- server.ListenAndServe()
-	}()
-
-	if metricsAddr != "" && metricsAddr != "0" {
-		go func() {
-			log.Info("starting metrics server", "addr", metricsAddr)
-			errCh <- metricsServer.ListenAndServe()
-		}()
-	}
-
-	select {
-	case <-ctx.Done():
-		log.Info("shutdown requested")
-	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("health server failed", logger.SlogErr(err))
-			os.Exit(1)
-		}
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Error("health server shutdown failed", logger.SlogErr(err))
+	if err := mgr.Add(&allocatorRunner{runtime: runtime, log: setupLog}); err != nil {
+		setupLog.Error("unable to add allocator runner", logger.SlogErr(err))
 		os.Exit(1)
 	}
-	if metricsAddr != "" && metricsAddr != "0" {
-		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
-			log.Error("metrics server shutdown failed", logger.SlogErr(err))
-			os.Exit(1)
-		}
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error("unable to set up health check", logger.SlogErr(err))
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error("unable to set up ready check", logger.SlogErr(err))
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting gpu-dra-controller")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error("problem running manager", logger.SlogErr(err))
+		os.Exit(1)
 	}
 }
 
-func healthMux() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	return mux
+type allocatorRunner struct {
+	runtime *dra.Runtime
+	log     *log.Logger
+}
+
+func (r *allocatorRunner) Start(ctx context.Context) error {
+	if r.runtime != nil {
+		if err := r.runtime.RunAllocator(ctx); err != nil {
+			r.log.Error("allocator run failed", logger.SlogErr(err))
+		}
+	}
+	<-ctx.Done()
+	return nil
 }
 
 func envOr(name, fallback string) string {

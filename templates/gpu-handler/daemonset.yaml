@@ -2,6 +2,8 @@
 {{- $component := "handler" }}
 {{- $componentEnabled := eq (include "gpuControlPlane.bootstrap.componentEnabled" (list . $component)) "true" }}
 {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
+{{- $logLevel := include "gpuControlPlane.moduleLogLevel" . }}
+{{- $logLevelLower := lower $logLevel }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") $componentEnabled }}
 ---
 apiVersion: apps/v1
@@ -38,6 +40,13 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --health-probe-bind-address=:8081
+          env:
+            - name: LOG_LEVEL
+              value: {{ $logLevel | quote }}
+            {{- if eq $logLevelLower "debug" }}
+            - name: LOG_DEBUG_VERBOSITY
+              value: "10"
+            {{- end }}
           ports:
             - name: health
               containerPort: 8081

@@ -1,5 +1,7 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $logLevel := include "gpuControlPlane.moduleLogLevel" . }}
+{{- $logLevelLower := lower $logLevel }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -40,6 +42,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: LOG_LEVEL
+              value: {{ $logLevel | quote }}
+            {{- if eq $logLevelLower "debug" }}
+            - name: LOG_DEBUG_VERBOSITY
+              value: "10"
+            {{- end }}
           ports:
             - name: health
               containerPort: 8081

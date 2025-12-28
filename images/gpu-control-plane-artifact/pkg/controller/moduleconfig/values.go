@@ -22,6 +22,7 @@ func (s State) Values() map[string]any {
 		"deviceApproval": map[string]any{"mode": string(s.Settings.DeviceApproval.Mode)},
 		"scheduling":     map[string]any{"defaultStrategy": s.Settings.Scheduling.DefaultStrategy},
 		"monitoring":     map[string]any{"serviceMonitor": s.Settings.Monitoring.ServiceMonitor},
+		"logLevel":       s.Settings.LogLevel,
 		"inventory":      map[string]any{"resyncPeriod": s.Inventory.ResyncPeriod},
 		"https":          map[string]any{"mode": string(s.HTTPS.Mode)},
 		"internal":       map[string]any{"moduleConfig": map[string]any{"enabled": s.Enabled, "settings": s.Sanitized}},

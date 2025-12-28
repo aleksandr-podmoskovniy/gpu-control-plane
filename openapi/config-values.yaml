@@ -138,6 +138,22 @@ properties:
           the bootstrap stack remains active; DCGM telemetry is exposed via Prometheus and is not persisted in CRDs.
         x-examples: [true, false]
     additionalProperties: false
+  logLevel:
+    type: string
+    description: |
+      Sets a logging level.
+
+      Working for these components:
+      - `kube-api-rewriter`
+      - `gpu-controller`
+      - `gpu-dra-controller`
+      - `gpu-node-agent`
+      - `gpu-handler`
+    enum:
+      - "Debug"
+      - "Info"
+      - "Warn"
+      - "Error"
   inventory:
     type: object
     description: |

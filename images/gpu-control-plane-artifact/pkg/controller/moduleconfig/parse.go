@@ -66,6 +66,13 @@ func Parse(input Input) (State, error) {
 	state.Settings.Monitoring = monitoring
 	state.Sanitized["monitoring"] = map[string]any{"serviceMonitor": monitoring.ServiceMonitor}
 
+	logLevel, err := parseLogLevel(raw["logLevel"])
+	if err != nil {
+		return state, err
+	}
+	state.Settings.LogLevel = logLevel
+	state.Sanitized["logLevel"] = logLevel
+
 	placement := parsePlacement(raw["placement"])
 	state.Settings.Placement = placement
 	state.Sanitized["placement"] = map[string]any{"customTolerationKeys": placement.CustomTolerationKeys}

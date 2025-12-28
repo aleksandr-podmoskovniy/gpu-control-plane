@@ -1,5 +1,10 @@
 {{/* Copyright 2025 Flant JSC */}}
 {{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $runtime := $moduleValues.runtime | default dict }}
+{{- $draRuntime := $runtime.draController | default dict }}
+{{- $logLevel := include "gpuControlPlane.moduleLogLevel" . }}
+{{- $logLevelLower := lower $logLevel }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -8,7 +13,14 @@ metadata:
   namespace: {{ include "gpuControlPlane.namespace" . }}
   {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draControllerName" .) "component" "dra-controller")) | nindent 2 }}
 spec:
-  replicas: 1
+  replicas: {{ include "helm_lib_is_ha_to_value" (list . (default 3 $draRuntime.replicas) 1) }}
+  {{- if (include "helm_lib_ha_enabled" .) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  {{- end }}
   revisionHistoryLimit: 2
   selector:
     matchLabels:
@@ -33,13 +45,31 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --metrics-bind-address=127.0.0.1:8080
-            - --health-probe-bind-address=:8081
+            - --health-probe-bind-address=:8083
+            - --leader-elect={{ if (include "helm_lib_ha_enabled" .) }}true{{ else }}false{{ end }}
+            - --leader-election-id=gpu-dra-controller.deckhouse.io
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOG_LEVEL
+              value: {{ $logLevel | quote }}
+            {{- if eq $logLevelLower "debug" }}
+            - name: LOG_DEBUG_VERBOSITY
+              value: "10"
+            - name: PPROF_BIND_ADDRESS
+              value: ":8081"
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 8080
               protocol: TCP
-            - name: health
+            - name: pprof
               containerPort: 8081
+              protocol: TCP
+            - name: health
+              containerPort: 8083
               protocol: TCP
           livenessProbe:
             httpGet:
@@ -71,8 +101,8 @@ spec:
               )
             ) }}
         {{- include "kube_rbac_proxy.sidecar_container" (tuple . $kubeRbacProxySettings) | nindent 8 }}
-      {{- include "helm_lib_node_selector" (tuple . "system") | nindent 6 }}
-      {{- include "helm_lib_tolerations" (tuple . "system") | nindent 6 }}
+      {{- include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
+      {{- include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
       volumes:
         - name: kube-rbac-proxy-tls
           secret:

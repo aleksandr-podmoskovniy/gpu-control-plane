@@ -52,6 +52,16 @@ properties:
       topologyKey:
         description: |
           Ключ топологии Kubernetes, используемый при стратегии `Spread`. Значение по умолчанию — `topology.kubernetes.io/zone`.
+  logLevel:
+    description: |
+      Устанавливает уровень логирования.
+
+      Работает для следующих компонентов:
+      - `kube-api-rewriter`
+      - `gpu-controller`
+      - `gpu-dra-controller`
+      - `gpu-node-agent`
+      - `gpu-handler`
   inventory:
     description: |
       Настройки периодического опроса о состоянии узлов inventory-контроллером.

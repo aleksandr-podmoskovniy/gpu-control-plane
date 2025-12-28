@@ -1,0 +1,15 @@
+{{/* Copyright 2025 Flant JSC */}}
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "gpuControlPlane.draControllerName" . }}
+  namespace: {{ include "gpuControlPlane.namespace" . }}
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draControllerName" .) "component" "dra-controller")) | nindent 2 }}
+spec:
+  minAvailable: {{ include "helm_lib_is_ha_to_value" (list . 1 0) }}
+  selector:
+    matchLabels:
+      app: {{ include "gpuControlPlane.draControllerName" . }}
+{{- end }}
