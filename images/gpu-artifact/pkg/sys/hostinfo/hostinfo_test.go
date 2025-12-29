@@ -53,3 +53,33 @@ func TestIsVirtualizedDMI(t *testing.T) {
 		t.Fatalf("expected Dell PowerEdge to be treated as bare metal")
 	}
 }
+
+func TestDetectBareMetalFromInfo(t *testing.T) {
+	t.Run("virtualized cpu", func(t *testing.T) {
+		value := detectBareMetalFromInfo("Dell", "PowerEdge", "flags: hypervisor")
+		if value == nil || *value {
+			t.Fatalf("expected bareMetal=false, got %#v", value)
+		}
+	})
+
+	t.Run("virtualized dmi", func(t *testing.T) {
+		value := detectBareMetalFromInfo("QEMU", "Standard PC", "")
+		if value == nil || *value {
+			t.Fatalf("expected bareMetal=false, got %#v", value)
+		}
+	})
+
+	t.Run("bare metal", func(t *testing.T) {
+		value := detectBareMetalFromInfo("Dell", "PowerEdge", "")
+		if value == nil || !*value {
+			t.Fatalf("expected bareMetal=true, got %#v", value)
+		}
+	})
+
+	t.Run("unknown", func(t *testing.T) {
+		value := detectBareMetalFromInfo("", "", "")
+		if value != nil {
+			t.Fatalf("expected nil, got %#v", value)
+		}
+	})
+}

@@ -265,6 +265,7 @@ func TestHandleBootstrapStateSyncPopulatesValues(t *testing.T) {
 		settings.BootstrapComponentGPUFeatureDiscovery: {"node-a"},
 		settings.BootstrapComponentDCGM:                {"node-a"},
 		settings.BootstrapComponentDCGMExporter:        {"node-a"},
+		"handler":                                      {},
 	}
 	for component, nodesList := range expectNodes {
 		entry := components[component].(map[string]any)
@@ -317,6 +318,7 @@ func TestHandleBootstrapStateSyncIncludesEmptyComponents(t *testing.T) {
 		settings.BootstrapComponentGPUFeatureDiscovery,
 		settings.BootstrapComponentDCGM,
 		settings.BootstrapComponentDCGMExporter,
+		"handler",
 	} {
 		entry, ok := components[component]
 		if !ok {
@@ -360,7 +362,7 @@ func TestHandleBootstrapStateSyncPrefersPhysicalGPUForValidator(t *testing.T) {
 			}},
 		},
 		physicalGPUSnapshot: {
-			jsonSnapshot{value: physicalSnapshot{NodeName: "node-b"}},
+			jsonSnapshot{value: physicalSnapshot{NodeName: "node-b", VendorID: "10de"}},
 		},
 	})
 
@@ -380,6 +382,24 @@ func TestHandleBootstrapStateSyncPrefersPhysicalGPUForValidator(t *testing.T) {
 	validatorNodes := validator["nodes"].([]any)
 	if len(validatorNodes) != 1 || validatorNodes[0].(string) != "node-b" {
 		t.Fatalf("validator nodes expected [node-b], got %#v", validatorNodes)
+	}
+
+	handler := components["handler"].(map[string]any)
+	handlerNodes := handler["nodes"].([]any)
+	if len(handlerNodes) != 1 || handlerNodes[0].(string) != "node-b" {
+		t.Fatalf("handler nodes expected [node-b], got %#v", handlerNodes)
+	}
+
+	dcgm := components[settings.BootstrapComponentDCGM].(map[string]any)
+	dcgmNodes := dcgm["nodes"].([]any)
+	if len(dcgmNodes) != 1 || dcgmNodes[0].(string) != "node-b" {
+		t.Fatalf("dcgm nodes expected [node-b], got %#v", dcgmNodes)
+	}
+
+	dcgmExporter := components[settings.BootstrapComponentDCGMExporter].(map[string]any)
+	dcgmExporterNodes := dcgmExporter["nodes"].([]any)
+	if len(dcgmExporterNodes) != 1 || dcgmExporterNodes[0].(string) != "node-b" {
+		t.Fatalf("dcgm-exporter nodes expected [node-b], got %#v", dcgmExporterNodes)
 	}
 
 	gfd := components[settings.BootstrapComponentGPUFeatureDiscovery].(map[string]any)

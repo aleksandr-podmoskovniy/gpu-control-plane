@@ -20,9 +20,6 @@ import (
 	"context"
 	"errors"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
@@ -36,6 +33,7 @@ const (
 	reasonNVMLUnavailable     = "NVMLUnavailable"
 	reasonNVMLQueryFailed     = "NVMLQueryFailed"
 	reasonDriverTypeNotNvidia = "DriverTypeNotNvidia"
+	reasonDriverNotReady      = "DriverNotReady"
 	reasonMissingPCIAddress   = "MissingPCIAddress"
 )
 
@@ -108,102 +106,4 @@ func (h *CapabilitiesHandler) Handle(ctx context.Context, st state.State) error 
 	}
 
 	return errors.Join(errs...)
-}
-
-func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session service.CapabilitiesSession, pgpu gpuv1alpha1.PhysicalGPU) error {
-	base := pgpu.DeepCopy()
-	obj := pgpu.DeepCopy()
-
-	pciAddress := ""
-	if obj.Status.PCIInfo != nil {
-		pciAddress = obj.Status.PCIInfo.Address
-	}
-
-	snapshot, err := session.ReadDevice(pciAddress)
-	if err != nil {
-		return h.applyDeviceFailure(ctx, obj, base, err)
-	}
-
-	obj.Status.Capabilities = snapshot.Capabilities
-	obj.Status.CurrentState = mergeCurrentState(obj.Status.CurrentState, snapshot.CurrentState)
-	h.setHardwareCondition(obj, metav1.ConditionTrue, reasonNVMLHealthy, "NVML is available")
-
-	h.tracker.Clear(obj.Name)
-	return h.store.PatchStatus(ctx, obj, base)
-}
-
-func (h *CapabilitiesHandler) markDriverTypeNotNvidia(ctx context.Context, pgpu gpuv1alpha1.PhysicalGPU) error {
-	base := pgpu.DeepCopy()
-	obj := pgpu.DeepCopy()
-
-	if obj.Status.CurrentState != nil {
-		obj.Status.CurrentState.Nvidia = nil
-	}
-	h.setHardwareCondition(obj, metav1.ConditionUnknown, reasonDriverTypeNotNvidia, "current driver is not Nvidia")
-	return h.store.PatchStatus(ctx, obj, base)
-}
-
-func (h *CapabilitiesHandler) applyFailure(ctx context.Context, devices []gpuv1alpha1.PhysicalGPU, err error) error {
-	var errs []error
-	for _, pgpu := range devices {
-		base := pgpu.DeepCopy()
-		obj := pgpu.DeepCopy()
-		if applyErr := h.applyDeviceFailure(ctx, obj, base, err); applyErr != nil {
-			errs = append(errs, applyErr)
-		}
-	}
-	return errors.Join(errs...)
-}
-
-func (h *CapabilitiesHandler) applyDeviceFailure(ctx context.Context, obj, base *gpuv1alpha1.PhysicalGPU, err error) error {
-	if !h.tracker.RecordFailure(obj.Name) {
-		return nil
-	}
-
-	reason := failureReason(err)
-	h.setHardwareCondition(obj, metav1.ConditionUnknown, reason, err.Error())
-	return h.store.PatchStatus(ctx, obj, base)
-}
-
-func (h *CapabilitiesHandler) setHardwareCondition(obj *gpuv1alpha1.PhysicalGPU, status metav1.ConditionStatus, reason, message string) {
-	cond := metav1.Condition{
-		Type:               hardwareHealthyType,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: obj.Generation,
-	}
-	meta.SetStatusCondition(&obj.Status.Conditions, cond)
-}
-
-func failureReason(err error) string {
-	switch {
-	case errors.Is(err, service.ErrMissingPCIAddress):
-		return reasonMissingPCIAddress
-	case errors.Is(err, service.ErrNVMLUnavailable):
-		return reasonNVMLUnavailable
-	case errors.Is(err, service.ErrNVMLQueryFailed):
-		return reasonNVMLQueryFailed
-	default:
-		return reasonNVMLQueryFailed
-	}
-}
-
-func mergeCurrentState(existing, snapshot *gpuv1alpha1.GPUCurrentState) *gpuv1alpha1.GPUCurrentState {
-	driverType := gpuv1alpha1.DriverType("")
-	if existing != nil {
-		driverType = existing.DriverType
-	}
-	if snapshot == nil {
-		snapshot = &gpuv1alpha1.GPUCurrentState{}
-	}
-	snapshot.DriverType = driverType
-	return snapshot
-}
-
-func isDriverTypeNvidia(pgpu gpuv1alpha1.PhysicalGPU) bool {
-	if pgpu.Status.CurrentState == nil {
-		return false
-	}
-	return pgpu.Status.CurrentState.DriverType == gpuv1alpha1.DriverTypeNvidia
 }

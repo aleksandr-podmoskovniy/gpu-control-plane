@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -92,86 +91,4 @@ func (h *ApplyHandler) applyDevice(ctx context.Context, name, nodeName string, d
 	}
 
 	return nil
-}
-
-func (h *ApplyHandler) ensureLabels(ctx context.Context, obj *gpuv1alpha1.PhysicalGPU, nodeName string, dev state.Device) error {
-	desired := state.LabelsForDevice(nodeName, dev)
-	labels := obj.Labels
-	if labels == nil {
-		labels = map[string]string{}
-	}
-
-	changed := false
-	for key, value := range desired {
-		if labels[key] != value {
-			labels[key] = value
-			changed = true
-		}
-	}
-
-	if !changed {
-		return nil
-	}
-
-	patchBase := obj.DeepCopy()
-	obj.Labels = labels
-	return h.store.Patch(ctx, obj, patchBase)
-}
-
-func buildStatus(obj *gpuv1alpha1.PhysicalGPU, dev state.Device, nodeName string, nodeInfo *gpuv1alpha1.NodeInfo) gpuv1alpha1.PhysicalGPUStatus {
-	status := obj.Status
-	if nodeInfo == nil {
-		nodeInfo = &gpuv1alpha1.NodeInfo{}
-	}
-	nodeInfo.NodeName = nodeName
-	status.NodeInfo = nodeInfo
-
-	pci := &gpuv1alpha1.PCIInfo{
-		Address: dev.Address,
-	}
-	if dev.ClassCode != "" || dev.ClassName != "" {
-		pci.Class = &gpuv1alpha1.PCIClassInfo{
-			Code: dev.ClassCode,
-			Name: dev.ClassName,
-		}
-	}
-	if dev.VendorID != "" || dev.VendorName != "" {
-		pci.Vendor = &gpuv1alpha1.PCIVendorInfo{
-			ID:   dev.VendorID,
-			Name: dev.VendorName,
-		}
-	}
-	if dev.DeviceID != "" || dev.DeviceName != "" {
-		pci.Device = &gpuv1alpha1.PCIDeviceInfo{
-			ID:   dev.DeviceID,
-			Name: dev.DeviceName,
-		}
-	}
-	status.PCIInfo = pci
-
-	if driverType := driverTypeFromName(dev.DriverName); driverType != "" || status.CurrentState != nil {
-		current := status.CurrentState
-		if current == nil {
-			current = &gpuv1alpha1.GPUCurrentState{}
-		}
-		if driverType != "" {
-			current.DriverType = driverType
-		}
-		status.CurrentState = current
-	}
-
-	return status
-}
-
-func driverTypeFromName(name string) gpuv1alpha1.DriverType {
-	switch strings.ToLower(name) {
-	case "nvidia":
-		return gpuv1alpha1.DriverTypeNvidia
-	case "vfio-pci":
-		return gpuv1alpha1.DriverTypeVFIO
-	case "amdgpu":
-		return gpuv1alpha1.DriverTypeROCm
-	default:
-		return ""
-	}
 }

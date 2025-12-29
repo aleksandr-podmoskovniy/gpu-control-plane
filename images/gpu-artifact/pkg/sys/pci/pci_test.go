@@ -69,3 +69,25 @@ func TestSysfsReaderList(t *testing.T) {
 		t.Fatalf("unexpected driver name %q", dev.DriverName)
 	}
 }
+
+func TestNormalizeHexID(t *testing.T) {
+	if got := normalizeHexID("0x10DE"); got != "10de" {
+		t.Fatalf("expected 10de, got %q", got)
+	}
+	if got := normalizeHexID("10de"); got != "10de" {
+		t.Fatalf("expected 10de, got %q", got)
+	}
+}
+
+func TestNormalizeClassCodeShort(t *testing.T) {
+	if got := normalizeClassCode("0x01"); got != "" {
+		t.Fatalf("expected empty class code, got %q", got)
+	}
+}
+
+func TestReadDriverNameMissing(t *testing.T) {
+	dir := t.TempDir()
+	if got := readDriverName(dir); got != "" {
+		t.Fatalf("expected empty driver name, got %q", got)
+	}
+}

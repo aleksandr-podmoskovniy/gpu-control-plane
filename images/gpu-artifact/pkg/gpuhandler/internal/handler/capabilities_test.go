@@ -160,6 +160,102 @@ func TestCapabilitiesHandlerOpenFailure(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesHandlerMultiGPU(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := gpuv1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+
+	pgpuA := &gpuv1alpha1.PhysicalGPU{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-a"},
+		Status: gpuv1alpha1.PhysicalGPUStatus{
+			PCIInfo: &gpuv1alpha1.PCIInfo{Address: "0000:02:00.0"},
+			CurrentState: &gpuv1alpha1.GPUCurrentState{
+				DriverType: gpuv1alpha1.DriverTypeNvidia,
+			},
+		},
+	}
+	pgpuB := &gpuv1alpha1.PhysicalGPU{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-b"},
+		Status: gpuv1alpha1.PhysicalGPUStatus{
+			PCIInfo: &gpuv1alpha1.PCIInfo{Address: "0000:03:00.0"},
+			CurrentState: &gpuv1alpha1.GPUCurrentState{
+				DriverType: gpuv1alpha1.DriverTypeNvidia,
+			},
+		},
+	}
+	meta.SetStatusCondition(&pgpuA.Status.Conditions, metav1.Condition{
+		Type:   driverReadyType,
+		Status: metav1.ConditionTrue,
+	})
+	meta.SetStatusCondition(&pgpuB.Status.Conditions, metav1.Condition{
+		Type:   driverReadyType,
+		Status: metav1.ConditionTrue,
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&gpuv1alpha1.PhysicalGPU{}).
+		WithObjects(pgpuA, pgpuB).
+		Build()
+
+	snapshot := &service.DeviceSnapshot{
+		Capabilities: &gpuv1alpha1.GPUCapabilities{
+			ProductName: "NVIDIA A30",
+			Vendor:      gpuv1alpha1.VendorNvidia,
+		},
+		CurrentState: &gpuv1alpha1.GPUCurrentState{
+			Nvidia: &gpuv1alpha1.NvidiaCurrentState{
+				CUDAVersion: "13.0",
+			},
+		},
+	}
+
+	session := &fakeSession{
+		snapshots: map[string]*service.DeviceSnapshot{
+			"0000:02:00.0": snapshot,
+		},
+		errs: map[string]error{
+			"0000:03:00.0": service.ErrNVMLQueryFailed,
+		},
+	}
+	reader := &fakeReader{session: session}
+	tracker := &fakeTracker{shouldAttempt: true, recordFailure: true}
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+
+	st := state.New("node-1")
+	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpuA, *pgpuB})
+
+	if err := h.Handle(context.Background(), st); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+
+	updatedA := &gpuv1alpha1.PhysicalGPU{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "gpu-a"}, updatedA); err != nil {
+		t.Fatalf("get gpu-a: %v", err)
+	}
+	cond := meta.FindStatusCondition(updatedA.Status.Conditions, hardwareHealthyType)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		t.Fatalf("gpu-a expected HardwareHealthy True, got %#v", cond)
+	}
+	if updatedA.Status.Capabilities == nil || updatedA.Status.Capabilities.ProductName != "NVIDIA A30" {
+		t.Fatalf("gpu-a capabilities not populated")
+	}
+
+	updatedB := &gpuv1alpha1.PhysicalGPU{}
+	if err := client.Get(context.Background(), types.NamespacedName{Name: "gpu-b"}, updatedB); err != nil {
+		t.Fatalf("get gpu-b: %v", err)
+	}
+	cond = meta.FindStatusCondition(updatedB.Status.Conditions, hardwareHealthyType)
+	if cond == nil || cond.Status != metav1.ConditionUnknown || cond.Reason != reasonNVMLQueryFailed {
+		t.Fatalf("gpu-b expected HardwareHealthy Unknown NVMLQueryFailed, got %#v", cond)
+	}
+
+	if !session.closed {
+		t.Fatalf("expected session to be closed")
+	}
+}
+
 type fakeReader struct {
 	session service.CapabilitiesSession
 	err     error
@@ -173,18 +269,30 @@ func (f *fakeReader) Open() (service.CapabilitiesSession, error) {
 }
 
 type fakeSession struct {
-	snapshot *service.DeviceSnapshot
-	err      error
-	closed   bool
+	snapshot  *service.DeviceSnapshot
+	err       error
+	snapshots map[string]*service.DeviceSnapshot
+	errs      map[string]error
+	closed    bool
 }
 
 func (s *fakeSession) Close() {
 	s.closed = true
 }
 
-func (s *fakeSession) ReadDevice(_ string) (*service.DeviceSnapshot, error) {
+func (s *fakeSession) ReadDevice(pciAddress string) (*service.DeviceSnapshot, error) {
 	if s.err != nil {
 		return nil, s.err
+	}
+	if s.errs != nil {
+		if err, ok := s.errs[pciAddress]; ok {
+			return nil, err
+		}
+	}
+	if s.snapshots != nil {
+		if snapshot, ok := s.snapshots[pciAddress]; ok {
+			return snapshot, nil
+		}
 	}
 	return s.snapshot, nil
 }

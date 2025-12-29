@@ -34,7 +34,7 @@ const (
 	bootstrapStateSnapshot = "gpu-gpu-node-state"
 	bootstrapStateFilter   = `{"name": .metadata.name, "status": .status}`
 	physicalGPUSnapshot    = "gpu-physical-gpu"
-	physicalGPUFilter      = `{"nodeName": .status.nodeInfo.nodeName}`
+	physicalGPUFilter      = `{"nodeName": .status.nodeInfo.nodeName, "vendorID": .status.pciInfo.vendor.id}`
 )
 
 type inventorySnapshot struct {
@@ -48,6 +48,7 @@ type snapshotStatus struct {
 
 type physicalSnapshot struct {
 	NodeName string `json:"nodeName"`
+	VendorID string `json:"vendorID"`
 }
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
@@ -91,9 +92,10 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		settings.BootstrapComponentGPUFeatureDiscovery: []string{},
 		settings.BootstrapComponentDCGM:                []string{},
 		settings.BootstrapComponentDCGMExporter:        []string{},
+		"handler":                                      []string{},
 	}
 
-	physicalNodes := map[string]struct{}{}
+	nvidiaNodes := map[string]struct{}{}
 	for _, snap := range physicalSnaps {
 		var payload physicalSnapshot
 		if err := snap.UnmarshalTo(&payload); err != nil {
@@ -104,7 +106,9 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		if nodeName == "" {
 			continue
 		}
-		physicalNodes[nodeName] = struct{}{}
+		if normalizePCIID(payload.VendorID) == "10de" {
+			nvidiaNodes[nodeName] = struct{}{}
+		}
 	}
 
 	for _, snap := range stateSnaps {
@@ -139,10 +143,13 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 	}
 
 	validatorNodes := []string{}
-	if len(physicalNodes) > 0 {
-		for nodeName := range physicalNodes {
+	if len(nvidiaNodes) > 0 {
+		for nodeName := range nvidiaNodes {
 			validatorNodes = append(validatorNodes, nodeName)
 		}
+		componentNodes["handler"] = append(componentNodes["handler"], validatorNodes...)
+		componentNodes[settings.BootstrapComponentDCGM] = append([]string{}, validatorNodes...)
+		componentNodes[settings.BootstrapComponentDCGMExporter] = append([]string{}, validatorNodes...)
 	} else {
 		for nodeName := range nodes {
 			validatorNodes = append(validatorNodes, nodeName)
@@ -150,7 +157,7 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 	}
 	componentNodes[settings.BootstrapComponentValidator] = validatorNodes
 
-	if len(nodes) == 0 && len(physicalNodes) == 0 {
+	if len(nodes) == 0 && len(nvidiaNodes) == 0 {
 		input.Values.Remove(settings.InternalBootstrapStatePath)
 		return nil
 	}
@@ -196,4 +203,13 @@ func hashStrings(items []string) string {
 	joined := strings.Join(items, ",")
 	sum := sha256.Sum256([]byte(joined))
 	return hex.EncodeToString(sum[:])
+}
+
+func normalizePCIID(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = strings.TrimPrefix(trimmed, "0x")
+	return strings.ToLower(trimmed)
 }

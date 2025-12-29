@@ -60,6 +60,7 @@ func New(client client.Client, cfg Config, log *log.Logger) *Agent {
 	tracker := state.NewNVMLFailureTracker(nil)
 	chain := handler.NewChain(
 		handler.NewDiscoverHandler(store),
+		handler.NewMarkNotReadyHandler(store, tracker),
 		handler.NewFilterReadyHandler(),
 		handler.NewCapabilitiesHandler(reader, store, tracker),
 	)
