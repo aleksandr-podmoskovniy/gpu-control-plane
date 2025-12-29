@@ -21,7 +21,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/common/resource_builder"
@@ -63,23 +63,23 @@ func (s *Service) PublishOnce(ctx context.Context, resourceExists bool) error {
 	return s.writer.Publish(ctx, slice)
 }
 
-func (s *Service) buildSlice(ctx context.Context, snapshot domain.InventorySnapshot, resourceExists bool) *resourcev1beta2.ResourceSlice {
+func (s *Service) buildSlice(ctx context.Context, snapshot domain.InventorySnapshot, resourceExists bool) *resourcev1.ResourceSlice {
 	nodeName := snapshot.NodeName
 	if nodeName == "" {
 		nodeName = unknownNodeKey
 	}
 
-	slice := &resourcev1beta2.ResourceSlice{
+	slice := &resourcev1.ResourceSlice{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "resource.k8s.io/v1beta2",
+			APIVersion: "resource.k8s.io/v1",
 			Kind:       "ResourceSlice",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("gpu-%s", nodeName),
 		},
-		Spec: resourcev1beta2.ResourceSliceSpec{
+		Spec: resourcev1.ResourceSliceSpec{
 			Driver: driverName,
-			Pool: resourcev1beta2.ResourcePool{
+			Pool: resourcev1.ResourcePool{
 				Name:               defaultPool,
 				Generation:         1,
 				ResourceSliceCount: 1,

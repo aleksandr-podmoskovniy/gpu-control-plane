@@ -19,12 +19,16 @@ package handler
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/conditions"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 )
 
 const validatorHandlerName = "validator"
@@ -33,11 +37,12 @@ const labelVendor = "gpu.deckhouse.io/vendor"
 // ValidatorHandler updates PhysicalGPU conditions based on validator readiness.
 type ValidatorHandler struct {
 	validator *service.Validator
+	recorder  eventrecord.EventRecorderLogger
 }
 
 // NewValidatorHandler constructs a validator handler.
-func NewValidatorHandler(validator *service.Validator) *ValidatorHandler {
-	return &ValidatorHandler{validator: validator}
+func NewValidatorHandler(validator *service.Validator, recorder eventrecord.EventRecorderLogger) *ValidatorHandler {
+	return &ValidatorHandler{validator: validator, recorder: recorder}
 }
 
 // Name returns the handler name.
@@ -62,7 +67,6 @@ func (h *ValidatorHandler) Handle(ctx context.Context, st state.PhysicalGPUState
 
 	if obj.Labels[labelVendor] != "nvidia" {
 		conditions.RemoveCondition(conditionDriverReady, &obj.Status.Conditions)
-		conditions.RemoveCondition(conditionHardwareHealthy, &obj.Status.Conditions)
 		return reconcile.Result{}, nil
 	}
 
@@ -90,14 +94,9 @@ func (h *ValidatorHandler) Handle(ctx context.Context, st state.PhysicalGPUState
 
 	mgr := conditions.NewManager(obj.Status.Conditions)
 	mgr.Update(driverReady.Condition())
-	hardware := conditions.NewConditionBuilder(conditionHardwareHealthy).
-		Generation(gen).
-		Status(metav1.ConditionUnknown).
-		Reason(reasonNotChecked).
-		Message("hardware health is not checked yet")
-	mgr.Add(hardware.Condition())
 	obj.Status.Conditions = mgr.Generate()
 
+	h.recordDriverReadyEvent(obj, st.Resource.Current())
 	return reconcile.Result{}, nil
 }
 
@@ -114,13 +113,41 @@ func (cr conditionReason) String() string {
 }
 
 const (
-	conditionDriverReady     conditionType = "DriverReady"
-	conditionHardwareHealthy conditionType = "HardwareHealthy"
+	conditionDriverReady conditionType = "DriverReady"
 )
 
 const (
 	reasonValidatorReady    conditionReason = "ValidatorReady"
 	reasonValidatorNotReady conditionReason = "ValidatorNotReady"
 	reasonValidatorMissing  conditionReason = "ValidatorMissing"
-	reasonNotChecked        conditionReason = "NotChecked"
 )
+
+func (h *ValidatorHandler) recordDriverReadyEvent(obj *gpuv1alpha1.PhysicalGPU, prev *gpuv1alpha1.PhysicalGPU) {
+	if h.recorder == nil || obj == nil {
+		return
+	}
+
+	newCond := meta.FindStatusCondition(obj.Status.Conditions, conditionDriverReady.String())
+	if newCond == nil {
+		return
+	}
+
+	var oldCond *metav1.Condition
+	if prev != nil {
+		oldCond = meta.FindStatusCondition(prev.Status.Conditions, conditionDriverReady.String())
+	}
+
+	if oldCond != nil &&
+		oldCond.Status == newCond.Status &&
+		oldCond.Reason == newCond.Reason &&
+		oldCond.Message == newCond.Message {
+		return
+	}
+
+	eventType := corev1.EventTypeWarning
+	if newCond.Status == metav1.ConditionTrue {
+		eventType = corev1.EventTypeNormal
+	}
+
+	h.recorder.Event(obj, eventType, newCond.Reason, newCond.Message)
+}

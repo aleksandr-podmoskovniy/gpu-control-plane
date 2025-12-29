@@ -41,6 +41,10 @@ spec:
           args:
             - --health-probe-bind-address=:8081
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: LOG_LEVEL
               value: {{ $logLevel | quote }}
             {{- if eq $logLevelLower "debug" }}

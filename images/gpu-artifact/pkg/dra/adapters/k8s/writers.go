@@ -19,7 +19,7 @@ package k8s
 import (
 	"context"
 
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 )
@@ -46,6 +46,6 @@ func NewResourceSliceWriter() *ResourceSliceWriter {
 }
 
 // Publish implements ports.ResourceSliceWriter.
-func (w *ResourceSliceWriter) Publish(_ context.Context, _ *resourcev1beta2.ResourceSlice) error {
+func (w *ResourceSliceWriter) Publish(_ context.Context, _ *resourcev1.ResourceSlice) error {
 	return nil
 }

@@ -27,16 +27,14 @@ import (
 	"strconv"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/cdi"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/checkpoint"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/kubevirt"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/prepare"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/publisher"
+	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
@@ -49,12 +47,14 @@ const (
 
 func main() {
 	var probeAddr string
+	var nodeName string
 
 	logLevel := os.Getenv(logLevelEnv)
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
 
 	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
+	flag.StringVar(&nodeName, "node-name", "", "Node name (defaults to NODE_NAME env var).")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")
@@ -64,20 +64,41 @@ func main() {
 	logger.SetDefaultLogger(rootLog)
 	log := rootLog.With(logger.SlogController("gpu-handler"))
 
+	if nodeName == "" {
+		nodeName = os.Getenv("NODE_NAME")
+	}
+	if nodeName == "" {
+		log.Error("node name is required")
+		os.Exit(1)
+	}
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(gpuv1alpha1.AddToScheme(scheme))
+
+	restConfig := ctrl.GetConfigOrDie()
+	k8sClient, err := client.New(restConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		log.Error("unable to create Kubernetes client", logger.SlogErr(err))
+		os.Exit(1)
+	}
+
+	agent := gpuhandler.New(k8sClient, gpuhandler.Config{
+		NodeName:   nodeName,
+		KubeConfig: restConfig,
+	}, log)
+
 	ctx := ctrl.SetupSignalHandler()
 	ctx = logger.ToContext(ctx, slog.Default())
 
-	pubSvc := publisher.NewService(nvml.NewInventory(), k8s.NewResourceSliceWriter())
-	prepSvc := prepare.NewService(checkpoint.NewStore(), cdi.NewWriter(), kubevirt.NewHookWriter())
-	runtime := dra.NewRuntime(nil, pubSvc, prepSvc)
-	if err := runtime.RunPublisher(ctx, false); err != nil {
-		log.Error("publisher init failed", logger.SlogErr(err))
-	}
-	if err := runtime.RunPrepare(ctx); err != nil {
-		log.Error("prepare init failed", logger.SlogErr(err))
-	}
-
 	server := &http.Server{Addr: probeAddr, Handler: healthMux()}
+
+	agentErrCh := make(chan error, 1)
+	go func() {
+		if err := agent.Run(ctx); err != nil {
+			agentErrCh <- err
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -88,6 +109,9 @@ func main() {
 	select {
 	case <-ctx.Done():
 		log.Info("shutdown requested")
+	case err := <-agentErrCh:
+		log.Error("gpu-handler failed", logger.SlogErr(err))
+		os.Exit(1)
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("health server failed", logger.SlogErr(err))

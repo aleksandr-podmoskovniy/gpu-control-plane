@@ -19,7 +19,7 @@ package ports
 import (
 	"context"
 
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 )
@@ -36,7 +36,7 @@ type AllocationWriter interface {
 
 // ResourceSliceWriter publishes ResourceSlices.
 type ResourceSliceWriter interface {
-	Publish(ctx context.Context, slice *resourcev1beta2.ResourceSlice) error
+	Publish(ctx context.Context, slice *resourcev1.ResourceSlice) error
 }
 
 // CheckpointStore persists prepare/unprepare state.

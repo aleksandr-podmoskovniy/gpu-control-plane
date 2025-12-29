@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	resourcev1beta2 "k8s.io/api/resource/v1beta2"
+	resourcev1 "k8s.io/api/resource/v1"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
@@ -36,12 +36,12 @@ func (f *fakeInventory) Snapshot(_ context.Context) (domain.InventorySnapshot, e
 }
 
 type fakeWriter struct {
-	slice *resourcev1beta2.ResourceSlice
+	slice *resourcev1.ResourceSlice
 	err   error
 	calls int
 }
 
-func (f *fakeWriter) Publish(_ context.Context, slice *resourcev1beta2.ResourceSlice) error {
+func (f *fakeWriter) Publish(_ context.Context, slice *resourcev1.ResourceSlice) error {
 	f.calls++
 	f.slice = slice
 	return f.err
