@@ -74,7 +74,7 @@ func (e *EventRecorderLoggerImpl) WithLogging(logger InfoLogger) EventRecorderLo
 }
 
 func (e *EventRecorderLoggerImpl) Event(object client.Object, eventtype, reason, message string) {
-	e.logf(object, eventtype, reason, message)
+	e.logf(object, eventtype, reason, "%s", message)
 	recorder := e.recorderProducer.GetEventRecorderFor(e.recorderKey(reason))
 	recorder.Event(object, eventtype, reason, message)
 }

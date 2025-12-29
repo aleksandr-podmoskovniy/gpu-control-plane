@@ -44,7 +44,7 @@ export GOMODCACHE
 
 .PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-deadcode ensure-tools \
 	fmt tidy controller-build controller-test hooks-test rewriter-test gfd-extender-test lint-go lint-docs lint-dmt \
-	lint test verify clean cache docs werf-build kubeconform helm-template deadcode e2e
+	lint test verify clean cache docs werf-build kubeconform helm-template deadcode e2e gpu-artifact-test
 
 ensure-bin-dir:
 	@mkdir -p $(BIN_DIR)
@@ -95,6 +95,10 @@ rewriter-test: cache coverage-dir
 	@echo "==> go test (kube-api-rewriter)"
 	@cd $(KUBE_API_REWRITER_DIR) && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/kube-api-rewriter.out ./...
 
+gpu-artifact-test: cache coverage-dir
+	@echo "==> go test (gpu-artifact)"
+	@cd $(GPU_ARTIFACT_DIR) && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gpu-artifact.out ./...
+
 gfd-extender-test: cache coverage-dir
 	@echo "==> go test (gfd-extender)"
 	@cd $(GFD_EXTENDER_DIR) && CGO_ENABLED=0 $(GO) test $(GOFLAGS) -tags=nonvml -coverprofile $(COVERAGE_DIR)/gfd-extender.out ./...
@@ -120,7 +124,7 @@ lint-dmt: ensure-dmt
 
 lint: lint-go lint-docs lint-dmt
 
-test: controller-test hooks-test rewriter-test gfd-extender-test
+test: controller-test hooks-test rewriter-test gpu-artifact-test gfd-extender-test
 
 verify: lint test deadcode helm-template kubeconform
 

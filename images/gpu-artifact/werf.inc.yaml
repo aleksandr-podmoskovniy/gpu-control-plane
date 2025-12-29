@@ -58,4 +58,4 @@ shell:
   - |
     echo "Build gpu-handler binary"
     {{- $_ := set $ "ProjectName" (list $.ImageName "gpu-handler" | join "/") }}
-    {{- include "image-build.build" (set $ "BuildCommand" `go build -trimpath -ldflags="-s -w" -v -o /out/gpu-handler ./cmd/gpu-handler`) | nindent 4 }}
+    {{- include "image-build.build" (set $ "BuildCommand" `CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -v -o /out/gpu-handler ./cmd/gpu-handler`) | nindent 4 }}

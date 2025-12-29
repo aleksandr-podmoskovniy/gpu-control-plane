@@ -63,6 +63,7 @@ jobs:
           cache-dependency-path: |
             api/go.sum
             images/gpu-control-plane-artifact/go.sum
+            images/gpu-artifact/go.sum
             images/hooks/go.sum
             images/kube-api-rewriter/go.sum
             images/gfd-extender/go.sum
@@ -75,21 +76,6 @@ jobs:
         run: make ensure-tools
       - name: Run lints and tests
         run: make verify
-      - name: Controller coverage
-        run: |
-          cd images/gpu-control-plane-artifact
-          go test ./... -coverprofile=controller.cover
-          go tool cover -func=controller.cover
-      - name: Hooks coverage
-        run: |
-          cd images/hooks
-          go test ./... -coverprofile=hooks.cover
-          go tool cover -func=hooks.cover
-      - name: Kube API rewriter coverage
-        run: |
-          cd images/kube-api-rewriter
-          go test ./... -coverprofile=rewriter.cover
-          go tool cover -func=rewriter.cover
   build:
     needs:
       - lint
