@@ -4,6 +4,8 @@
 {{- $hash := include "gpuControlPlane.bootstrap.componentHash" (list . $component) -}}
 {{- $logLevel := include "gpuControlPlane.moduleLogLevel" . }}
 {{- $logLevelLower := lower $logLevel }}
+{{- $driverRoot := include "gpuControlPlane.nvidiaDriverRoot" . }}
+{{- $driverRootParent := dir (trimSuffix "/" $driverRoot) }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") $componentEnabled }}
 ---
 apiVersion: apps/v1
@@ -45,13 +47,17 @@ spec:
             runAsNonRoot: false
           env:
             - name: NVIDIA_DRIVER_ROOT
-              value: "/run/nvidia/driver"
+              value: {{ $driverRoot | quote }}
             - name: NVIDIA_VISIBLE_DEVICES
               value: "void"
           volumeMounts:
             - name: driver-root-parent
               mountPath: /driver-root-parent
+              {{- if eq $driverRoot "/" }}
+              readOnly: true
+              {{- else }}
               mountPropagation: HostToContainer
+              {{- end }}
       containers:
         - name: {{ include "gpuControlPlane.handlerName" . }}
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
@@ -109,10 +115,14 @@ spec:
       volumes:
         - name: driver-root-parent
           hostPath:
-            path: /run/nvidia
+            {{- if eq $driverRoot "/" }}
+            path: /
+            {{- else }}
+            path: {{ $driverRootParent | quote }}
+            {{- end }}
             type: DirectoryOrCreate
         - name: driver-root
           hostPath:
-            path: /run/nvidia/driver
+            path: {{ $driverRoot | quote }}
             type: DirectoryOrCreate
 {{- end }}

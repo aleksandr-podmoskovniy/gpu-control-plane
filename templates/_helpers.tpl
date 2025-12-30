@@ -97,6 +97,10 @@ deckhouse-gpu-kernel-os
 {{- default "Info" (dig "logLevel" "" .Values.gpuControlPlane) -}}
 {{- end -}}
 
+{{- define "gpuControlPlane.nvidiaDriverRoot" -}}
+{{- default "/" (dig "internal" "nvidiaDriverRoot" "" .Values.gpuControlPlane) -}}
+{{- end -}}
+
 {{- define "gpuControlPlane.managedNodeMatchExpression" -}}
 {{- $managed := .Values.gpuControlPlane.managedNodes | default dict -}}
 {{- $enabledByDefault := $managed.enabledByDefault | default true -}}
