@@ -15,21 +15,64 @@ limitations under the License.
 */}}
 ---
 image: {{ .ModuleNamePrefix }}{{ .ImageName }}
-fromImage: builder/alpine
+fromImage: {{ .ModuleNamePrefix }}distroless
 final: true
+import:
+  - image: libs/glibc
+    add: /
+    to: /
+    includePaths:
+      - lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+      - lib/x86_64-linux-gnu/libc.so.6
+      - lib/x86_64-linux-gnu/libpthread.so.0
+      - lib/x86_64-linux-gnu/librt.so.1
+      - lib/x86_64-linux-gnu/libdl.so.2
+      - lib/x86_64-linux-gnu/libm.so.6
+      - lib/x86_64-linux-gnu/libgcc_s.so.1
+      - lib64/ld-linux-x86-64.so.2
+      - lib64/libc.so.6
+      - lib64/libpthread.so.0
+      - lib64/librt.so.1
+      - lib64/libdl.so.2
+      - lib64/libm.so.6
+      - lib64/libgcc_s.so.1
+    after: install
+  - image: tools/bash
+    add: /usr/bin/bash
+    to: /usr/bin/bash
+    after: install
+  - image: tools/findutils
+    add: /usr/bin/find
+    to: /usr/bin/find
+    after: install
+  - image: tools/coreutils
+    add: /
+    to: /
+    includePaths:
+      - usr/bin/coreutils
+      - usr/bin/env
+      - usr/bin/basename
+      - usr/bin/head
+      - usr/bin/ln
+      - usr/bin/ls
+      - usr/bin/date
+      - usr/bin/sleep
+    after: install
+  - image: tools/coreutils
+    add: /usr/bin/ls
+    to: /bin/ls
+    after: install
 git:
   - add: {{ .ModuleDir }}/images/{{ .ImageName }}/prestart.sh
     to: /app/prestart.sh
     stageDependencies:
       install:
         - prestart.sh
-shell:
-  install:
-    - apk add --no-cache bash findutils
-    - chmod +x /app/prestart.sh
 imageSpec:
   config:
     user: "0"
     workingDir: /app
+    env:
+      PATH: "/usr/bin:/bin"
     entrypoint:
       - /app/prestart.sh
