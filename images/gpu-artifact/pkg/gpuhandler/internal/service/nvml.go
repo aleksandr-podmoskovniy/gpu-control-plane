@@ -18,6 +18,8 @@ package service
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -56,7 +58,7 @@ type NVMLService struct {
 
 // NewNVML constructs an NVML service.
 func NewNVML() *NVMLService {
-	return &NVMLService{lib: nvml.New()}
+	return &NVMLService{lib: nvml.New(nvmlLibraryOptions()...)}
 }
 
 // Init initializes NVML.
@@ -154,4 +156,43 @@ func normalizePCIBusID(busID string) string {
 		}
 	}
 	return strings.Join(parts, ":")
+}
+
+const nvmlLibraryName = "libnvidia-ml.so.1"
+
+var nvmlLibrarySearchPaths = []string{
+	"/usr/lib64",
+	"/usr/lib/x86_64-linux-gnu",
+	"/usr/lib/aarch64-linux-gnu",
+	"/lib64",
+	"/lib/x86_64-linux-gnu",
+	"/lib/aarch64-linux-gnu",
+}
+
+func nvmlLibraryOptions() []nvml.LibraryOption {
+	driverRoot := strings.TrimSpace(os.Getenv("NVIDIA_DRIVER_ROOT"))
+	if driverRoot == "" {
+		return nil
+	}
+	path, err := findNVMLLibrary(driverRoot)
+	if err != nil {
+		return nil
+	}
+	return []nvml.LibraryOption{nvml.WithLibraryPath(path)}
+}
+
+func findNVMLLibrary(root string) (string, error) {
+	for _, dir := range nvmlLibrarySearchPaths {
+		candidate := filepath.Join(root, dir, nvmlLibraryName)
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		return resolved, nil
+	}
+	return "", fmt.Errorf("nvml library %q not found under %s", nvmlLibraryName, root)
 }
