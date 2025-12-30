@@ -70,10 +70,6 @@ spec:
               value: "void"
             - name: NVIDIA_DRIVER_ROOT
               value: "/driver-root"
-            - name: LD_LIBRARY_PATH
-              value: "/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/usr/lib64:/driver-root/lib64:/driver-root/lib:/driver-root/compat/lib64:/driver-root/compat/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:/lib64:/lib"
-            - name: PATH
-              value: "/driver-root/usr/bin:/driver-root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
