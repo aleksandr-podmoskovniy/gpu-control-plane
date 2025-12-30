@@ -34,7 +34,7 @@ const (
 	bootstrapStateSnapshot = "gpu-gpu-node-state"
 	bootstrapStateFilter   = `{"name": .metadata.name, "status": .status}`
 	physicalGPUSnapshot    = "gpu-physical-gpu"
-	physicalGPUFilter      = `{"nodeName": .status.nodeInfo.nodeName, "vendorID": .status.pciInfo.vendor.id}`
+	physicalGPUFilter      = `{"nodeName": .status.nodeInfo.nodeName, "vendorID": .status.pciInfo.vendor.id, "conditions": (.status.conditions // [])}`
 )
 
 type inventorySnapshot struct {
@@ -47,8 +47,9 @@ type snapshotStatus struct {
 }
 
 type physicalSnapshot struct {
-	NodeName string `json:"nodeName"`
-	VendorID string `json:"vendorID"`
+	NodeName   string             `json:"nodeName"`
+	VendorID   string             `json:"vendorID"`
+	Conditions []metav1.Condition `json:"conditions"`
 }
 
 var _ = registry.RegisterFunc(&pkg.HookConfig{
@@ -96,6 +97,7 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 	}
 
 	nvidiaNodes := map[string]struct{}{}
+	driverReadyNodes := map[string]struct{}{}
 	for _, snap := range physicalSnaps {
 		var payload physicalSnapshot
 		if err := snap.UnmarshalTo(&payload); err != nil {
@@ -108,6 +110,9 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		}
 		if normalizePCIID(payload.VendorID) == "10de" {
 			nvidiaNodes[nodeName] = struct{}{}
+			if conditionTrue(payload.Conditions, "DriverReady") {
+				driverReadyNodes[nodeName] = struct{}{}
+			}
 		}
 	}
 
@@ -134,11 +139,9 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		}
 		nodes[nodeName] = entry
 
-		// Stage 2+: run discovery/monitoring only after driver/toolkit are ready.
+		// Stage 2+: run discovery only after driver/toolkit are ready.
 		if conditionTrue(conds, "DriverReady") && conditionTrue(conds, "ToolkitReady") {
 			componentNodes[settings.BootstrapComponentGPUFeatureDiscovery] = append(componentNodes[settings.BootstrapComponentGPUFeatureDiscovery], nodeName)
-			componentNodes[settings.BootstrapComponentDCGM] = append(componentNodes[settings.BootstrapComponentDCGM], nodeName)
-			componentNodes[settings.BootstrapComponentDCGMExporter] = append(componentNodes[settings.BootstrapComponentDCGMExporter], nodeName)
 		}
 	}
 
@@ -147,15 +150,22 @@ func handleBootstrapStateSync(_ context.Context, input *pkg.HookInput) error {
 		for nodeName := range nvidiaNodes {
 			validatorNodes = append(validatorNodes, nodeName)
 		}
-		componentNodes["handler"] = append(componentNodes["handler"], validatorNodes...)
-		componentNodes[settings.BootstrapComponentDCGM] = append([]string{}, validatorNodes...)
-		componentNodes[settings.BootstrapComponentDCGMExporter] = append([]string{}, validatorNodes...)
 	} else {
 		for nodeName := range nodes {
 			validatorNodes = append(validatorNodes, nodeName)
 		}
 	}
 	componentNodes[settings.BootstrapComponentValidator] = validatorNodes
+
+	if len(driverReadyNodes) > 0 {
+		handlerNodes := []string{}
+		for nodeName := range driverReadyNodes {
+			handlerNodes = append(handlerNodes, nodeName)
+		}
+		componentNodes["handler"] = append([]string{}, handlerNodes...)
+		componentNodes[settings.BootstrapComponentDCGM] = append([]string{}, handlerNodes...)
+		componentNodes[settings.BootstrapComponentDCGMExporter] = append([]string{}, handlerNodes...)
+	}
 
 	if len(nodes) == 0 && len(nvidiaNodes) == 0 {
 		input.Values.Remove(settings.InternalBootstrapStatePath)

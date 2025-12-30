@@ -263,8 +263,8 @@ func TestHandleBootstrapStateSyncPopulatesValues(t *testing.T) {
 	expectNodes := map[string][]string{
 		settings.BootstrapComponentValidator:           {"node-a", "node-b"},
 		settings.BootstrapComponentGPUFeatureDiscovery: {"node-a"},
-		settings.BootstrapComponentDCGM:                {"node-a"},
-		settings.BootstrapComponentDCGMExporter:        {"node-a"},
+		settings.BootstrapComponentDCGM:                {},
+		settings.BootstrapComponentDCGMExporter:        {},
 		"handler":                                      {},
 	}
 	for component, nodesList := range expectNodes {
@@ -362,7 +362,13 @@ func TestHandleBootstrapStateSyncPrefersPhysicalGPUForValidator(t *testing.T) {
 			}},
 		},
 		physicalGPUSnapshot: {
-			jsonSnapshot{value: physicalSnapshot{NodeName: "node-b", VendorID: "10de"}},
+			jsonSnapshot{value: physicalSnapshot{
+				NodeName: "node-b",
+				VendorID: "10de",
+				Conditions: []metav1.Condition{
+					{Type: "DriverReady", Status: metav1.ConditionTrue},
+				},
+			}},
 		},
 	})
 

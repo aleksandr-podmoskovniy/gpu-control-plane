@@ -32,7 +32,7 @@ spec:
       {{- include "helm_lib_module_pod_security_context_run_as_user_deckhouse" . | nindent 6 }}
       {{- include "helm_lib_priority_class" (tuple . "system-cluster-critical") | nindent 6 }}
       {{- include "gpuControlPlane.managedNodeTolerations" . | nindent 6 }}
-      {{- include "gpuControlPlane.managedNodeAffinity" (list .) | nindent 6 }}
+      {{- include "gpuControlPlane.bootstrap.affinity" (list . $component) | nindent 6 }}
       containers:
         - name: {{ include "gpuControlPlane.handlerName" . }}
           {{- include "helm_lib_module_container_security_context_read_only_root_filesystem" . | nindent 10 }}
@@ -51,6 +51,10 @@ spec:
             - name: LOG_DEBUG_VERBOSITY
               value: "10"
             {{- end }}
+            - name: LD_LIBRARY_PATH
+              value: "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/driver-root/usr/lib/x86_64-linux-gnu:/driver-root/usr/lib64:/driver-root/lib64:/driver-root/lib:/driver-root/compat/lib64:/driver-root/compat/lib:/usr/lib/x86_64-linux-gnu:/usr/lib64:/lib64:/lib"
+            - name: PATH
+              value: "/driver-root/usr/bin:/driver-root/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           ports:
             - name: health
               containerPort: 8081
@@ -74,4 +78,13 @@ spec:
               ephemeral-storage: 50Mi
             limits:
               memory: 128Mi
+          volumeMounts:
+            - name: driver-root
+              mountPath: /driver-root
+              readOnly: true
+      volumes:
+        - name: driver-root
+          hostPath:
+            path: /run/nvidia/driver
+            type: DirectoryOrCreate
 {{- end }}
