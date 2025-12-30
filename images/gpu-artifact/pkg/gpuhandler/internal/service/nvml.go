@@ -175,10 +175,10 @@ func nvmlLibraryOptions() []nvml.LibraryOption {
 		return nil
 	}
 	path, err := findNVMLLibrary(driverRoot)
-	if err != nil {
-		return nil
+	if err == nil {
+		return []nvml.LibraryOption{nvml.WithLibraryPath(path)}
 	}
-	return []nvml.LibraryOption{nvml.WithLibraryPath(path)}
+	return nil
 }
 
 func findNVMLLibrary(root string) (string, error) {
