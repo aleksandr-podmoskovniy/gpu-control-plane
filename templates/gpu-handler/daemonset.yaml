@@ -37,7 +37,7 @@ spec:
         - name: gpu-handler-prestart
           image: {{ include "helm_lib_module_image" (list . "gpuHandlerPrestart" (include "gpuControlPlane.moduleName" .)) }}
           imagePullPolicy: IfNotPresent
-          {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
+          {{- include "helm_lib_module_container_security_context_privileged" . | nindent 10 }}
           env:
             - name: NVIDIA_DRIVER_ROOT
               value: "/run/nvidia/driver"
