@@ -18,6 +18,10 @@ image: {{ .ModuleNamePrefix }}{{ .ImageName }}
 fromImage: {{ .ModuleNamePrefix }}distroless
 final: true
 import:
+  - image: {{ .ModuleNamePrefix }}gpu-artifact
+    add: /out/gpu-handler-prestart
+    to: /app/gpu-handler-prestart
+    after: install
   - image: libs/glibc
     add: /
     to: /
@@ -37,42 +41,9 @@ import:
       - lib64/libm.so.6
       - lib64/libgcc_s.so.1
     after: install
-  - image: tools/bash
-    add: /usr/bin/bash
-    to: /usr/bin/bash
-    after: install
-  - image: tools/findutils
-    add: /usr/bin/find
-    to: /usr/bin/find
-    after: install
-  - image: tools/coreutils
-    add: /
-    to: /
-    includePaths:
-      - usr/bin/coreutils
-      - usr/bin/env
-      - usr/bin/basename
-      - usr/bin/head
-      - usr/bin/ln
-      - usr/bin/ls
-      - usr/bin/date
-      - usr/bin/sleep
-    after: install
-  - image: tools/coreutils
-    add: /usr/bin/ls
-    to: /bin/ls
-    after: install
-git:
-  - add: {{ .ModuleDir }}/images/{{ .ImageName }}/prestart.sh
-    to: /app/prestart.sh
-    stageDependencies:
-      install:
-        - prestart.sh
 imageSpec:
   config:
     user: "0"
     workingDir: /app
-    env:
-      PATH: "/usr/bin:/bin"
     entrypoint:
-      - /app/prestart.sh
+      - /app/gpu-handler-prestart
