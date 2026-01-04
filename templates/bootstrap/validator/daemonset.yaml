@@ -52,6 +52,8 @@ spec:
           env:
             - name: PATH
               value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            - name: LD_LIBRARY_PATH
+              value: "/host/usr/lib/x86_64-linux-gnu:/host/usr/lib64:/host/lib64:/host/lib:/run/nvidia/driver/usr/lib/x86_64-linux-gnu:/run/nvidia/driver/usr/lib64:/run/nvidia/driver/lib64:/run/nvidia/driver/lib"
             - name: COMPONENT
               value: driver
             - name: WITH_WAIT
@@ -129,6 +131,8 @@ spec:
           env:
             - name: PATH
               value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/nvidia/driver/usr/bin:/host/usr/bin:/host/usr/sbin"
+            - name: LD_LIBRARY_PATH
+              value: "/host/usr/lib/x86_64-linux-gnu:/host/usr/lib64:/host/lib64:/host/lib:/run/nvidia/driver/usr/lib/x86_64-linux-gnu:/run/nvidia/driver/usr/lib64:/run/nvidia/driver/lib64:/run/nvidia/driver/lib"
             - name: COMPONENT
               value: toolkit
             - name: NVIDIA_VISIBLE_DEVICES

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	resourceapi "k8s.io/api/resource/v1"
@@ -71,6 +72,9 @@ func Start(ctx context.Context, cfg Config) (*Driver, error) {
 		pluginRoot = kubeletplugin.KubeletPluginsDir
 	}
 	pluginPath := filepath.Join(pluginRoot, driverName)
+	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
+		return nil, fmt.Errorf("create plugin directory %q: %w", pluginPath, err)
+	}
 
 	driver := &Driver{
 		driverName: driverName,
