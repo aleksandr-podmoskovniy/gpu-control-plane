@@ -50,10 +50,6 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
-            - name: PATH
-              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            - name: LD_LIBRARY_PATH
-              value: "/host/usr/lib/x86_64-linux-gnu:/host/usr/lib64:/host/lib64:/host/lib:/run/nvidia/driver/usr/lib/x86_64-linux-gnu:/run/nvidia/driver/usr/lib64:/run/nvidia/driver/lib64:/run/nvidia/driver/lib"
             - name: COMPONENT
               value: driver
             - name: WITH_WAIT
@@ -129,10 +125,6 @@ spec:
           command: ["/usr/bin/nvidia-validator"]
           {{- include "helm_lib_module_container_security_context_privileged_read_only_root_filesystem" . | nindent 10 }}
           env:
-            - name: PATH
-              value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/run/nvidia/driver/usr/bin:/host/usr/bin:/host/usr/sbin"
-            - name: LD_LIBRARY_PATH
-              value: "/host/usr/lib/x86_64-linux-gnu:/host/usr/lib64:/host/lib64:/host/lib:/run/nvidia/driver/usr/lib/x86_64-linux-gnu:/run/nvidia/driver/usr/lib64:/run/nvidia/driver/lib64:/run/nvidia/driver/lib"
             - name: COMPONENT
               value: toolkit
             - name: NVIDIA_VISIBLE_DEVICES
