@@ -18,34 +18,50 @@ package allocator
 
 import (
 	"context"
+	"sort"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/ports"
 )
 
-// Service performs allocation flow orchestration.
-type Service struct {
-	inventory ports.InventoryProvider
-	writer    ports.AllocationWriter
-}
+const DefaultDriverName = "gpu.deckhouse.io"
+
+// Service performs allocation on a prepared inventory snapshot.
+type Service struct{}
 
 // NewService creates a new allocator service.
-func NewService(inventory ports.InventoryProvider, writer ports.AllocationWriter) *Service {
-	return &Service{
-		inventory: inventory,
-		writer:    writer,
-	}
+func NewService() *Service {
+	return &Service{}
 }
 
-// RunOnce executes a single allocation cycle (no-op for now).
-func (s *Service) RunOnce(ctx context.Context) error {
-	snapshot, err := s.inventory.Snapshot(ctx)
-	if err != nil {
-		return err
+// Allocate computes an allocation result for the given claim.
+func (s *Service) Allocate(ctx context.Context, input Input) (*domain.AllocationResult, error) {
+	if len(input.Requests) == 0 {
+		return nil, nil
+	}
+	if len(input.Candidates) == 0 {
+		return nil, nil
 	}
 
-	result := domain.AllocationResult{
-		NodeName: snapshot.NodeName,
+	nodes := groupByNode(input.Candidates)
+	if len(nodes) == 0 {
+		return nil, nil
 	}
-	return s.writer.Write(ctx, result)
+
+	nodeNames := make([]string, 0, len(nodes))
+	for nodeName := range nodes {
+		nodeNames = append(nodeNames, nodeName)
+	}
+	sort.Strings(nodeNames)
+
+	for _, nodeName := range nodeNames {
+		alloc, ok, err := allocateOnNode(ctx, nodeName, nodes[nodeName], input.Requests)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return alloc, nil
+		}
+	}
+
+	return nil, nil
 }

@@ -1,3 +1,6 @@
+//go:build linux && cgo && nvml
+// +build linux,cgo,nvml
+
 /*
 Copyright 2025 Flant JSC
 
@@ -17,28 +20,10 @@ limitations under the License.
 package service
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
-
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 )
-
-var (
-	// ErrNVMLUnavailable reports NVML init/device access failures.
-	ErrNVMLUnavailable = errors.New("nvml unavailable")
-	// ErrNVMLQueryFailed reports NVML query failures.
-	ErrNVMLQueryFailed = errors.New("nvml query failed")
-	// ErrMissingPCIAddress reports missing PCI address.
-	ErrMissingPCIAddress = errors.New("missing pci address")
-)
-
-// DeviceSnapshot contains NVML capabilities and current state.
-type DeviceSnapshot struct {
-	Capabilities *gpuv1alpha1.GPUCapabilities
-	CurrentState *gpuv1alpha1.GPUCurrentState
-}
 
 // NVMLReader opens a session and reads NVML data.
 type NVMLReader struct {

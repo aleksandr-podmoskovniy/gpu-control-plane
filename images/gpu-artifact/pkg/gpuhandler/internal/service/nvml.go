@@ -1,3 +1,6 @@
+//go:build linux && cgo && nvml
+// +build linux,cgo,nvml
+
 /*
 Copyright 2025 Flant JSC
 
@@ -48,7 +51,9 @@ type NVMLDevice interface {
 	GetEnforcedPowerLimit() (uint32, nvml.Return)
 	GetPowerManagementLimitConstraints() (uint32, uint32, nvml.Return)
 	GetMigMode() (int, int, nvml.Return)
+	GetGpuInstanceProfileInfo(profile int) (nvml.GpuInstanceProfileInfo, nvml.Return)
 	GetGpuInstanceProfileInfoV3(profile int) (nvml.GpuInstanceProfileInfo_v3, nvml.Return)
+	GetGpuInstancePossiblePlacements(info *nvml.GpuInstanceProfileInfo) ([]nvml.GpuInstancePlacement, nvml.Return)
 }
 
 // NVMLService provides access to NVML through the go-nvml library.
@@ -140,8 +145,16 @@ func (d nvmlDevice) GetMigMode() (int, int, nvml.Return) {
 	return d.device.GetMigMode()
 }
 
+func (d nvmlDevice) GetGpuInstanceProfileInfo(profile int) (nvml.GpuInstanceProfileInfo, nvml.Return) {
+	return d.device.GetGpuInstanceProfileInfo(profile)
+}
+
 func (d nvmlDevice) GetGpuInstanceProfileInfoV3(profile int) (nvml.GpuInstanceProfileInfo_v3, nvml.Return) {
 	return d.device.GetGpuInstanceProfileInfoV(profile).V3()
+}
+
+func (d nvmlDevice) GetGpuInstancePossiblePlacements(info *nvml.GpuInstanceProfileInfo) ([]nvml.GpuInstancePlacement, nvml.Return) {
+	return d.device.GetGpuInstancePossiblePlacements(info)
 }
 
 func normalizePCIBusID(busID string) string {

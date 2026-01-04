@@ -16,22 +16,39 @@ limitations under the License.
 
 package domain
 
-import "k8s.io/apimachinery/pkg/types"
+import "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 
 // InventorySnapshot is a minimal snapshot of node-scoped inventory.
 type InventorySnapshot struct {
-	NodeName string
-	NodeUID  types.UID
+	NodeName  string
+	NodeUID   string
+	Inventory allocatable.Inventory
 }
 
-// AllocationResult is a minimal allocation result placeholder.
+// AllocatedDevice references a device selected for a claim request.
+type AllocatedDevice struct {
+	Request string
+	Driver  string
+	Pool    string
+	Device  string
+}
+
+// NodeSelector pins an allocation to a specific node.
+type NodeSelector struct {
+	NodeName string
+}
+
+// AllocationResult is a minimal allocation result representation.
 type AllocationResult struct {
-	ClaimUID types.UID
-	NodeName string
+	ClaimUID     string
+	NodeName     string
+	Devices      []AllocatedDevice
+	NodeSelector *NodeSelector
 }
 
-// PrepareRequest is a minimal prepare/unprepare request placeholder.
+// PrepareRequest is a minimal prepare/unprepare request representation.
 type PrepareRequest struct {
-	ClaimUID types.UID
+	ClaimUID string
 	NodeName string
+	Devices  []AllocatedDevice
 }

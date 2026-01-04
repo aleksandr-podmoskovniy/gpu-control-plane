@@ -16,68 +16,85 @@ package allocator
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
-type fakeInventory struct {
-	snapshot domain.InventorySnapshot
-	err      error
-	calls    int
-}
-
-func (f *fakeInventory) Snapshot(_ context.Context) (domain.InventorySnapshot, error) {
-	f.calls++
-	return f.snapshot, f.err
-}
-
-type fakeWriter struct {
-	result domain.AllocationResult
-	err    error
-	calls  int
-}
-
-func (f *fakeWriter) Write(_ context.Context, result domain.AllocationResult) error {
-	f.calls++
-	f.result = result
-	return f.err
-}
-
-func TestServiceRunOnceWritesAllocation(t *testing.T) {
+func TestAllocateExactCount(t *testing.T) {
 	t.Parallel()
 
-	inventory := &fakeInventory{snapshot: domain.InventorySnapshot{NodeName: "node-1"}}
-	writer := &fakeWriter{}
-	service := NewService(inventory, writer)
-
-	if err := service.RunOnce(context.Background()); err != nil {
-		t.Fatalf("RunOnce returned error: %v", err)
+	svc := NewService()
+	alloc, err := svc.Allocate(context.Background(), Input{
+		Requests: []Request{{
+			Name:      "gpu",
+			Count:     1,
+			Selectors: []Selector{allowAllSelector{}},
+		}},
+		Candidates: []CandidateDevice{{
+			Key:      DeviceKey{Driver: DefaultDriverName, Pool: "pool-a", Device: "dev-1"},
+			Driver:   DefaultDriverName,
+			Pool:     "pool-a",
+			NodeName: "node-1",
+			Spec: allocatable.DeviceSpec{
+				Name: "dev-1",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if inventory.calls != 1 {
-		t.Fatalf("expected inventory calls=1, got %d", inventory.calls)
+	if alloc == nil {
+		t.Fatalf("expected allocation result")
 	}
-	if writer.calls != 1 {
-		t.Fatalf("expected writer calls=1, got %d", writer.calls)
+	if len(alloc.Devices) != 1 {
+		t.Fatalf("expected 1 device result, got %d", len(alloc.Devices))
 	}
-	if writer.result.NodeName != "node-1" {
-		t.Fatalf("expected NodeName=node-1, got %q", writer.result.NodeName)
+	got := alloc.Devices[0]
+	if got.Driver != DefaultDriverName || got.Pool != "pool-a" || got.Device != "dev-1" {
+		t.Fatalf("unexpected allocation result: %#v", got)
+	}
+	if alloc.NodeName != "node-1" {
+		t.Fatalf("expected node-1, got %q", alloc.NodeName)
 	}
 }
 
-func TestServiceRunOnceInventoryError(t *testing.T) {
+func TestAllocateSkipsWhenNoMatch(t *testing.T) {
 	t.Parallel()
 
-	expectedErr := errors.New("boom")
-	inventory := &fakeInventory{err: expectedErr}
-	writer := &fakeWriter{}
-	service := NewService(inventory, writer)
+	svc := NewService()
+	alloc, err := svc.Allocate(context.Background(), Input{
+		Requests: []Request{{
+			Name:      "gpu",
+			Count:     1,
+			Selectors: []Selector{rejectAllSelector{}},
+		}},
+		Candidates: []CandidateDevice{{
+			Key:      DeviceKey{Driver: DefaultDriverName, Pool: "pool-a", Device: "dev-1"},
+			Driver:   DefaultDriverName,
+			Pool:     "pool-a",
+			NodeName: "node-1",
+			Spec: allocatable.DeviceSpec{
+				Name: "dev-1",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if alloc != nil {
+		t.Fatalf("expected no allocation when selector rejects devices")
+	}
+}
 
-	if err := service.RunOnce(context.Background()); !errors.Is(err, expectedErr) {
-		t.Fatalf("expected error %v, got %v", expectedErr, err)
-	}
-	if writer.calls != 0 {
-		t.Fatalf("expected writer not called, got %d", writer.calls)
-	}
+type allowAllSelector struct{}
+
+func (allowAllSelector) Match(context.Context, string, allocatable.DeviceSpec) (bool, error) {
+	return true, nil
+}
+
+type rejectAllSelector struct{}
+
+func (rejectAllSelector) Match(context.Context, string, allocatable.DeviceSpec) (bool, error) {
+	return false, nil
 }

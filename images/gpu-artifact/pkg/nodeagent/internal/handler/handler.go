@@ -21,9 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/deckhouse/deckhouse/pkg/log"
-
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
 )
 
@@ -45,37 +42,4 @@ func StopHandlerChain(err error) error {
 		return err
 	}
 	return fmt.Errorf("%w: %v", ErrStopHandlerChain, err)
-}
-
-// Chain executes handlers in order.
-type Chain struct {
-	handlers []Handler
-}
-
-// NewChain builds a handler chain.
-func NewChain(handlers ...Handler) Chain {
-	return Chain{handlers: handlers}
-}
-
-// Run executes handlers and aggregates their errors.
-func (c Chain) Run(ctx context.Context, st state.State, log *log.Logger) error {
-	var errs []error
-	for _, h := range c.handlers {
-		handlerLog := log.With(logger.SlogHandler(h.Name()), logger.SlogStep("run"))
-		if err := h.Handle(ctx, st); err != nil {
-			wrapped := fmt.Errorf("%s: %w", h.Name(), err)
-			if errors.Is(err, ErrStopHandlerChain) {
-				handlerLog.Info("handler chain stopped", logger.SlogErr(err))
-				return wrapped
-			}
-			handlerLog.Error("handler failed", logger.SlogErr(err))
-			errs = append(errs, wrapped)
-			continue
-		}
-		handlerLog.Debug("handler completed")
-	}
-	if len(errs) == 0 {
-		return nil
-	}
-	return errors.Join(errs...)
 }

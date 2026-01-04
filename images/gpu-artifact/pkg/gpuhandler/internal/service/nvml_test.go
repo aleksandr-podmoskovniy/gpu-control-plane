@@ -1,3 +1,6 @@
+//go:build linux && cgo && nvml
+// +build linux,cgo,nvml
+
 /*
 Copyright 2025 Flant JSC
 

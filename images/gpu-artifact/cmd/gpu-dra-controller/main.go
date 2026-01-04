@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +25,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.).
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -33,13 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/allocator"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
-
-	"github.com/deckhouse/deckhouse/pkg/log"
 )
 
 const (
@@ -57,6 +52,7 @@ var scheme = runtime.NewScheme()
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(resourcev1.AddToScheme(scheme))
 }
 
 func main() {
@@ -104,10 +100,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	allocSvc := allocator.NewService(nvml.NewInventory(), k8s.NewAllocationWriter())
-	runtime := dra.NewRuntime(allocSvc, nil, nil)
-	if err := mgr.Add(&allocatorRunner{runtime: runtime, log: setupLog}); err != nil {
-		setupLog.Error("unable to add allocator runner", logger.SlogErr(err))
+	ctx := ctrl.SetupSignalHandler()
+	draLog := logger.NewControllerLogger(dra.ControllerName, logLevel, logOutput, logDebugVerbosity, nil)
+	if err := dra.SetupController(ctx, mgr, draLog); err != nil {
+		setupLog.Error("unable to create controller", "controller", dra.ControllerName, logger.SlogErr(err))
 		os.Exit(1)
 	}
 
@@ -121,25 +117,10 @@ func main() {
 	}
 
 	setupLog.Info("starting gpu-dra-controller")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error("problem running manager", logger.SlogErr(err))
 		os.Exit(1)
 	}
-}
-
-type allocatorRunner struct {
-	runtime *dra.Runtime
-	log     *log.Logger
-}
-
-func (r *allocatorRunner) Start(ctx context.Context) error {
-	if r.runtime != nil {
-		if err := r.runtime.RunAllocator(ctx); err != nil {
-			r.log.Error("allocator run failed", logger.SlogErr(err))
-		}
-	}
-	<-ctx.Done()
-	return nil
 }
 
 func envOr(name, fallback string) string {

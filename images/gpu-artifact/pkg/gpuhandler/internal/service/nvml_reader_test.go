@@ -1,3 +1,6 @@
+//go:build linux && cgo && nvml
+// +build linux,cgo,nvml
+
 /*
 Copyright 2025 Flant JSC
 
@@ -39,6 +42,7 @@ func TestNVMLReaderSuccess(t *testing.T) {
 		minPower:      100000,
 		maxPower:      200000,
 		migRet:        nvml.ERROR_NOT_SUPPORTED,
+		profileRet:    nvml.ERROR_NOT_SUPPORTED,
 	}
 
 	reader := NewNVMLReader(&fakeNVML{
@@ -68,6 +72,12 @@ func TestNVMLReaderSuccess(t *testing.T) {
 	if snapshot.Capabilities.Nvidia == nil || snapshot.Capabilities.Nvidia.ProductArchitecture != "Ampere" {
 		t.Fatalf("nvidia capabilities missing")
 	}
+	if snapshot.Capabilities.Nvidia.MIGSupported == nil || *snapshot.Capabilities.Nvidia.MIGSupported {
+		t.Fatalf("expected MIGSupported false")
+	}
+	if snapshot.Capabilities.Nvidia.MIG != nil {
+		t.Fatalf("expected MIG capabilities to be empty when unsupported")
+	}
 	if snapshot.CurrentState == nil || snapshot.CurrentState.Nvidia == nil {
 		t.Fatalf("current state missing")
 	}
@@ -79,6 +89,109 @@ func TestNVMLReaderSuccess(t *testing.T) {
 	}
 	if snapshot.Capabilities.Vendor != gpuv1alpha1.VendorNvidia {
 		t.Fatalf("expected vendor Nvidia")
+	}
+}
+
+func TestNVMLReaderMIGProfiles(t *testing.T) {
+	dev := &fakeNVMLDevice{
+		name:      "NVIDIA A30",
+		uuid:      "GPU-123",
+		memory:    nvml.Memory{Total: 24576 * 1024 * 1024},
+		major:     8,
+		minor:     0,
+		arch:      nvml.DEVICE_ARCH_AMPERE,
+		boardPart: "900-21001-0040-100",
+		migMode:   nvml.DEVICE_MIG_ENABLE,
+		migRet:    nvml.SUCCESS,
+		profileInfo: map[int]nvml.GpuInstanceProfileInfo_v3{
+			5: profileInfo(5, 2, 2, 12032, "2g.12gb"),
+			0: profileInfo(0, 4, 1, 24125, "4g.24gb"),
+		},
+		profileRet: nvml.ERROR_NOT_SUPPORTED,
+	}
+
+	reader := NewNVMLReader(&fakeNVML{
+		initRet:       nvml.SUCCESS,
+		driverVersion: "580.76.05",
+		driverRet:     nvml.SUCCESS,
+		cudaVersion:   13000,
+		cudaRet:       nvml.SUCCESS,
+		deviceRet:     nvml.SUCCESS,
+		device:        dev,
+	})
+
+	session, err := reader.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.ReadDevice("0000:02:00.0")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if snapshot.Capabilities == nil || snapshot.Capabilities.Nvidia == nil {
+		t.Fatalf("capabilities missing")
+	}
+	if snapshot.Capabilities.Nvidia.MIGSupported == nil || !*snapshot.Capabilities.Nvidia.MIGSupported {
+		t.Fatalf("expected MIGSupported true")
+	}
+	if snapshot.Capabilities.Nvidia.MIG == nil {
+		t.Fatalf("expected MIG capabilities")
+	}
+	if snapshot.Capabilities.Nvidia.MIG.TotalSlices != 4 {
+		t.Fatalf("expected totalSlices 4, got %d", snapshot.Capabilities.Nvidia.MIG.TotalSlices)
+	}
+	if len(snapshot.Capabilities.Nvidia.MIG.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(snapshot.Capabilities.Nvidia.MIG.Profiles))
+	}
+}
+
+func TestNVMLReaderPartialData(t *testing.T) {
+	dev := &fakeNVMLDevice{
+		name:           "NVIDIA A30",
+		uuid:           "GPU-123",
+		memory:         nvml.Memory{Total: 24576 * 1024 * 1024},
+		major:          8,
+		minor:          0,
+		arch:           nvml.DEVICE_ARCH_AMPERE,
+		boardPart:      "900-21001-0040-100",
+		boardRet:       nvml.ERROR_NOT_SUPPORTED,
+		constraintsRet: nvml.ERROR_NOT_SUPPORTED,
+		migRet:         nvml.ERROR_NOT_SUPPORTED,
+		profileRet:     nvml.ERROR_NOT_SUPPORTED,
+	}
+
+	reader := NewNVMLReader(&fakeNVML{
+		initRet:       nvml.SUCCESS,
+		driverVersion: "580.76.05",
+		driverRet:     nvml.SUCCESS,
+		cudaVersion:   13000,
+		cudaRet:       nvml.SUCCESS,
+		deviceRet:     nvml.SUCCESS,
+		device:        dev,
+	})
+
+	session, err := reader.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.ReadDevice("0000:02:00.0")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if snapshot.Capabilities == nil || snapshot.Capabilities.Nvidia == nil {
+		t.Fatalf("capabilities missing")
+	}
+	if snapshot.Capabilities.Nvidia.BoardPartNumber != "" {
+		t.Fatalf("expected empty board part number")
+	}
+	if snapshot.Capabilities.Nvidia.PowerLimitMinW != nil || snapshot.Capabilities.Nvidia.PowerLimitMaxW != nil {
+		t.Fatalf("expected power limits to be nil")
 	}
 }
 
@@ -139,19 +252,25 @@ func (f *fakeNVML) ErrorString(ret nvml.Return) string {
 }
 
 type fakeNVMLDevice struct {
-	name          string
-	uuid          string
-	memory        nvml.Memory
-	major         int
-	minor         int
-	arch          nvml.DeviceArchitecture
-	boardPart     string
-	powerLimit    uint32
-	enforcedPower uint32
-	minPower      uint32
-	maxPower      uint32
-	migMode       int
-	migRet        nvml.Return
+	name           string
+	uuid           string
+	memory         nvml.Memory
+	major          int
+	minor          int
+	arch           nvml.DeviceArchitecture
+	boardPart      string
+	boardRet       nvml.Return
+	powerLimit     uint32
+	enforcedPower  uint32
+	minPower       uint32
+	maxPower       uint32
+	constraintsRet nvml.Return
+	migMode        int
+	migRet         nvml.Return
+	profileInfo    map[int]nvml.GpuInstanceProfileInfo_v3
+	profileRet     nvml.Return
+	placements     map[int][]nvml.GpuInstancePlacement
+	placementsRet  nvml.Return
 }
 
 func (d *fakeNVMLDevice) GetName() (string, nvml.Return) {
@@ -175,6 +294,9 @@ func (d *fakeNVMLDevice) GetArchitecture() (nvml.DeviceArchitecture, nvml.Return
 }
 
 func (d *fakeNVMLDevice) GetBoardPartNumber() (string, nvml.Return) {
+	if d.boardRet != 0 {
+		return d.boardPart, d.boardRet
+	}
 	return d.boardPart, nvml.SUCCESS
 }
 
@@ -187,6 +309,9 @@ func (d *fakeNVMLDevice) GetEnforcedPowerLimit() (uint32, nvml.Return) {
 }
 
 func (d *fakeNVMLDevice) GetPowerManagementLimitConstraints() (uint32, uint32, nvml.Return) {
+	if d.constraintsRet != 0 {
+		return 0, 0, d.constraintsRet
+	}
 	return d.minPower, d.maxPower, nvml.SUCCESS
 }
 
@@ -194,6 +319,50 @@ func (d *fakeNVMLDevice) GetMigMode() (int, int, nvml.Return) {
 	return d.migMode, 0, d.migRet
 }
 
-func (d *fakeNVMLDevice) GetGpuInstanceProfileInfoV3(_ int) (nvml.GpuInstanceProfileInfo_v3, nvml.Return) {
+func (d *fakeNVMLDevice) GetGpuInstanceProfileInfo(profile int) (nvml.GpuInstanceProfileInfo, nvml.Return) {
+	if info, ok := d.profileInfo[profile]; ok {
+		return nvml.GpuInstanceProfileInfo{
+			Id:            info.Id,
+			SliceCount:    info.SliceCount,
+			InstanceCount: info.InstanceCount,
+			MemorySizeMB:  info.MemorySizeMB,
+		}, nvml.SUCCESS
+	}
+	if d.profileRet != 0 {
+		return nvml.GpuInstanceProfileInfo{}, d.profileRet
+	}
+	return nvml.GpuInstanceProfileInfo{}, nvml.ERROR_NOT_SUPPORTED
+}
+
+func (d *fakeNVMLDevice) GetGpuInstanceProfileInfoV3(profile int) (nvml.GpuInstanceProfileInfo_v3, nvml.Return) {
+	if info, ok := d.profileInfo[profile]; ok {
+		return info, nvml.SUCCESS
+	}
+	if d.profileRet != 0 {
+		return nvml.GpuInstanceProfileInfo_v3{}, d.profileRet
+	}
 	return nvml.GpuInstanceProfileInfo_v3{}, nvml.ERROR_NOT_SUPPORTED
+}
+
+func (d *fakeNVMLDevice) GetGpuInstancePossiblePlacements(info *nvml.GpuInstanceProfileInfo) ([]nvml.GpuInstancePlacement, nvml.Return) {
+	if info == nil {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.placementsRet != 0 {
+		return nil, d.placementsRet
+	}
+	if placements, ok := d.placements[int(info.Id)]; ok {
+		return placements, nvml.SUCCESS
+	}
+	return nil, nvml.ERROR_NOT_SUPPORTED
+}
+
+func profileInfo(id, sliceCount, instances, memoryMiB uint32, name string) nvml.GpuInstanceProfileInfo_v3 {
+	var info nvml.GpuInstanceProfileInfo_v3
+	info.Id = id
+	info.SliceCount = sliceCount
+	info.InstanceCount = instances
+	info.MemorySizeMB = uint64(memoryMiB)
+	copy(info.Name[:], []byte(name))
+	return info
 }

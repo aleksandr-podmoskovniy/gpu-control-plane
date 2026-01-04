@@ -108,6 +108,11 @@ spec:
               mountPath: /driver-root
               mountPropagation: HostToContainer
               readOnly: true
+            - name: kubelet-plugins
+              mountPath: /var/lib/kubelet/plugins
+              mountPropagation: Bidirectional
+            - name: kubelet-plugins-registry
+              mountPath: /var/lib/kubelet/plugins_registry
       volumes:
         - name: driver-root-parent
           hostPath:
@@ -120,5 +125,13 @@ spec:
         - name: driver-root
           hostPath:
             path: {{ $driverRoot | quote }}
+            type: DirectoryOrCreate
+        - name: kubelet-plugins
+          hostPath:
+            path: /var/lib/kubelet/plugins
+            type: DirectoryOrCreate
+        - name: kubelet-plugins-registry
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
             type: DirectoryOrCreate
 {{- end }}

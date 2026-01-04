@@ -19,9 +19,8 @@ package ports
 import (
 	"context"
 
-	resourcev1 "k8s.io/api/resource/v1"
-
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
 // InventoryProvider returns a node inventory snapshot.
@@ -36,7 +35,7 @@ type AllocationWriter interface {
 
 // ResourceSliceWriter publishes ResourceSlices.
 type ResourceSliceWriter interface {
-	Publish(ctx context.Context, slice *resourcev1.ResourceSlice) error
+	Publish(ctx context.Context, nodeName string, inventory allocatable.Inventory) error
 }
 
 // CheckpointStore persists prepare/unprepare state.

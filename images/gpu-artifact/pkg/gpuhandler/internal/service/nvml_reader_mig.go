@@ -1,3 +1,6 @@
+//go:build linux && cgo && nvml
+// +build linux,cgo,nvml
+
 /*
 Copyright 2025 Flant JSC
 
@@ -64,8 +67,9 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 			SliceCount:   int32(info.SliceCount),
 			MaxInstances: int32(info.InstanceCount),
 		})
-		if int32(info.SliceCount) > totalSlices {
-			totalSlices = int32(info.SliceCount)
+		candidate := int32(info.SliceCount) * int32(info.InstanceCount)
+		if candidate > totalSlices {
+			totalSlices = candidate
 		}
 	}
 

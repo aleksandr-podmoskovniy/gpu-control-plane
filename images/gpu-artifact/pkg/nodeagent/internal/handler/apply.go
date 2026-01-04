@@ -22,9 +22,9 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/builder"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/state"
 )
@@ -68,12 +68,9 @@ func (h *ApplyHandler) applyDevice(ctx context.Context, name, nodeName string, d
 	}
 
 	if apierrors.IsNotFound(err) {
-		obj = &gpuv1alpha1.PhysicalGPU{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   name,
-				Labels: state.LabelsForDevice(nodeName, dev),
-			},
-		}
+		construct := builder.NewPhysicalGPU(name)
+		construct.SetLabels(state.LabelsForDevice(nodeName, dev))
+		obj = construct.GetResource()
 		if err := h.store.Create(ctx, obj); err != nil {
 			return fmt.Errorf("create PhysicalGPU: %w", err)
 		}

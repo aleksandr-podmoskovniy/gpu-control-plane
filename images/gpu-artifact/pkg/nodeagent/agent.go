@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/common/steptaker"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/handler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
@@ -50,7 +51,7 @@ type Config struct {
 type Agent struct {
 	cfg   Config
 	log   *log.Logger
-	chain handler.Chain
+	steps steptaker.StepTakers[state.State]
 }
 
 const eventQuietPeriod = time.Second
@@ -70,7 +71,8 @@ func New(client client.Client, cfg Config, log *log.Logger) *Agent {
 
 	pci := service.NewSysfsPCIProvider(cfg.SysRoot, resolver)
 	hostInfo := service.NewHostInfoCollector(cfg.OSReleasePath, cfg.SysRoot)
-	chain := handler.NewChain(
+	steps := handler.NewSteps(
+		log,
 		handler.NewDiscoverHandler(pci, hostInfo),
 		handler.NewApplyHandler(store),
 		handler.NewCleanupHandler(store),
@@ -79,7 +81,7 @@ func New(client client.Client, cfg Config, log *log.Logger) *Agent {
 	return &Agent{
 		cfg:   cfg,
 		log:   log,
-		chain: chain,
+		steps: steps,
 	}
 }
 
@@ -146,7 +148,7 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) sync(ctx context.Context) error {
 	ctx = logger.ToContext(ctx, slog.Default())
 	st := state.New(a.cfg.NodeName)
-	if err := a.chain.Run(ctx, st, a.log); err != nil {
+	if _, err := a.steps.Run(ctx, st); err != nil {
 		return err
 	}
 	a.log.Info("sync completed", "devices", len(st.Devices()))

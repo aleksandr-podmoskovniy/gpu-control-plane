@@ -32,6 +32,7 @@ DMT_VERSION ?= 0.1.63
 GOLANGCI_LINT_OPTS ?= --timeout=5m
 DEADCODE_VERSION ?= latest
 PRETTIER_VERSION ?= 3.2.5
+GO_DOCKER_IMAGE ?= golang:1.25
 
 GOLANGCI_LINT ?= $(BIN_DIR)/golangci-lint
 MODULE_SDK ?= $(BIN_DIR)/module-sdk
@@ -39,12 +40,14 @@ DMT ?= $(BIN_DIR)/dmt
 DEADCODE ?= $(BIN_DIR)/deadcode
 WERF ?= werf
 WERF_PLATFORM ?= linux/amd64
+HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
 export GOMODCACHE
 
 .PHONY: ensure-bin-dir ensure-golangci-lint ensure-module-sdk ensure-dmt ensure-deadcode ensure-tools \
 	fmt tidy controller-build controller-test hooks-test rewriter-test gfd-extender-test lint-go lint-docs lint-dmt \
-	lint test verify clean cache docs werf-build kubeconform helm-template deadcode e2e gpu-artifact-test
+	lint test verify clean cache docs werf-build kubeconform helm-template deadcode e2e gpu-artifact-test \
+	gpu-artifact-cgo-check
 
 ensure-bin-dir:
 	@mkdir -p $(BIN_DIR)
@@ -97,7 +100,39 @@ rewriter-test: cache coverage-dir
 
 gpu-artifact-test: cache coverage-dir
 	@echo "==> go test (gpu-artifact)"
-	@cd $(GPU_ARTIFACT_DIR) && $(GO) test $(GOFLAGS) -coverprofile $(COVERAGE_DIR)/gpu-artifact.out ./...
+	@if [ "$(HOST_OS)" = "linux" ]; then \
+		cd $(GPU_ARTIFACT_DIR) && CGO_ENABLED=1 $(GO) test $(GOFLAGS) -tags=nvml -coverprofile $(COVERAGE_DIR)/gpu-artifact.out ./...; \
+	else \
+		echo "==> go test (gpu-artifact, linux/cgo via docker)"; \
+		docker run --rm --platform=linux/amd64 \
+			-v $(ROOT):/work \
+			-v $(GOMODCACHE):/go/pkg/mod \
+			-w /work/images/gpu-artifact \
+			-e CGO_ENABLED=1 \
+			-e GOOS=linux \
+			-e GOARCH=amd64 \
+			-e GOMODCACHE=/go/pkg/mod \
+			$(GO_DOCKER_IMAGE) \
+			sh -c 'go test $(GOFLAGS) -tags=nvml -coverprofile /work/artifacts/coverage/gpu-artifact.out ./...'; \
+	fi
+
+gpu-artifact-cgo-check: cache
+	@echo "==> go test (gpu-artifact, cgo compile check)"
+	@if [ "$(HOST_OS)" = "linux" ]; then \
+		cd $(GPU_ARTIFACT_DIR) && CGO_ENABLED=1 $(GO) test $(GOFLAGS) -tags=nvml -run TestDoesNotExist ./...; \
+	else \
+		echo "==> go test (gpu-artifact cgo, linux/cgo via docker)"; \
+		docker run --rm --platform=linux/amd64 \
+			-v $(ROOT):/work \
+			-v $(GOMODCACHE):/go/pkg/mod \
+			-w /work/images/gpu-artifact \
+			-e CGO_ENABLED=1 \
+			-e GOOS=linux \
+			-e GOARCH=amd64 \
+			-e GOMODCACHE=/go/pkg/mod \
+			$(GO_DOCKER_IMAGE) \
+			sh -c 'go test $(GOFLAGS) -tags=nvml -run TestDoesNotExist ./...'; \
+	fi
 
 gfd-extender-test: cache coverage-dir
 	@echo "==> go test (gfd-extender)"
@@ -126,7 +161,7 @@ lint: lint-go lint-docs lint-dmt
 
 test: controller-test hooks-test rewriter-test gpu-artifact-test gfd-extender-test
 
-verify: lint test deadcode helm-template kubeconform
+verify: lint test gpu-artifact-cgo-check deadcode helm-template kubeconform
 
 clean:
 	@rm -rf $(GOMODCACHE)
@@ -152,7 +187,21 @@ deadcode: ensure-deadcode
 	@echo "==> deadcode (hooks)"
 	@cd $(ROOT)/images/hooks && $(DEADCODE) -test ./...
 	@echo "==> deadcode (gpu-artifact)"
-	@cd $(GPU_ARTIFACT_DIR) && $(DEADCODE) -test ./...
+	@if [ "$(HOST_OS)" = "linux" ]; then \
+		cd $(GPU_ARTIFACT_DIR) && CGO_ENABLED=1 $(DEADCODE) -tags=nvml -test ./...; \
+	else \
+		echo "==> deadcode (gpu-artifact, linux/cgo via docker)"; \
+		docker run --rm --platform=linux/amd64 \
+			-v $(ROOT):/work \
+			-v $(GOMODCACHE):/go/pkg/mod \
+			-w /work/images/gpu-artifact \
+			-e CGO_ENABLED=1 \
+			-e GOOS=linux \
+			-e GOARCH=amd64 \
+			-e GOMODCACHE=/go/pkg/mod \
+			$(GO_DOCKER_IMAGE) \
+			sh -c 'export PATH=/go/bin:$$PATH; GOBIN=/go/bin go install golang.org/x/tools/cmd/deadcode@$(DEADCODE_VERSION) && deadcode -tags=nvml -test ./...'; \
+	fi
 	@echo "==> deadcode (kube-api-rewriter)"
 	@cd $(KUBE_API_REWRITER_DIR) && $(DEADCODE) -test ./...
 	@echo "==> deadcode (pre-delete-hook)"
