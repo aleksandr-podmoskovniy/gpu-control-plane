@@ -27,7 +27,7 @@ func buildMigCounters(totalMemoryMiB int64, totalSlices int32) map[string]alloca
 		"memory": {Value: totalMemoryMiB, Unit: allocatable.CounterUnitMiB},
 	}
 	for i := int32(0); i < totalSlices; i++ {
-		counters[fmt.Sprintf("memorySlice%d", i)] = allocatable.CounterValue{Value: 1, Unit: allocatable.CounterUnitCount}
+		counters[fmt.Sprintf("memory-slice-%d", i)] = allocatable.CounterValue{Value: 1, Unit: allocatable.CounterUnitCount}
 	}
 	return counters
 }
@@ -37,7 +37,7 @@ func buildMigConsumes(memoryMiB int32, placement MigPlacement) map[string]alloca
 		"memory": {Value: int64(memoryMiB), Unit: allocatable.CounterUnitMiB},
 	}
 	for i := placement.Start; i < placement.Start+placement.Size; i++ {
-		counters[fmt.Sprintf("memorySlice%d", i)] = allocatable.CounterValue{Value: 1, Unit: allocatable.CounterUnitCount}
+		counters[fmt.Sprintf("memory-slice-%d", i)] = allocatable.CounterValue{Value: 1, Unit: allocatable.CounterUnitCount}
 	}
 	return counters
 }

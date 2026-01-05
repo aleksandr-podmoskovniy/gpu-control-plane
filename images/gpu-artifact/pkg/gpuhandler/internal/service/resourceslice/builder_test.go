@@ -141,8 +141,8 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 	if _, ok := counterSet.Counters["memory"]; !ok {
 		t.Fatalf("expected memory counter")
 	}
-	if _, ok := counterSet.Counters["memorySlice0"]; !ok {
-		t.Fatalf("expected memorySlice0 counter")
+	if _, ok := counterSet.Counters["memory-slice-0"]; !ok {
+		t.Fatalf("expected memory-slice-0 counter")
 	}
 
 	migCount := 0
