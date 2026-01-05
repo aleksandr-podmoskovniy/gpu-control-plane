@@ -66,7 +66,7 @@ func TestMarkNotReadyHandler(t *testing.T) {
 		Build()
 
 	tracker := &fakeTracker{}
-	h := NewMarkNotReadyHandler(service.NewPhysicalGPUService(client), tracker)
+	h := NewMarkNotReadyHandler(service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetAll([]gpuv1alpha1.PhysicalGPU{*ready, *notReady})

@@ -27,6 +27,7 @@ import (
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/handler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/service"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
@@ -41,11 +42,15 @@ func boolPtr(v bool) *bool {
 // SetupController wires the DRA allocator controller using the virtualization-style pattern.
 func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger) error {
 	allocator := service.NewAllocator(mgr.GetClient())
+	classes := service.NewDeviceClassService(mgr.GetClient())
 	writer := service.NewAllocationWriter(mgr.GetClient(), ControllerName)
+	recorder := eventrecord.NewEventRecorderLogger(mgr, ControllerName).
+		WithLogging(log.With(logger.SlogController(ControllerName)))
 
 	handlers := []Handler{
-		handler.NewAllocateHandler(allocator),
-		handler.NewPersistHandler(writer),
+		handler.NewFeatureGateHandler(classes, recorder),
+		handler.NewAllocateHandler(allocator, recorder),
+		handler.NewPersistHandler(writer, recorder),
 	}
 
 	r := NewReconciler(mgr.GetClient(), handlers...)

@@ -20,6 +20,9 @@ limitations under the License.
 package service
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
@@ -52,24 +55,23 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 	var totalSlices int32
 
 	for profile := 0; profile < nvml.GPU_INSTANCE_PROFILE_COUNT; profile++ {
-		info, ret := dev.GetGpuInstanceProfileInfoV3(profile)
-		if ret != nvml.SUCCESS {
+		infoV3, ret := dev.GetGpuInstanceProfileInfoV3(profile)
+		if ret == nvml.SUCCESS {
+			name := nvmlName(infoV3.Name[:])
+			profiles = appendMigProfile(profiles, &totalSlices, infoV3.Id, name, infoV3.MemorySizeMB, infoV3.SliceCount, infoV3.InstanceCount)
 			continue
 		}
-		name := nvmlName(info.Name[:])
-		if name == "" {
+
+		infoV2, ret := dev.GetGpuInstanceProfileInfoV2(profile)
+		if ret == nvml.SUCCESS {
+			name := nvmlName(infoV2.Name[:])
+			profiles = appendMigProfile(profiles, &totalSlices, infoV2.Id, name, infoV2.MemorySizeMB, infoV2.SliceCount, infoV2.InstanceCount)
 			continue
 		}
-		profiles = append(profiles, gpuv1alpha1.NvidiaMIGProfile{
-			ProfileID:    int32(info.Id),
-			Name:         name,
-			MemoryMiB:    int32(info.MemorySizeMB),
-			SliceCount:   int32(info.SliceCount),
-			MaxInstances: int32(info.InstanceCount),
-		})
-		candidate := int32(info.SliceCount) * int32(info.InstanceCount)
-		if candidate > totalSlices {
-			totalSlices = candidate
+
+		infoV1, ret := dev.GetGpuInstanceProfileInfo(profile)
+		if ret == nvml.SUCCESS {
+			profiles = appendMigProfile(profiles, &totalSlices, infoV1.Id, "", infoV1.MemorySizeMB, infoV1.SliceCount, infoV1.InstanceCount)
 		}
 	}
 
@@ -80,4 +82,45 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 		TotalSlices: totalSlices,
 		Profiles:    profiles,
 	}
+}
+
+func appendMigProfile(profiles []gpuv1alpha1.NvidiaMIGProfile, totalSlices *int32, id uint32, name string, memoryMiB uint64, sliceCount, instanceCount uint32) []gpuv1alpha1.NvidiaMIGProfile {
+	if sliceCount == 0 || memoryMiB == 0 {
+		return profiles
+	}
+
+	profileName := migProfileName(name, sliceCount, memoryMiB, id)
+	if profileName == "" {
+		return profiles
+	}
+
+	profiles = append(profiles, gpuv1alpha1.NvidiaMIGProfile{
+		ProfileID:    int32(id),
+		Name:         profileName,
+		MemoryMiB:    int32(memoryMiB),
+		SliceCount:   int32(sliceCount),
+		MaxInstances: int32(instanceCount),
+	})
+
+	candidate := int32(sliceCount) * int32(instanceCount)
+	if candidate > *totalSlices {
+		*totalSlices = candidate
+	}
+	return profiles
+}
+
+func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32) string {
+	name := strings.TrimSpace(raw)
+	if name != "" {
+		return name
+	}
+	if sliceCount == 0 || memoryMiB == 0 {
+		return ""
+	}
+
+	gb := (memoryMiB + 512) / 1024
+	if gb == 0 {
+		return fmt.Sprintf("profile-%d", profileID)
+	}
+	return fmt.Sprintf("%dg.%dgb", sliceCount, gb)
 }

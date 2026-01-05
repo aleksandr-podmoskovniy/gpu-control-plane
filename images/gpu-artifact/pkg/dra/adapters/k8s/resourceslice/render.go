@@ -19,6 +19,7 @@ package resourceslice
 import (
 	resourcesliceapi "k8s.io/dynamic-resource-allocation/resourceslice"
 
+	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	allocatablek8s "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/allocatable"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
@@ -29,26 +30,33 @@ type Renderer interface {
 }
 
 // DefaultRenderer renders counter and device slices.
-type DefaultRenderer struct{}
+type DefaultRenderer struct {
+	Features FeatureSet
+}
 
 // Render converts allocatable inventory into ResourceSlice slices.
-func (DefaultRenderer) Render(inv allocatable.Inventory) []resourcesliceapi.Slice {
+func (r DefaultRenderer) Render(inv allocatable.Inventory) []resourcesliceapi.Slice {
 	var slices []resourcesliceapi.Slice
+	inv = filterInventory(inv, r.Features)
 	if len(inv.CounterSets) > 0 {
 		slices = append(slices, resourcesliceapi.Slice{
 			SharedCounters: allocatablek8s.RenderCounterSets(inv.CounterSets),
 		})
 	}
 
+	renderOpts := allocatablek8s.DeviceRenderOptions{
+		IncludeCapacity:         r.Features.ConsumableCapacity,
+		IncludeMultiAllocations: r.Features.ConsumableCapacity,
+	}
 	slices = append(slices, resourcesliceapi.Slice{
-		Devices: allocatablek8s.RenderDevices(inv.Devices),
+		Devices: allocatablek8s.RenderDevicesWithOptions(inv.Devices, renderOpts),
 	})
 	return slices
 }
 
 // BuildDriverResources renders inventory into DriverResources for a pool.
-func BuildDriverResources(poolName string, inv allocatable.Inventory) resourcesliceapi.DriverResources {
-	renderer := DefaultRenderer{}
+func BuildDriverResources(poolName string, inv allocatable.Inventory, features FeatureSet) resourcesliceapi.DriverResources {
+	renderer := DefaultRenderer{Features: features}
 	return resourcesliceapi.DriverResources{
 		Pools: map[string]resourcesliceapi.Pool{
 			poolName: {
@@ -56,4 +64,12 @@ func BuildDriverResources(poolName string, inv allocatable.Inventory) resourcesl
 			},
 		},
 	}
+}
+
+func filterInventory(inv allocatable.Inventory, features FeatureSet) allocatable.Inventory {
+	if !features.PartitionableDevices {
+		inv.CounterSets = nil
+		inv.Devices = inv.Devices.FilterByType(gpuv1alpha1.DeviceTypePhysical)
+	}
+	return inv
 }

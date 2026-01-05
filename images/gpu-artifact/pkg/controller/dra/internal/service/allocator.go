@@ -18,7 +18,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	resourcev1 "k8s.io/api/resource/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +30,7 @@ import (
 type Allocator struct {
 	client    client.Client
 	allocator *allocator.Service
+	classes   *DeviceClassService
 }
 
 // NewAllocator creates an Allocator service.
@@ -38,6 +38,7 @@ func NewAllocator(client client.Client) *Allocator {
 	return &Allocator{
 		client:    client,
 		allocator: allocator.NewService(),
+		classes:   NewDeviceClassService(client),
 	}
 }
 
@@ -47,7 +48,7 @@ func (a *Allocator) Allocate(ctx context.Context, claim *resourcev1.ResourceClai
 		return nil, nil
 	}
 
-	classes, err := loadDeviceClasses(ctx, a.client, claim)
+	classes, err := a.classes.Load(ctx, claim)
 	if err != nil {
 		return nil, err
 	}
@@ -81,46 +82,6 @@ func (a *Allocator) Allocate(ctx context.Context, claim *resourcev1.ResourceClai
 	}
 
 	return k8sallocator.BuildAllocationResult(claim, result, classes)
-}
-
-func loadDeviceClasses(ctx context.Context, cl client.Client, claim *resourcev1.ResourceClaim) (map[string]*resourcev1.DeviceClass, error) {
-	names := deviceClassNames(claim)
-	if len(names) == 0 {
-		return nil, nil
-	}
-
-	classes := make(map[string]*resourcev1.DeviceClass, len(names))
-	for _, name := range names {
-		obj := &resourcev1.DeviceClass{}
-		if err := cl.Get(ctx, client.ObjectKey{Name: name}, obj); err != nil {
-			return nil, fmt.Errorf("deviceclass %q: %w", name, err)
-		}
-		classes[name] = obj
-	}
-	return classes, nil
-}
-
-func deviceClassNames(claim *resourcev1.ResourceClaim) []string {
-	if claim == nil {
-		return nil
-	}
-	seen := map[string]struct{}{}
-	for _, req := range claim.Spec.Devices.Requests {
-		if req.Exactly != nil && req.Exactly.DeviceClassName != "" {
-			seen[req.Exactly.DeviceClassName] = struct{}{}
-		}
-		for _, sub := range req.FirstAvailable {
-			if sub.DeviceClassName != "" {
-				seen[sub.DeviceClassName] = struct{}{}
-			}
-		}
-	}
-
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	return names
 }
 
 func listResourceSlices(ctx context.Context, cl client.Client) ([]resourcev1.ResourceSlice, error) {

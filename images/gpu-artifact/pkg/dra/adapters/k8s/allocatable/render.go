@@ -24,14 +24,28 @@ import (
 	domain "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
+// DeviceRenderOptions controls rendering of optional device fields.
+type DeviceRenderOptions struct {
+	IncludeCapacity         bool
+	IncludeMultiAllocations bool
+}
+
 // RenderDevices converts domain devices into API devices.
 func RenderDevices(devices []domain.Device) []resourceapi.Device {
+	return RenderDevicesWithOptions(devices, DeviceRenderOptions{
+		IncludeCapacity:         true,
+		IncludeMultiAllocations: true,
+	})
+}
+
+// RenderDevicesWithOptions converts domain devices into API devices with options.
+func RenderDevicesWithOptions(devices []domain.Device, opts DeviceRenderOptions) []resourceapi.Device {
 	if len(devices) == 0 {
 		return nil
 	}
 	out := make([]resourceapi.Device, 0, len(devices))
 	for _, dev := range devices {
-		out = append(out, renderDevice(dev.Spec()))
+		out = append(out, renderDeviceWithOptions(dev.Spec(), opts))
 	}
 	return out
 }
@@ -51,16 +65,18 @@ func RenderCounterSets(counterSets []domain.CounterSet) []resourceapi.CounterSet
 	return out
 }
 
-func renderDevice(spec domain.DeviceSpec) resourceapi.Device {
+func renderDeviceWithOptions(spec domain.DeviceSpec, opts DeviceRenderOptions) resourceapi.Device {
 	device := resourceapi.Device{
 		Name:       spec.Name,
 		Attributes: RenderAttributes(spec.Attributes),
-		Capacity:   RenderCapacities(spec.Capacity),
+	}
+	if opts.IncludeCapacity {
+		device.Capacity = RenderCapacities(spec.Capacity)
 	}
 	if len(spec.Consumes) > 0 {
 		device.ConsumesCounters = renderConsumes(spec.Consumes)
 	}
-	if spec.AllowMultipleAllocations {
+	if opts.IncludeMultiAllocations && spec.AllowMultipleAllocations {
 		device.AllowMultipleAllocations = ptr.To(true)
 	}
 	return device

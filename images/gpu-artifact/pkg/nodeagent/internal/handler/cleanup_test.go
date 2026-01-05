@@ -60,7 +60,7 @@ func TestCleanupHandlerDeletesStaleObjects(t *testing.T) {
 		WithObjects(expected, stale).
 		Build()
 
-	handler := NewCleanupHandler(service.NewClientStore(cl))
+	handler := NewCleanupHandler(service.NewClientStore(cl), nil)
 	st := state.New("node-1")
 	st.SetDevices([]state.Device{
 		expectedDevice,

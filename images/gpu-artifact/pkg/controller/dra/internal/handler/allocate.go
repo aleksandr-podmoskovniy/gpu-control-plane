@@ -18,12 +18,17 @@ package handler
 
 import (
 	"context"
+	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/reconciler"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 const allocateHandlerName = "allocate"
@@ -31,11 +36,12 @@ const allocateHandlerName = "allocate"
 // AllocateHandler computes allocation results for unallocated claims.
 type AllocateHandler struct {
 	allocator *service.Allocator
+	recorder  eventrecord.EventRecorderLogger
 }
 
 // NewAllocateHandler constructs an allocation handler.
-func NewAllocateHandler(allocator *service.Allocator) *AllocateHandler {
-	return &AllocateHandler{allocator: allocator}
+func NewAllocateHandler(allocator *service.Allocator, recorder eventrecord.EventRecorderLogger) *AllocateHandler {
+	return &AllocateHandler{allocator: allocator, recorder: recorder}
 }
 
 // Name returns the handler name.
@@ -56,6 +62,7 @@ func (h *AllocateHandler) Handle(ctx context.Context, st *state.DRAState) (recon
 
 	alloc, err := h.allocator.Allocate(ctx, claim)
 	if err != nil {
+		h.recordAllocationFailed(ctx, claim, err)
 		return reconcile.Result{}, err
 	}
 	if alloc == nil {
@@ -64,4 +71,12 @@ func (h *AllocateHandler) Handle(ctx context.Context, st *state.DRAState) (recon
 
 	st.Allocation = alloc
 	return reconcile.Result{}, nil
+}
+
+func (h *AllocateHandler) recordAllocationFailed(ctx context.Context, claim *resourcev1.ResourceClaim, err error) {
+	if h.recorder == nil || claim == nil || err == nil {
+		return
+	}
+	log := logger.FromContext(ctx)
+	h.recorder.WithLogging(log).Event(claim, corev1.EventTypeWarning, reasonResourceClaimAllocationFailed, fmt.Sprintf("resource claim allocation failed: %v", err))
 }

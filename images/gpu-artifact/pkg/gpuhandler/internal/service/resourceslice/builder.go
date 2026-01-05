@@ -19,6 +19,7 @@ package resourceslice
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 
@@ -30,13 +31,38 @@ import (
 // Builder builds DriverResources for a node.
 type Builder struct {
 	inventory inventory.InventoryBuilder
+	mu        sync.RWMutex
+	features  k8sresourceslice.FeatureSet
 }
 
 // NewBuilder constructs a builder with optional MIG placement reader.
 func NewBuilder(placements inventory.MigPlacementReader) *Builder {
 	return &Builder{
 		inventory: inventory.NewBuilder(placements),
+		features:  k8sresourceslice.DefaultFeatures(),
 	}
+}
+
+// EnableFeatures enables features if present and reports whether a change occurred.
+func (b *Builder) EnableFeatures(features []string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	updated, changed := b.features.Enable(features)
+	if changed {
+		b.features = updated
+	}
+	return changed
+}
+
+// DisableFeatures disables features if present and reports whether a change occurred.
+func (b *Builder) DisableFeatures(features []string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	updated, changed := b.features.Disable(features)
+	if changed {
+		b.features = updated
+	}
+	return changed
 }
 
 // Build renders driver resources for the given node and devices.
@@ -48,6 +74,10 @@ func (b *Builder) Build(_ context.Context, nodeName string, devices []gpuv1alpha
 
 	inv, errs := b.inventory.Build(devices)
 
-	resources := k8sresourceslice.BuildDriverResources(poolName, inv)
+	b.mu.RLock()
+	features := b.features
+	b.mu.RUnlock()
+
+	resources := k8sresourceslice.BuildDriverResources(poolName, inv, features)
 	return resources, errors.Join(errs...)
 }

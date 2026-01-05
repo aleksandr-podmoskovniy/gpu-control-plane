@@ -18,23 +18,29 @@ package handler
 
 import (
 	"context"
+	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 const persistHandlerName = "persist"
 
 // PersistHandler writes allocation results into the claim status.
 type PersistHandler struct {
-	writer *service.AllocationWriter
+	writer   *service.AllocationWriter
+	recorder eventrecord.EventRecorderLogger
 }
 
 // NewPersistHandler constructs a persist handler.
-func NewPersistHandler(writer *service.AllocationWriter) *PersistHandler {
-	return &PersistHandler{writer: writer}
+func NewPersistHandler(writer *service.AllocationWriter, recorder eventrecord.EventRecorderLogger) *PersistHandler {
+	return &PersistHandler{writer: writer, recorder: recorder}
 }
 
 // Name returns the handler name.
@@ -47,5 +53,30 @@ func (h *PersistHandler) Handle(ctx context.Context, st *state.DRAState) (reconc
 	if h.writer == nil || st.Allocation == nil {
 		return reconcile.Result{}, nil
 	}
-	return reconcile.Result{}, h.writer.Write(ctx, st.Resource.Current(), st.Allocation)
+	err := h.writer.Write(ctx, st.Resource.Current(), st.Allocation)
+	h.recordPersist(ctx, st.Resource.Current(), st.Allocation, err)
+	return reconcile.Result{}, err
+}
+
+func (h *PersistHandler) recordPersist(ctx context.Context, claim *resourcev1.ResourceClaim, alloc *resourcev1.AllocationResult, err error) {
+	if h.recorder == nil || claim == nil {
+		return
+	}
+
+	log := logger.FromContext(ctx)
+	deviceCount := allocationDeviceCount(alloc)
+	log = log.With("devices", deviceCount)
+
+	if err != nil {
+		h.recorder.WithLogging(log).Event(claim, corev1.EventTypeWarning, reasonResourceClaimAllocationFailed, fmt.Sprintf("resource claim allocation persist failed: %v", err))
+		return
+	}
+	h.recorder.WithLogging(log).Event(claim, corev1.EventTypeNormal, reasonResourceClaimAllocated, fmt.Sprintf("resource claim allocated (%d devices)", deviceCount))
+}
+
+func allocationDeviceCount(alloc *resourcev1.AllocationResult) int {
+	if alloc == nil {
+		return 0
+	}
+	return len(alloc.Devices.Results)
 }

@@ -20,27 +20,33 @@ import (
 	"context"
 	"errors"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 const markNotReadyHandlerName = "mark-not-ready"
+const reasonToolkitNotReady = "ToolkitNotReady"
 
 // MarkNotReadyHandler sets HardwareHealthy=Unknown for non-ready GPUs.
 type MarkNotReadyHandler struct {
-	store   *service.PhysicalGPUService
-	tracker FailureTracker
+	store    *service.PhysicalGPUService
+	tracker  FailureTracker
+	recorder eventrecord.EventRecorderLogger
 }
 
 // NewMarkNotReadyHandler constructs a handler for non-ready GPUs.
-func NewMarkNotReadyHandler(store *service.PhysicalGPUService, tracker FailureTracker) *MarkNotReadyHandler {
+func NewMarkNotReadyHandler(store *service.PhysicalGPUService, tracker FailureTracker, recorder eventrecord.EventRecorderLogger) *MarkNotReadyHandler {
 	return &MarkNotReadyHandler{
-		store:   store,
-		tracker: tracker,
+		store:    store,
+		tracker:  tracker,
+		recorder: recorder,
 	}
 }
 
@@ -71,6 +77,7 @@ func (h *MarkNotReadyHandler) Handle(ctx context.Context, st state.State) error 
 
 		setHardwareConditionUnknown(obj, reasonDriverNotReady, "driver is not ready")
 
+		h.recordToolkitNotReadyEvent(ctx, obj, base)
 		if err := h.store.PatchStatus(ctx, obj, base); err != nil {
 			errs = append(errs, err)
 		}
@@ -88,4 +95,26 @@ func setHardwareConditionUnknown(obj *gpuv1alpha1.PhysicalGPU, reason, message s
 		ObservedGeneration: obj.Generation,
 	}
 	meta.SetStatusCondition(&obj.Status.Conditions, cond)
+}
+
+func (h *MarkNotReadyHandler) recordToolkitNotReadyEvent(ctx context.Context, obj, base *gpuv1alpha1.PhysicalGPU) {
+	if h.recorder == nil || obj == nil || base == nil {
+		return
+	}
+
+	if !hardwareConditionChanged(base, obj) {
+		return
+	}
+
+	log := logger.FromContext(ctx)
+	if obj.Status.NodeInfo != nil && obj.Status.NodeInfo.NodeName != "" {
+		log = log.With("node", obj.Status.NodeInfo.NodeName)
+	}
+
+	h.recorder.WithLogging(log).Event(
+		obj,
+		corev1.EventTypeWarning,
+		reasonToolkitNotReady,
+		"driver is not ready",
+	)
 }

@@ -42,13 +42,15 @@ type Config struct {
 	PluginDataRoot      string
 	SerializeGRPCCalls  bool
 	EnableDebugResponse bool
+	ErrorHandler        func(ctx context.Context, err error, msg string)
 }
 
 // Driver implements kubeletplugin.DRAPlugin and publishes ResourceSlices.
 type Driver struct {
-	helper     *kubeletplugin.Helper
-	driverName string
-	nodeName   string
+	helper       *kubeletplugin.Helper
+	driverName   string
+	nodeName     string
+	errorHandler func(ctx context.Context, err error, msg string)
 }
 
 // Start initializes and starts the kubelet DRA plugin.
@@ -77,8 +79,9 @@ func Start(ctx context.Context, cfg Config) (*Driver, error) {
 	}
 
 	driver := &Driver{
-		driverName: driverName,
-		nodeName:   cfg.NodeName,
+		driverName:   driverName,
+		nodeName:     cfg.NodeName,
+		errorHandler: cfg.ErrorHandler,
 	}
 
 	helper, err := kubeletplugin.Start(
@@ -139,5 +142,9 @@ func (d *Driver) UnprepareResourceClaims(_ context.Context, claims []kubeletplug
 
 // HandleError forwards background errors to the Kubernetes runtime error handler.
 func (d *Driver) HandleError(ctx context.Context, err error, msg string) {
+	if d.errorHandler != nil {
+		d.errorHandler(ctx, err, msg)
+		return
+	}
 	utilruntime.HandleErrorWithContext(ctx, err, msg)
 }

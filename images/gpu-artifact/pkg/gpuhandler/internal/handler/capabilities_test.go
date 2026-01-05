@@ -74,7 +74,7 @@ func TestCapabilitiesHandlerSuccess(t *testing.T) {
 	reader := &fakeReader{session: session}
 	tracker := &fakeTracker{shouldAttempt: true, recordFailure: true}
 
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpu})
@@ -141,7 +141,7 @@ func TestCapabilitiesHandlerOpenFailure(t *testing.T) {
 
 	reader := &fakeReader{err: fmt.Errorf("init: %w", service.ErrNVMLUnavailable)}
 	tracker := &fakeTracker{shouldAttempt: true, recordFailure: true}
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpu})
@@ -221,7 +221,7 @@ func TestCapabilitiesHandlerMultiGPU(t *testing.T) {
 	}
 	reader := &fakeReader{session: session}
 	tracker := &fakeTracker{shouldAttempt: true, recordFailure: true}
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpuA, *pgpuB})

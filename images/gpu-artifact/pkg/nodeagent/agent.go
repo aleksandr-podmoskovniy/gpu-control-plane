@@ -22,14 +22,17 @@ import (
 	"log/slog"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/common/steptaker"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/handler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
@@ -52,9 +55,17 @@ type Agent struct {
 	cfg   Config
 	log   *log.Logger
 	steps steptaker.StepTakers[state.State]
+
+	scheme       *runtime.Scheme
+	store        service.Store
+	pci          service.PCIProvider
+	hostInfo     service.HostInfoProvider
+	recorder     eventrecord.EventRecorderLogger
+	stopRecorder func()
 }
 
 const eventQuietPeriod = time.Second
+const nodeAgentComponent = "gpu-node-agent"
 
 // New creates a new node-agent.
 func New(client client.Client, cfg Config, log *log.Logger) *Agent {
@@ -71,17 +82,14 @@ func New(client client.Client, cfg Config, log *log.Logger) *Agent {
 
 	pci := service.NewSysfsPCIProvider(cfg.SysRoot, resolver)
 	hostInfo := service.NewHostInfoCollector(cfg.OSReleasePath, cfg.SysRoot)
-	steps := handler.NewSteps(
-		log,
-		handler.NewDiscoverHandler(pci, hostInfo),
-		handler.NewApplyHandler(store),
-		handler.NewCleanupHandler(store),
-	)
 
 	return &Agent{
-		cfg:   cfg,
-		log:   log,
-		steps: steps,
+		cfg:      cfg,
+		log:      log,
+		scheme:   client.Scheme(),
+		store:    store,
+		pci:      pci,
+		hostInfo: hostInfo,
 	}
 }
 
@@ -90,6 +98,10 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.KubeConfig == nil {
 		return fmt.Errorf("kube config is required")
 	}
+
+	a.startEventRecorder()
+	defer a.stopEventRecorder()
+	a.buildSteps()
 
 	notifyCh := make(chan struct{}, 1)
 	notify := func() {
@@ -153,4 +165,39 @@ func (a *Agent) sync(ctx context.Context) error {
 	}
 	a.log.Info("sync completed", "devices", len(st.Devices()))
 	return nil
+}
+
+func (a *Agent) buildSteps() {
+	a.steps = handler.NewSteps(
+		a.log,
+		handler.NewDiscoverHandler(a.pci, a.hostInfo),
+		handler.NewApplyHandler(a.store, a.recorder),
+		handler.NewCleanupHandler(a.store, a.recorder),
+	)
+}
+
+func (a *Agent) startEventRecorder() {
+	if a.recorder != nil || a.scheme == nil {
+		return
+	}
+
+	kubeClient, err := kubernetes.NewForConfig(a.cfg.KubeConfig)
+	if err != nil {
+		a.log.Error("unable to create kube clientset for events", logger.SlogErr(err))
+		return
+	}
+
+	recorder, stop := newEventRecorder(kubeClient, a.scheme, nodeAgentComponent)
+	if recorder == nil {
+		return
+	}
+
+	a.recorder = recorder.WithLogging(a.log.With(logger.SlogController(nodeAgentComponent)))
+	a.stopRecorder = stop
+}
+
+func (a *Agent) stopEventRecorder() {
+	if a.stopRecorder != nil {
+		a.stopRecorder()
+	}
 }

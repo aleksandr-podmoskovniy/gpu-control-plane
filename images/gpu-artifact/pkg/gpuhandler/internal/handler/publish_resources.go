@@ -19,14 +19,22 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 const publishResourcesHandlerName = "publish-resources"
+const (
+	reasonResourceSlicePublished     = "ResourceSlicePublished"
+	reasonResourceSlicePublishFailed = "ResourceSlicePublishFailed"
+)
 
 // ResourcesPublisher publishes DRA ResourceSlices for a driver.
 type ResourcesPublisher interface {
@@ -42,13 +50,15 @@ type ResourceSliceBuilder interface {
 type PublishResourcesHandler struct {
 	builder   ResourceSliceBuilder
 	publisher ResourcesPublisher
+	recorder  eventrecord.EventRecorderLogger
 }
 
 // NewPublishResourcesHandler constructs a publish handler.
-func NewPublishResourcesHandler(builder ResourceSliceBuilder, publisher ResourcesPublisher) *PublishResourcesHandler {
+func NewPublishResourcesHandler(builder ResourceSliceBuilder, publisher ResourcesPublisher, recorder eventrecord.EventRecorderLogger) *PublishResourcesHandler {
 	return &PublishResourcesHandler{
 		builder:   builder,
 		publisher: publisher,
+		recorder:  recorder,
 	}
 }
 
@@ -65,5 +75,46 @@ func (h *PublishResourcesHandler) Handle(ctx context.Context, st state.State) er
 
 	resources, buildErr := h.builder.Build(ctx, st.NodeName(), st.Ready())
 	publishErr := h.publisher.PublishResources(ctx, resources)
-	return errors.Join(buildErr, publishErr)
+	err := errors.Join(buildErr, publishErr)
+	h.recordPublish(ctx, st, resources, err)
+	return err
+}
+
+func (h *PublishResourcesHandler) recordPublish(ctx context.Context, st state.State, resources resourceslice.DriverResources, err error) {
+	if h.recorder == nil {
+		return
+	}
+	ready := st.Ready()
+	if len(ready) == 0 {
+		return
+	}
+
+	eventType := corev1.EventTypeNormal
+	reason := reasonResourceSlicePublished
+	msg := "resource slices published"
+	if err != nil {
+		eventType = corev1.EventTypeWarning
+		reason = reasonResourceSlicePublishFailed
+		msg = fmt.Sprintf("resource slice publish failed: %v", err)
+	}
+
+	log := logger.FromContext(ctx).With("node", st.NodeName())
+	for poolName, pool := range resources.Pools {
+		for i, slice := range pool.Slices {
+			args := []any{
+				"reason", reason,
+				"pool", poolName,
+				"sliceIndex", i,
+				"offerCount", len(slice.Devices),
+			}
+			if err != nil {
+				args = append(args, logger.SlogErr(err))
+			}
+			log.Info("resource slice publish status", args...)
+		}
+	}
+
+	for i := range ready {
+		h.recorder.WithLogging(log).Event(&ready[i], eventType, reason, msg)
+	}
 }

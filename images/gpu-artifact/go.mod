@@ -3,18 +3,12 @@ module github.com/aleksandr-podmoskovniy/gpu
 go 1.25.0
 
 require (
-	github.com/Masterminds/semver v1.5.0
-	github.com/NVIDIA/go-nvlib v0.9.0
 	github.com/NVIDIA/go-nvml v0.13.0-1
-	github.com/NVIDIA/k8s-dra-driver-gpu v0.0.0-20251223175613-f4960132a50b
-	github.com/NVIDIA/nvidia-container-toolkit v1.18.1
 	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20250226105106-176cd3afcdd5
 	github.com/go-logr/logr v1.4.3
 	github.com/gogo/protobuf v1.3.2
-	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/sys v0.38.0
 	google.golang.org/protobuf v1.36.10
 	k8s.io/api v0.34.1
@@ -24,8 +18,6 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/controller-runtime v0.22.4
-	tags.cncf.io/container-device-interface v1.1.0
-	tags.cncf.io/container-device-interface/specs-go v1.1.0
 )
 
 require (
@@ -47,19 +39,16 @@ require (
 	github.com/google/cel-go v0.26.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/moby/sys/capability v0.4.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/ginkgo/v2 v2.27.2 // indirect
 	github.com/onsi/gomega v1.38.2 // indirect
-	github.com/opencontainers/runtime-spec v1.3.0 // indirect
-	github.com/opencontainers/runtime-tools v0.9.1-0.20251114084447-edf4cb3d2116 // indirect
-	github.com/opencontainers/selinux v1.13.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -75,7 +64,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect

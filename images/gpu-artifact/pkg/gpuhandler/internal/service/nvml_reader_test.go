@@ -148,6 +148,62 @@ func TestNVMLReaderMIGProfiles(t *testing.T) {
 	}
 }
 
+func TestNVMLReaderMIGProfilesFallbackV2(t *testing.T) {
+	dev := &fakeNVMLDevice{
+		name:      "NVIDIA A30",
+		uuid:      "GPU-123",
+		memory:    nvml.Memory{Total: 24576 * 1024 * 1024},
+		major:     8,
+		minor:     0,
+		arch:      nvml.DEVICE_ARCH_AMPERE,
+		boardPart: "900-21001-0040-100",
+		migMode:   nvml.DEVICE_MIG_ENABLE,
+		migRet:    nvml.SUCCESS,
+		profileInfoV2: map[int]nvml.GpuInstanceProfileInfo_v2{
+			5: profileInfoV2(5, 2, 2, 12032, "2g.12gb"),
+			0: profileInfoV2(0, 4, 1, 24125, "4g.24gb"),
+		},
+		profileRet: nvml.ERROR_NOT_SUPPORTED,
+	}
+
+	reader := NewNVMLReader(&fakeNVML{
+		initRet:       nvml.SUCCESS,
+		driverVersion: "580.76.05",
+		driverRet:     nvml.SUCCESS,
+		cudaVersion:   13000,
+		cudaRet:       nvml.SUCCESS,
+		deviceRet:     nvml.SUCCESS,
+		device:        dev,
+	})
+
+	session, err := reader.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.ReadDevice("0000:02:00.0")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if snapshot.Capabilities == nil || snapshot.Capabilities.Nvidia == nil {
+		t.Fatalf("capabilities missing")
+	}
+	if snapshot.Capabilities.Nvidia.MIGSupported == nil || !*snapshot.Capabilities.Nvidia.MIGSupported {
+		t.Fatalf("expected MIGSupported true")
+	}
+	if snapshot.Capabilities.Nvidia.MIG == nil {
+		t.Fatalf("expected MIG capabilities")
+	}
+	if snapshot.Capabilities.Nvidia.MIG.TotalSlices != 4 {
+		t.Fatalf("expected totalSlices 4, got %d", snapshot.Capabilities.Nvidia.MIG.TotalSlices)
+	}
+	if len(snapshot.Capabilities.Nvidia.MIG.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(snapshot.Capabilities.Nvidia.MIG.Profiles))
+	}
+}
+
 func TestNVMLReaderPartialData(t *testing.T) {
 	dev := &fakeNVMLDevice{
 		name:           "NVIDIA A30",
@@ -268,6 +324,7 @@ type fakeNVMLDevice struct {
 	migMode        int
 	migRet         nvml.Return
 	profileInfo    map[int]nvml.GpuInstanceProfileInfo_v3
+	profileInfoV2  map[int]nvml.GpuInstanceProfileInfo_v2
 	profileRet     nvml.Return
 	placements     map[int][]nvml.GpuInstancePlacement
 	placementsRet  nvml.Return
@@ -328,10 +385,37 @@ func (d *fakeNVMLDevice) GetGpuInstanceProfileInfo(profile int) (nvml.GpuInstanc
 			MemorySizeMB:  info.MemorySizeMB,
 		}, nvml.SUCCESS
 	}
+	if info, ok := d.profileInfoV2[profile]; ok {
+		return nvml.GpuInstanceProfileInfo{
+			Id:            info.Id,
+			SliceCount:    info.SliceCount,
+			InstanceCount: info.InstanceCount,
+			MemorySizeMB:  info.MemorySizeMB,
+		}, nvml.SUCCESS
+	}
 	if d.profileRet != 0 {
 		return nvml.GpuInstanceProfileInfo{}, d.profileRet
 	}
 	return nvml.GpuInstanceProfileInfo{}, nvml.ERROR_NOT_SUPPORTED
+}
+
+func (d *fakeNVMLDevice) GetGpuInstanceProfileInfoV2(profile int) (nvml.GpuInstanceProfileInfo_v2, nvml.Return) {
+	if info, ok := d.profileInfoV2[profile]; ok {
+		return info, nvml.SUCCESS
+	}
+	if info, ok := d.profileInfo[profile]; ok {
+		return nvml.GpuInstanceProfileInfo_v2{
+			Id:            info.Id,
+			SliceCount:    info.SliceCount,
+			InstanceCount: info.InstanceCount,
+			MemorySizeMB:  info.MemorySizeMB,
+			Name:          info.Name,
+		}, nvml.SUCCESS
+	}
+	if d.profileRet != 0 {
+		return nvml.GpuInstanceProfileInfo_v2{}, d.profileRet
+	}
+	return nvml.GpuInstanceProfileInfo_v2{}, nvml.ERROR_NOT_SUPPORTED
 }
 
 func (d *fakeNVMLDevice) GetGpuInstanceProfileInfoV3(profile int) (nvml.GpuInstanceProfileInfo_v3, nvml.Return) {
@@ -359,6 +443,16 @@ func (d *fakeNVMLDevice) GetGpuInstancePossiblePlacements(info *nvml.GpuInstance
 
 func profileInfo(id, sliceCount, instances, memoryMiB uint32, name string) nvml.GpuInstanceProfileInfo_v3 {
 	var info nvml.GpuInstanceProfileInfo_v3
+	info.Id = id
+	info.SliceCount = sliceCount
+	info.InstanceCount = instances
+	info.MemorySizeMB = uint64(memoryMiB)
+	copy(info.Name[:], []byte(name))
+	return info
+}
+
+func profileInfoV2(id, sliceCount, instances, memoryMiB uint32, name string) nvml.GpuInstanceProfileInfo_v2 {
+	var info nvml.GpuInstanceProfileInfo_v2
 	info.Id = id
 	info.SliceCount = sliceCount
 	info.InstanceCount = instances

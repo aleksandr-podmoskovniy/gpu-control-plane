@@ -46,21 +46,25 @@ const (
 	logLevelEnv            = "LOG_LEVEL"
 	logOutputEnv           = "LOG_OUTPUT"
 	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
+	draConsumableCapacityEnv = "DRA_CONSUMABLE_CAPACITY"
 )
 
 func main() {
 	var probeAddr string
 	var nodeName string
+	var consumableCapacityMode string
 
 	logLevel := os.Getenv(logLevelEnv)
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
+	consumableCapacityMode = envOr(draConsumableCapacityEnv, "auto")
 
 	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
 	flag.StringVar(&nodeName, "node-name", "", "Node name (defaults to NODE_NAME env var).")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")
+	flag.StringVar(&consumableCapacityMode, "dra-consumable-capacity", consumableCapacityMode, "Enable DRA consumable capacity: auto|true|false.")
 	flag.Parse()
 
 	rootLog := logger.NewLogger(logLevel, logOutput, logDebugVerbosity)
@@ -87,8 +91,9 @@ func main() {
 	}
 
 	agent := gpuhandler.New(k8sClient, gpuhandler.Config{
-		NodeName:   nodeName,
-		KubeConfig: restConfig,
+		NodeName:               nodeName,
+		KubeConfig:             restConfig,
+		ConsumableCapacityMode: consumableCapacityMode,
 	}, log)
 
 	ctx := ctrl.SetupSignalHandler()

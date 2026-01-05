@@ -59,7 +59,7 @@ func TestCapabilitiesHandlerSkipsNonNvidiaDriver(t *testing.T) {
 
 	reader := &fakeReader{session: &fakeSession{}}
 	tracker := &fakeTracker{shouldAttempt: true, recordFailure: true}
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpu})
@@ -110,7 +110,7 @@ func TestCapabilitiesHandlerSkipsWhenShouldAttemptFalse(t *testing.T) {
 
 	reader := &fakeReader{session: &fakeSession{}}
 	tracker := &fakeTracker{shouldAttempt: false, recordFailure: true}
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpu})
@@ -151,7 +151,7 @@ func TestCapabilitiesHandlerRecordFailureFalse(t *testing.T) {
 
 	reader := &fakeReader{err: fmt.Errorf("init: %w", service.ErrNVMLUnavailable)}
 	tracker := &fakeTracker{shouldAttempt: true, recordFailure: false}
-	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker)
+	h := NewCapabilitiesHandler(reader, service.NewPhysicalGPUService(client), tracker, nil)
 
 	st := state.New("node-1")
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{*pgpu})

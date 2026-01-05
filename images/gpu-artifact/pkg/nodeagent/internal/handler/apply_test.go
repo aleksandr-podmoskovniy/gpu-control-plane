@@ -40,7 +40,7 @@ func TestApplyHandlerCreatesPhysicalGPU(t *testing.T) {
 		WithStatusSubresource(&gpuv1alpha1.PhysicalGPU{}).
 		Build()
 
-	handler := NewApplyHandler(service.NewClientStore(cl))
+	handler := NewApplyHandler(service.NewClientStore(cl), nil)
 	st := state.New("node-1")
 	devices := []state.Device{
 		{

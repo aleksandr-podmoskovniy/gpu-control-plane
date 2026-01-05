@@ -54,7 +54,7 @@ func TestPublishResourcesUsesReadyList(t *testing.T) {
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{healthy, unhealthy})
 
 	builder := &fakeBuilder{}
-	h := NewPublishResourcesHandler(builder, fakePublisher{})
+	h := NewPublishResourcesHandler(builder, fakePublisher{}, nil)
 	if err := h.Handle(context.Background(), st); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestPublishResourcesJoinsErrors(t *testing.T) {
 
 	buildErr := errors.New("build failed")
 	publishErr := errors.New("publish failed")
-	h := NewPublishResourcesHandler(&fakeBuilder{err: buildErr}, fakePublisher{err: publishErr})
+	h := NewPublishResourcesHandler(&fakeBuilder{err: buildErr}, fakePublisher{err: publishErr}, nil)
 
 	err := h.Handle(context.Background(), st)
 	if err == nil {

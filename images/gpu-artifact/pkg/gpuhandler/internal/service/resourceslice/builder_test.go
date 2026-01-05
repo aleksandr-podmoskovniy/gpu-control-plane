@@ -65,6 +65,35 @@ func TestResourceSliceBuilderPhysicalOnly(t *testing.T) {
 	}
 
 	device := pool.Slices[0].Devices[0]
+	if device.AllowMultipleAllocations != nil {
+		t.Fatalf("expected AllowMultipleAllocations to be omitted")
+	}
+	if _, ok := device.Capacity[resourceapi.QualifiedName(allocatable.CapSharePercent)]; ok {
+		t.Fatalf("expected sharePercent capacity to be omitted")
+	}
+	if _, ok := device.Capacity[resourceapi.QualifiedName(allocatable.CapMemory)]; ok {
+		t.Fatalf("expected memory capacity to be omitted")
+	}
+}
+
+func TestResourceSliceBuilderPhysicalOnlyConsumableCapacity(t *testing.T) {
+	builder := NewBuilder(nil)
+	builder.EnableFeatures([]string{"DRAConsumableCapacity"})
+	pgpu := sampleGPU("0000:02:00.0", false)
+
+	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := resources.Pools["gpus/node-1"]
+	if len(pool.Slices) != 1 {
+		t.Fatalf("expected 1 slice, got %d", len(pool.Slices))
+	}
+	if len(pool.Slices[0].Devices) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(pool.Slices[0].Devices))
+	}
+
+	device := pool.Slices[0].Devices[0]
 	if device.AllowMultipleAllocations == nil || !*device.AllowMultipleAllocations {
 		t.Fatalf("expected AllowMultipleAllocations true")
 	}

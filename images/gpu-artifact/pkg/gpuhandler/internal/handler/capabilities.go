@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
 )
@@ -39,17 +40,19 @@ const (
 
 // CapabilitiesHandler enriches PhysicalGPU status using NVML.
 type CapabilitiesHandler struct {
-	reader  service.CapabilitiesReader
-	store   *service.PhysicalGPUService
-	tracker FailureTracker
+	reader   service.CapabilitiesReader
+	store    *service.PhysicalGPUService
+	tracker  FailureTracker
+	recorder eventrecord.EventRecorderLogger
 }
 
 // NewCapabilitiesHandler constructs a capabilities handler.
-func NewCapabilitiesHandler(reader service.CapabilitiesReader, store *service.PhysicalGPUService, tracker FailureTracker) *CapabilitiesHandler {
+func NewCapabilitiesHandler(reader service.CapabilitiesReader, store *service.PhysicalGPUService, tracker FailureTracker, recorder eventrecord.EventRecorderLogger) *CapabilitiesHandler {
 	return &CapabilitiesHandler{
-		reader:  reader,
-		store:   store,
-		tracker: tracker,
+		reader:   reader,
+		store:    store,
+		tracker:  tracker,
+		recorder: recorder,
 	}
 }
 
