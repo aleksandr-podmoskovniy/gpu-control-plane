@@ -29,7 +29,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
-func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session service.CapabilitiesSession, pgpu gpuv1alpha1.PhysicalGPU) error {
+func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session service.CapabilitiesSession, pgpu gpuv1alpha1.PhysicalGPU) (*gpuv1alpha1.PhysicalGPU, error) {
 	base := pgpu.DeepCopy()
 	obj := pgpu.DeepCopy()
 
@@ -40,7 +40,7 @@ func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session service.
 
 	snapshot, err := session.ReadDevice(pciAddress)
 	if err != nil {
-		return h.applyDeviceFailure(ctx, obj, base, err)
+		return nil, h.applyDeviceFailure(ctx, obj, base, err)
 	}
 
 	obj.Status.Capabilities = snapshot.Capabilities
@@ -48,7 +48,10 @@ func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session service.
 	setHardwareCondition(obj, metav1.ConditionTrue, reasonNVMLHealthy, "NVML is available")
 
 	h.tracker.Clear(obj.Name)
-	return h.store.PatchStatus(ctx, obj, base)
+	if err := h.store.PatchStatus(ctx, obj, base); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 func (h *CapabilitiesHandler) markDriverTypeNotNvidia(ctx context.Context, pgpu gpuv1alpha1.PhysicalGPU) error {

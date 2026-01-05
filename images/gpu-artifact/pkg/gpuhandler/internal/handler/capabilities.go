@@ -74,6 +74,7 @@ func (h *CapabilitiesHandler) Handle(ctx context.Context, st state.State) error 
 
 	var errs []error
 	var nvidia []gpuv1alpha1.PhysicalGPU
+	updated := make([]gpuv1alpha1.PhysicalGPU, 0, len(ready))
 
 	for _, pgpu := range ready {
 		if !isDriverTypeNvidia(pgpu) {
@@ -81,10 +82,12 @@ func (h *CapabilitiesHandler) Handle(ctx context.Context, st state.State) error 
 				errs = append(errs, err)
 			}
 			h.tracker.Clear(pgpu.Name)
+			updated = append(updated, pgpu)
 			continue
 		}
 
 		if !h.tracker.ShouldAttempt(pgpu.Name) {
+			updated = append(updated, pgpu)
 			continue
 		}
 
@@ -103,9 +106,21 @@ func (h *CapabilitiesHandler) Handle(ctx context.Context, st state.State) error 
 	defer session.Close()
 
 	for _, pgpu := range nvidia {
-		if err := h.updateDevice(ctx, session, pgpu); err != nil {
+		updatedPGPU, err := h.updateDevice(ctx, session, pgpu)
+		if err != nil {
 			errs = append(errs, err)
+			updated = append(updated, pgpu)
+			continue
 		}
+		if updatedPGPU != nil {
+			updated = append(updated, *updatedPGPU)
+		} else {
+			updated = append(updated, pgpu)
+		}
+	}
+
+	if len(updated) > 0 {
+		st.SetReady(updated)
 	}
 
 	return errors.Join(errs...)
