@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	domainallocator "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/allocator"
 )
@@ -46,8 +47,11 @@ func BuildRequests(claim *resourcev1.ResourceClaim, classes map[string]*resource
 		if req.Exactly.AdminAccess != nil && *req.Exactly.AdminAccess {
 			return nil, fmt.Errorf("request %q admin access is not supported yet", req.Name)
 		}
-		if req.Exactly.Capacity != nil {
-			return nil, fmt.Errorf("request %q capacity requirements are not supported yet", req.Name)
+		var capacityReq *domainallocator.CapacityRequirements
+		if req.Exactly.Capacity != nil && len(req.Exactly.Capacity.Requests) > 0 {
+			capacityReq = &domainallocator.CapacityRequirements{
+				Requests: capacityRequests(req.Exactly.Capacity.Requests),
+			}
 		}
 
 		class, ok := classes[req.Exactly.DeviceClassName]
@@ -80,8 +84,20 @@ func BuildRequests(claim *resourcev1.ResourceClaim, classes map[string]*resource
 			Name:      req.Name,
 			Count:     count,
 			Selectors: selectors,
+			Capacity:  capacityReq,
 		})
 	}
 
 	return out, nil
+}
+
+func capacityRequests(in map[resourcev1.QualifiedName]resource.Quantity) map[string]resource.Quantity {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]resource.Quantity, len(in))
+	for name, value := range in {
+		out[string(name)] = value.DeepCopy()
+	}
+	return out
 }

@@ -26,7 +26,7 @@ import (
 )
 
 // BuildCandidates converts resource slices into allocator candidates.
-func BuildCandidates(driverName string, slices []resourcev1.ResourceSlice, allocated map[domainallocator.DeviceKey]struct{}) []domainallocator.CandidateDevice {
+func BuildCandidates(driverName string, slices []resourcev1.ResourceSlice) []domainallocator.CandidateDevice {
 	valid := filterPoolSlices(driverName, slices)
 	out := make([]domainallocator.CandidateDevice, 0)
 
@@ -37,9 +37,6 @@ func BuildCandidates(driverName string, slices []resourcev1.ResourceSlice, alloc
 				continue
 			}
 			key := domainallocator.DeviceKey{Driver: slice.Spec.Driver, Pool: slice.Spec.Pool.Name, Device: device.Name}
-			if _, used := allocated[key]; used {
-				continue
-			}
 			out = append(out, domainallocator.CandidateDevice{
 				Key:      key,
 				Driver:   slice.Spec.Driver,
@@ -57,6 +54,34 @@ func BuildCandidates(driverName string, slices []resourcev1.ResourceSlice, alloc
 		return out[i].NodeName < out[j].NodeName
 	})
 
+	return out
+}
+
+// BuildCounterSets converts resource slice shared counters into allocator inventory.
+func BuildCounterSets(driverName string, slices []resourcev1.ResourceSlice) domainallocator.CounterSetInventory {
+	valid := filterPoolSlices(driverName, slices)
+	out := domainallocator.CounterSetInventory{}
+	for _, slice := range valid {
+		if len(slice.Spec.SharedCounters) == 0 {
+			continue
+		}
+		nodeName, ok := sliceNodeName(slice)
+		if !ok {
+			continue
+		}
+		if out[nodeName] == nil {
+			out[nodeName] = map[string]domainalloc.CounterSet{}
+		}
+		for _, set := range slice.Spec.SharedCounters {
+			if set.Name == "" {
+				continue
+			}
+			out[nodeName][set.Name] = toCounterSet(set)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
 }
 
@@ -116,6 +141,16 @@ func filterPoolSlices(driverName string, slices []resourcev1.ResourceSlice) []re
 		return valid[i].Name < valid[j].Name
 	})
 	return valid
+}
+
+func sliceNodeName(slice resourcev1.ResourceSlice) (string, bool) {
+	if slice.Spec.NodeName != nil && *slice.Spec.NodeName != "" {
+		return *slice.Spec.NodeName, true
+	}
+	if slice.Spec.PerDeviceNodeSelection != nil && *slice.Spec.PerDeviceNodeSelection {
+		return "", false
+	}
+	return "", false
 }
 
 func deviceNodeName(slice resourcev1.ResourceSlice, device resourcev1.Device) (string, bool) {
@@ -189,4 +224,11 @@ func toCounters(counters map[string]resourcev1.Counter) map[string]domainalloc.C
 		out[key] = counterValueFromQuantity(val.Value)
 	}
 	return out
+}
+
+func toCounterSet(counterSet resourcev1.CounterSet) domainalloc.CounterSet {
+	return domainalloc.CounterSet{
+		Name:     counterSet.Name,
+		Counters: toCounters(counterSet.Counters),
+	}
 }

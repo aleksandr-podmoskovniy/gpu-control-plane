@@ -23,7 +23,6 @@ import (
 
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/dynamic-resource-allocation/resourceslice"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
@@ -126,18 +125,21 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 		t.Fatalf("expected 2 slices, got %d", len(pool.Slices))
 	}
 
-	counterSlice, deviceSlice := splitSlices(pool.Slices)
-	if counterSlice == nil {
-		t.Fatalf("expected counter slice")
+	sliceIdx := -1
+	for i := range pool.Slices {
+		if len(pool.Slices[i].SharedCounters) > 0 {
+			sliceIdx = i
+			break
+		}
 	}
-	if deviceSlice == nil {
-		t.Fatalf("expected device slice")
+	if sliceIdx == -1 {
+		t.Fatalf("expected slice with counters")
 	}
-
-	if len(counterSlice.SharedCounters) != 1 {
-		t.Fatalf("expected 1 counter set, got %d", len(counterSlice.SharedCounters))
+	slice := pool.Slices[sliceIdx]
+	if len(slice.SharedCounters) != 1 {
+		t.Fatalf("expected 1 counter set, got %d", len(slice.SharedCounters))
 	}
-	counterSet := counterSlice.SharedCounters[0]
+	counterSet := slice.SharedCounters[0]
 	if _, ok := counterSet.Counters["memory"]; !ok {
 		t.Fatalf("expected memory counter")
 	}
@@ -146,7 +148,7 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 	}
 
 	migCount := 0
-	for _, dev := range deviceSlice.Devices {
+	for _, dev := range slice.Devices {
 		if attr, ok := dev.Attributes[resourceapi.QualifiedName(allocatable.AttrDeviceType)]; ok && attr.StringValue != nil && *attr.StringValue == string(gpuv1alpha1.DeviceTypeMIG) {
 			migCount++
 			if len(dev.ConsumesCounters) == 0 {
@@ -246,17 +248,4 @@ func sampleGPU(pciAddress string, migSupported bool) gpuv1alpha1.PhysicalGPU {
 		}
 	}
 	return gpu
-}
-
-func splitSlices(slices []resourceslice.Slice) (*resourceslice.Slice, *resourceslice.Slice) {
-	var counterSlice *resourceslice.Slice
-	var deviceSlice *resourceslice.Slice
-	for i := range slices {
-		if len(slices[i].SharedCounters) > 0 {
-			counterSlice = &slices[i]
-			continue
-		}
-		deviceSlice = &slices[i]
-	}
-	return counterSlice, deviceSlice
 }

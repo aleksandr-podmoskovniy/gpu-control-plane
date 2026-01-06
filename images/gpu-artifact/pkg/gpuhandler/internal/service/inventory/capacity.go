@@ -25,6 +25,20 @@ func memoryCapacityMiB(memoryMiB int64) allocatable.CapacityValue {
 	}
 }
 
+func shareableMemoryCapacityMiB(memoryMiB int64) allocatable.CapacityValue {
+	return allocatable.CapacityValue{
+		Value: memoryMiB,
+		Unit:  allocatable.CapacityUnitMiB,
+		Policy: &allocatable.CapacityPolicy{
+			Default: 0,
+			Min:     0,
+			Max:     memoryMiB,
+			Step:    1,
+			Unit:    allocatable.CapacityUnitMiB,
+		},
+	}
+}
+
 func sharePercentCapacity() allocatable.CapacityValue {
 	return allocatable.CapacityValue{
 		Value: 100,

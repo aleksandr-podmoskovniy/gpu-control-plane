@@ -19,6 +19,8 @@ package allocator
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
@@ -34,11 +36,17 @@ type Selector interface {
 	Match(ctx context.Context, driver string, spec allocatable.DeviceSpec) (bool, error)
 }
 
+// CapacityRequirements defines optional capacity requests for a device allocation.
+type CapacityRequirements struct {
+	Requests map[string]resource.Quantity
+}
+
 // Request represents a single device request.
 type Request struct {
 	Name      string
 	Count     int64
 	Selectors []Selector
+	Capacity  *CapacityRequirements
 }
 
 // CandidateDevice represents a device offer for allocation.
@@ -50,8 +58,19 @@ type CandidateDevice struct {
 	Spec     allocatable.DeviceSpec
 }
 
+// CounterSetInventory groups counter sets by node name.
+type CounterSetInventory map[string]map[string]allocatable.CounterSet
+
+// AllocatedDeviceInfo describes existing allocations for a device.
+type AllocatedDeviceInfo struct {
+	Exclusive        bool
+	ConsumedCapacity map[string]resource.Quantity
+}
+
 // Input provides data needed to allocate devices for a claim.
 type Input struct {
-	Requests   []Request
-	Candidates []CandidateDevice
+	Requests    []Request
+	Candidates  []CandidateDevice
+	Allocated   map[DeviceKey]AllocatedDeviceInfo
+	CounterSets CounterSetInventory
 }

@@ -54,7 +54,7 @@ func (s *Service) Allocate(ctx context.Context, input Input) (*domain.Allocation
 	sort.Strings(nodeNames)
 
 	for _, nodeName := range nodeNames {
-		alloc, ok, err := allocateOnNode(ctx, nodeName, nodes[nodeName], input.Requests)
+		alloc, ok, err := allocateOnNode(ctx, nodeName, nodes[nodeName], input.Requests, input.Allocated, input.CounterSets[nodeName])
 		if err != nil {
 			return nil, err
 		}

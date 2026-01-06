@@ -22,6 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 	domainalloc "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
@@ -35,12 +37,23 @@ func BuildAllocationResult(claim *resourcev1.ResourceClaim, alloc *domain.Alloca
 
 	results := make([]resourcev1.DeviceRequestAllocationResult, 0, len(alloc.Devices))
 	for _, dev := range alloc.Devices {
-		results = append(results, resourcev1.DeviceRequestAllocationResult{
+		result := resourcev1.DeviceRequestAllocationResult{
 			Request: dev.Request,
 			Driver:  dev.Driver,
 			Pool:    dev.Pool,
 			Device:  dev.Device,
-		})
+		}
+		if len(dev.ConsumedCapacity) > 0 {
+			result.ConsumedCapacity = consumedCapacity(dev.ConsumedCapacity)
+			if dev.ShareID != "" {
+				shareID := types.UID(dev.ShareID)
+				result.ShareID = &shareID
+			} else {
+				shareID := uuid.NewUUID()
+				result.ShareID = &shareID
+			}
+		}
+		results = append(results, result)
 	}
 
 	out := &resourcev1.AllocationResult{
@@ -99,6 +112,17 @@ func buildAllocationConfig(claim *resourcev1.ResourceClaim, classes map[string]*
 	}
 
 	return cfg, nil
+}
+
+func consumedCapacity(in map[string]resource.Quantity) map[resourcev1.QualifiedName]resource.Quantity {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[resourcev1.QualifiedName]resource.Quantity, len(in))
+	for key, val := range in {
+		out[resourcev1.QualifiedName(key)] = val.DeepCopy()
+	}
+	return out
 }
 
 func nodeSelectorForNode(nodeName string) *corev1.NodeSelector {

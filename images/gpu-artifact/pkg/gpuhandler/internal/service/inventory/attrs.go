@@ -101,16 +101,16 @@ func pciAddressFor(pgpu gpuv1alpha1.PhysicalGPU) string {
 }
 
 func deviceName(prefix, pciAddress string) string {
-	return sanitizeDNSLabel(fmt.Sprintf("%s-%s", prefix, pciAddress))
+	return allocatable.SanitizeDNSLabel(fmt.Sprintf("%s-%s", prefix, pciAddress))
 }
 
 func migDeviceName(pciAddress string, profileID int32, placement MigPlacement) string {
 	raw := fmt.Sprintf("mig-%s-p%d-s%d-n%d", pciAddress, profileID, placement.Start, placement.Size)
-	return sanitizeDNSLabel(raw)
+	return allocatable.SanitizeDNSLabel(raw)
 }
 
 func counterSetName(pciAddress string) string {
-	return sanitizeDNSLabel(fmt.Sprintf("pgpu-%s", pciAddress))
+	return allocatable.CounterSetNameForPCI(pciAddress)
 }
 
 func parseComputeCap(raw string) (int, int, bool) {
@@ -139,37 +139,6 @@ func stringAttr(val string) allocatable.AttributeValue {
 
 func intAttr(val int64) allocatable.AttributeValue {
 	return allocatable.AttributeValue{Int: &val}
-}
-
-func sanitizeDNSLabel(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return "gpu"
-	}
-
-	var b strings.Builder
-	b.Grow(len(value))
-	lastDash := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	normalized := strings.Trim(b.String(), "-")
-	if normalized == "" {
-		return "gpu"
-	}
-	if len(normalized) <= 63 {
-		return normalized
-	}
-	normalized = normalized[:63]
-	return strings.Trim(normalized, "-")
 }
 
 func normalizeLabelValue(value string) string {

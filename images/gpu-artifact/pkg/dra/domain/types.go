@@ -16,7 +16,11 @@ limitations under the License.
 
 package domain
 
-import "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
+)
 
 // InventorySnapshot is a minimal snapshot of node-scoped inventory.
 type InventorySnapshot struct {
@@ -27,10 +31,12 @@ type InventorySnapshot struct {
 
 // AllocatedDevice references a device selected for a claim request.
 type AllocatedDevice struct {
-	Request string
-	Driver  string
-	Pool    string
-	Device  string
+	Request          string
+	Driver           string
+	Pool             string
+	Device           string
+	ShareID          string
+	ConsumedCapacity map[string]resource.Quantity
 }
 
 // NodeSelector pins an allocation to a specific node.

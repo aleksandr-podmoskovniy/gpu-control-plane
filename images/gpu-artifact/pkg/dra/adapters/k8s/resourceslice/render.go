@@ -36,22 +36,20 @@ type DefaultRenderer struct {
 
 // Render converts allocatable inventory into ResourceSlice slices.
 func (r DefaultRenderer) Render(inv allocatable.Inventory) []resourcesliceapi.Slice {
-	var slices []resourcesliceapi.Slice
 	inv = filterInventory(inv, r.Features)
-	if len(inv.CounterSets) > 0 {
-		slices = append(slices, resourcesliceapi.Slice{
-			SharedCounters: allocatablek8s.RenderCounterSets(inv.CounterSets),
-		})
-	}
-
 	renderOpts := allocatablek8s.DeviceRenderOptions{
 		IncludeCapacity:         r.Features.ConsumableCapacity,
 		IncludeMultiAllocations: r.Features.ConsumableCapacity,
 	}
-	slices = append(slices, resourcesliceapi.Slice{
-		Devices: allocatablek8s.RenderDevicesWithOptions(inv.Devices, renderOpts),
-	})
-	return slices
+
+	if len(inv.CounterSets) == 0 {
+		return []resourcesliceapi.Slice{{
+			Devices: allocatablek8s.RenderDevicesWithOptions(inv.Devices, renderOpts),
+		}}
+	}
+
+	plan := buildSlicePlan(inv)
+	return renderSlicePlan(plan, renderOpts)
 }
 
 // BuildDriverResources renders inventory into DriverResources for a pool.

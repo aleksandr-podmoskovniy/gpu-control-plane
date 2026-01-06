@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -69,6 +70,44 @@ func TestBuildRequestsMissingClass(t *testing.T) {
 	_, err := BuildRequests(claim, map[string]*resourcev1.DeviceClass{})
 	if err == nil {
 		t.Fatalf("expected error for missing deviceclass")
+	}
+}
+
+func TestBuildRequestsCapacity(t *testing.T) {
+	t.Parallel()
+
+	share := resource.MustParse("50")
+	claim := &resourcev1.ResourceClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "claim-1"},
+		Spec: resourcev1.ResourceClaimSpec{
+			Devices: resourcev1.DeviceClaim{
+				Requests: []resourcev1.DeviceRequest{{
+					Name: "gpu",
+					Exactly: &resourcev1.ExactDeviceRequest{
+						DeviceClassName: "class-a",
+						Count:           1,
+						AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+						Capacity: &resourcev1.CapacityRequirements{
+							Requests: map[resourcev1.QualifiedName]resource.Quantity{
+								"sharePercent": share,
+							},
+						},
+					},
+				}},
+			},
+		},
+	}
+
+	reqs, err := BuildRequests(claim, map[string]*resourcev1.DeviceClass{"class-a": deviceClass("class-a")})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(reqs) != 1 || reqs[0].Capacity == nil {
+		t.Fatalf("expected capacity requests to be propagated")
+	}
+	got := reqs[0].Capacity.Requests["sharePercent"]
+	if got.Cmp(share) != 0 {
+		t.Fatalf("unexpected sharePercent: %s", got.String())
 	}
 }
 

@@ -57,7 +57,7 @@ func buildPhysicalDevice(pgpu gpuv1alpha1.PhysicalGPU) (allocatable.Device, erro
 
 	attributes := baseAttributes(pgpu, gpuv1alpha1.DeviceTypePhysical, "")
 	capacity := map[string]allocatable.CapacityValue{
-		allocatable.CapMemory:       memoryCapacityMiB(*pgpu.Status.Capabilities.MemoryMiB),
+		allocatable.CapMemory:       shareableMemoryCapacityMiB(*pgpu.Status.Capabilities.MemoryMiB),
 		allocatable.CapSharePercent: sharePercentCapacity(),
 	}
 
