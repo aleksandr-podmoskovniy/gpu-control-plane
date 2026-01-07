@@ -36,7 +36,7 @@ func DefaultFeatures() FeatureSet {
 	return FeatureSet{
 		PartitionableDevices: true,
 		ConsumableCapacity:   false,
-		SharedCountersLayout: SharedCountersSeparate,
+		SharedCountersLayout: SharedCountersInline,
 	}
 }
 

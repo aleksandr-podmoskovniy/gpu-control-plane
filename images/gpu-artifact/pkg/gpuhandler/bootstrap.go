@@ -83,6 +83,7 @@ func (b *bootstrapService) Start(ctx context.Context, notify func()) (*bootstrap
 	}
 
 	featureGates := featuregates.NewService(b.cfg.NodeName, b.store, b.log, builder, recorder, notify)
+	featureGates.ConfigurePartitionableDevices(kubeClient)
 	featureGates.ConfigureConsumableCapacity(kubeClient, b.cfg.ConsumableCapacityMode)
 	featureGates.ConfigureSharedCountersLayout(kubeClient)
 

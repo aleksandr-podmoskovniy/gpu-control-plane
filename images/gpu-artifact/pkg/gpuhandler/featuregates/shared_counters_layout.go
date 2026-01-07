@@ -17,11 +17,34 @@ limitations under the License.
 package featuregates
 
 import (
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/kubernetes"
 
 	k8sresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/resourceslice"
 )
 
-func resolveSharedCountersLayout(_ kubernetes.Interface) (k8sresourceslice.SharedCountersLayout, string, string, error) {
-	return k8sresourceslice.SharedCountersSeparate, "fixed", "", nil
+const sharedCountersSeparateMinVersion = "v1.35.0"
+
+func resolveSharedCountersLayout(kubeClient kubernetes.Interface) (k8sresourceslice.SharedCountersLayout, string, string, error) {
+	if kubeClient == nil {
+		return k8sresourceslice.SharedCountersInline, "auto", "", fmt.Errorf("kube client is nil")
+	}
+
+	serverVersion, err := kubeClient.Discovery().ServerVersion()
+	if err != nil {
+		return k8sresourceslice.SharedCountersInline, "auto", "", fmt.Errorf("detect server version: %w", err)
+	}
+
+	parsed, err := version.ParseGeneric(serverVersion.GitVersion)
+	if err != nil {
+		return k8sresourceslice.SharedCountersInline, "auto", serverVersion.GitVersion, fmt.Errorf("parse server version %q: %w", serverVersion.GitVersion, err)
+	}
+
+	minVersion := version.MustParseGeneric(sharedCountersSeparateMinVersion)
+	if parsed.AtLeast(minVersion) {
+		return k8sresourceslice.SharedCountersSeparate, "auto", serverVersion.GitVersion, nil
+	}
+	return k8sresourceslice.SharedCountersInline, "auto", serverVersion.GitVersion, nil
 }
