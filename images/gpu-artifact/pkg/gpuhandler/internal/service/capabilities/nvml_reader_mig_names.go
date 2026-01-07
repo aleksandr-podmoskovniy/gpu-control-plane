@@ -22,9 +22,11 @@ package capabilities
 import (
 	"fmt"
 	"strings"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32, mediaSuffix string, gfx bool) string {
+func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32) string {
 	name := normalizeMigProfileName(raw)
 	if name == "" {
 		name = defaultMigProfileName(sliceCount, memoryMiB, profileID)
@@ -35,11 +37,8 @@ func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID u
 	if hasProfileSuffix(name) {
 		return name
 	}
-	if gfx {
-		return name + "+gfx"
-	}
-	if mediaSuffix != "" {
-		return name + mediaSuffix
+	if suffix := migProfileSuffix(profileID); suffix != "" {
+		return name + suffix
 	}
 	return name
 }
@@ -69,12 +68,22 @@ func hasProfileSuffix(name string) bool {
 	return strings.Contains(lower, "+me") || strings.Contains(lower, "+gfx") || strings.Contains(lower, "-me")
 }
 
-func mediaExtensionsSuffix(decoderCount, encoderCount, jpegCount, ofaCount uint32) string {
-	if decoderCount == 0 && encoderCount == 0 && jpegCount == 0 && ofaCount == 0 {
+func migProfileSuffix(profileID uint32) string {
+	switch profileID {
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1:
+		return "+me"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME:
+		return "+me.all"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX:
+		return "+gfx"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME:
+		return "-me"
+	default:
 		return ""
 	}
-	if decoderCount > 1 || encoderCount > 1 || jpegCount > 1 || ofaCount > 1 {
-		return "+me.all"
-	}
-	return "+me"
 }

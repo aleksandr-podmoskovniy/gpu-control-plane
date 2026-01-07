@@ -148,7 +148,7 @@ func TestNVMLReaderMIGProfiles(t *testing.T) {
 	}
 }
 
-func TestNVMLReaderMIGProfilesAddsMediaSuffix(t *testing.T) {
+func TestNVMLReaderMIGProfilesSuffixByProfileID(t *testing.T) {
 	dev := &fakeNVMLDevice{
 		name:      "NVIDIA A30",
 		uuid:      "GPU-123",
@@ -160,10 +160,11 @@ func TestNVMLReaderMIGProfilesAddsMediaSuffix(t *testing.T) {
 		migMode:   nvml.DEVICE_MIG_ENABLE,
 		migRet:    nvml.SUCCESS,
 		profileInfo: map[int]nvml.GpuInstanceProfileInfo_v3{
-			14: profileInfoWithEnginesAndCaps(14, 1, 4, 5952, "", 0, 0, 0, 0, 0),
-			21: profileInfoWithEnginesAndCaps(21, 1, 1, 5952, "", 1, 1, 1, 1, 0),
-			22: profileInfoWithEnginesAndCaps(22, 1, 1, 5952, "", 2, 1, 1, 1, 0),
-			5:  profileInfoWithEnginesAndCaps(5, 2, 2, 12032, "", 0, 0, 0, 0, nvml.GPU_INSTANCE_PROFILE_CAPS_GFX),
+			0: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE, 1, 4, 5952, "", 1, 1, 1, 1, 0),
+			1: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1, 1, 1, 5952, "", 0, 0, 0, 0, 0),
+			2: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME, 1, 1, 5952, "", 0, 0, 0, 0, 0),
+			3: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX, 1, 1, 5952, "", 0, 0, 0, 0, nvml.GPU_INSTANCE_PROFILE_CAPS_GFX),
+			4: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME, 1, 1, 5952, "", 1, 1, 1, 1, 0),
 		},
 		profileRet: nvml.ERROR_NOT_SUPPORTED,
 	}
@@ -194,17 +195,20 @@ func TestNVMLReaderMIGProfilesAddsMediaSuffix(t *testing.T) {
 	for _, profile := range profiles {
 		names[profile.ProfileID] = profile.Name
 	}
-	if names[14] != "1g.6gb" {
-		t.Fatalf("expected profile 14 name 1g.6gb, got %q", names[14])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE] != "1g.6gb" {
+		t.Fatalf("expected profile 1_slice name 1g.6gb, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
 	}
-	if names[21] != "1g.6gb+me" {
-		t.Fatalf("expected profile 21 name 1g.6gb+me, got %q", names[21])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1] != "1g.6gb+me" {
+		t.Fatalf("expected profile 1_slice_rev1 name 1g.6gb+me, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1])
 	}
-	if names[22] != "1g.6gb+me.all" {
-		t.Fatalf("expected profile 22 name 1g.6gb+me.all, got %q", names[22])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME] != "1g.6gb+me.all" {
+		t.Fatalf("expected profile 1_slice_all_me name 1g.6gb+me.all, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME])
 	}
-	if names[5] != "2g.12gb+gfx" {
-		t.Fatalf("expected profile 5 name 2g.12gb+gfx, got %q", names[5])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX] != "1g.6gb+gfx" {
+		t.Fatalf("expected profile 1_slice_gfx name 1g.6gb+gfx, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX])
+	}
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME] != "1g.6gb-me" {
+		t.Fatalf("expected profile 1_slice_no_me name 1g.6gb-me, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME])
 	}
 }
 
