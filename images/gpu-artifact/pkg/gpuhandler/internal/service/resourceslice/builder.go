@@ -43,28 +43,6 @@ func NewBuilder(placements inventory.MigPlacementReader) *Builder {
 	}
 }
 
-// EnableFeatures enables features if present and reports whether a change occurred.
-func (b *Builder) EnableFeatures(features []string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	updated, changed := b.features.Enable(features)
-	if changed {
-		b.features = updated
-	}
-	return changed
-}
-
-// DisableFeatures disables features if present and reports whether a change occurred.
-func (b *Builder) DisableFeatures(features []string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	updated, changed := b.features.Disable(features)
-	if changed {
-		b.features = updated
-	}
-	return changed
-}
-
 // Build renders driver resources for the given node and devices.
 func (b *Builder) Build(_ context.Context, nodeName string, devices []gpuv1alpha1.PhysicalGPU) (resourceslice.DriverResources, error) {
 	if b.inventory == nil {

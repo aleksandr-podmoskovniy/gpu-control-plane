@@ -16,10 +16,19 @@ limitations under the License.
 
 package resourceslice
 
+// SharedCountersLayout defines how shared counters are published relative to devices.
+type SharedCountersLayout int
+
+const (
+	SharedCountersInline SharedCountersLayout = iota
+	SharedCountersSeparate
+)
+
 // FeatureSet controls which ResourceSlice features are rendered.
 type FeatureSet struct {
 	PartitionableDevices bool
 	ConsumableCapacity   bool
+	SharedCountersLayout SharedCountersLayout
 }
 
 // DefaultFeatures enables partitionable devices and keeps consumable capacity disabled.
@@ -27,7 +36,18 @@ func DefaultFeatures() FeatureSet {
 	return FeatureSet{
 		PartitionableDevices: true,
 		ConsumableCapacity:   false,
+		SharedCountersLayout: SharedCountersSeparate,
 	}
+}
+
+// WithSharedCountersLayout returns a copy with the shared counters layout updated.
+func (f FeatureSet) WithSharedCountersLayout(layout SharedCountersLayout) (FeatureSet, bool) {
+	if f.SharedCountersLayout == layout {
+		return f, false
+	}
+	updated := f
+	updated.SharedCountersLayout = layout
+	return updated, true
 }
 
 // Enable returns a copy with the named features enabled.

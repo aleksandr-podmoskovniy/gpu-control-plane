@@ -151,25 +151,3 @@ handlersLoop:
 	logger.FromContext(ctx).Debug("Reconciliation was successfully completed", "requeue", result.Requeue, "after", result.RequeueAfter)
 	return result, nil
 }
-
-// MergeResults merges multiple reconcile results.
-func MergeResults(results ...reconcile.Result) reconcile.Result {
-	var result reconcile.Result
-	for _, r := range results {
-		if r.IsZero() {
-			continue
-		}
-		//nolint:staticcheck // Required for compatibility.
-		if r.Requeue && r.RequeueAfter == 0 {
-			return r
-		}
-		if result.IsZero() && r.RequeueAfter > 0 {
-			result = r
-			continue
-		}
-		if r.RequeueAfter > 0 && r.RequeueAfter < result.RequeueAfter {
-			result.RequeueAfter = r.RequeueAfter
-		}
-	}
-	return result
-}

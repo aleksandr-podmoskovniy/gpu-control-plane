@@ -42,22 +42,34 @@ import (
 )
 
 const (
-	logDebugVerbosityEnv   = "LOG_DEBUG_VERBOSITY"
-	logLevelEnv            = "LOG_LEVEL"
-	logOutputEnv           = "LOG_OUTPUT"
-	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
+	logDebugVerbosityEnv     = "LOG_DEBUG_VERBOSITY"
+	logLevelEnv              = "LOG_LEVEL"
+	logOutputEnv             = "LOG_OUTPUT"
+	healthProbeBindAddrEnv   = "HEALTH_PROBE_BIND_ADDRESS"
 	draConsumableCapacityEnv = "DRA_CONSUMABLE_CAPACITY"
+	cdiRootEnv               = "CDI_ROOT"
+	hostDriverRootEnv        = "HOST_DRIVER_ROOT"
+	nvidiaDriverRootEnv      = "NVIDIA_DRIVER_ROOT"
+	nvidiaCDIHookPathEnv     = "NVIDIA_CDI_HOOK_PATH"
 )
 
 func main() {
 	var probeAddr string
 	var nodeName string
 	var consumableCapacityMode string
+	var driverRoot string
+	var hostDriverRoot string
+	var cdiRoot string
+	var nvidiaCDIHookPath string
 
 	logLevel := os.Getenv(logLevelEnv)
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
 	consumableCapacityMode = envOr(draConsumableCapacityEnv, "auto")
+	driverRoot = envOr(nvidiaDriverRootEnv, "")
+	hostDriverRoot = envOr(hostDriverRootEnv, "/")
+	cdiRoot = envOr(cdiRootEnv, "/etc/cdi")
+	nvidiaCDIHookPath = envOr(nvidiaCDIHookPathEnv, "")
 
 	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8081"), "The address the probe endpoint binds to.")
 	flag.StringVar(&nodeName, "node-name", "", "Node name (defaults to NODE_NAME env var).")
@@ -94,6 +106,10 @@ func main() {
 		NodeName:               nodeName,
 		KubeConfig:             restConfig,
 		ConsumableCapacityMode: consumableCapacityMode,
+		DriverRoot:             driverRoot,
+		HostDriverRoot:         hostDriverRoot,
+		CDIRoot:                cdiRoot,
+		NvidiaCDIHookPath:      nvidiaCDIHookPath,
 	}, log)
 
 	ctx := ctrl.SetupSignalHandler()

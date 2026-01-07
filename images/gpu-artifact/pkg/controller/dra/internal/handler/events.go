@@ -17,6 +17,6 @@ limitations under the License.
 package handler
 
 const (
-	reasonResourceClaimAllocated       = "ResourceClaimAllocated"
+	reasonResourceClaimAllocated        = "ResourceClaimAllocated"
 	reasonResourceClaimAllocationFailed = "ResourceClaimAllocationFailed"
 )

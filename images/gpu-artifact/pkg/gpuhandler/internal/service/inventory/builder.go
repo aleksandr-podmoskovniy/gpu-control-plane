@@ -23,27 +23,6 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
-// BuildContext contains shared context for device builders.
-type BuildContext struct {
-	MigSession MigPlacementSession
-}
-
-// BuildResult groups devices and counters produced by a builder.
-type BuildResult struct {
-	Devices     allocatable.DeviceList
-	CounterSets []allocatable.CounterSet
-}
-
-// DeviceBuilder converts a PhysicalGPU into allocatable devices/counters.
-type DeviceBuilder interface {
-	Build(pgpu gpuv1alpha1.PhysicalGPU, ctx BuildContext) (BuildResult, error)
-}
-
-// InventoryBuilder assembles allocatable inventory from PhysicalGPU objects.
-type InventoryBuilder interface {
-	Build(devices []gpuv1alpha1.PhysicalGPU) (allocatable.Inventory, []error)
-}
-
 // Builder assembles allocatable inventory from PhysicalGPU objects.
 type Builder struct {
 	factory BuilderFactory

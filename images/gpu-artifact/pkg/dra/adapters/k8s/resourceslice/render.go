@@ -49,7 +49,7 @@ func (r DefaultRenderer) Render(inv allocatable.Inventory) []resourcesliceapi.Sl
 	}
 
 	plan := buildSlicePlan(inv)
-	return renderSlicePlan(plan, renderOpts)
+	return renderSlicePlan(plan, renderOpts, r.Features.SharedCountersLayout)
 }
 
 // BuildDriverResources renders inventory into DriverResources for a pool.

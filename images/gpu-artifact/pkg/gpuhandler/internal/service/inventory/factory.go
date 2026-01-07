@@ -20,6 +20,8 @@ import (
 	"errors"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	invmig "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory/mig"
+	invphysical "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory/physical"
 )
 
 // BuilderFactory decides which device builders to use for a set of GPUs.
@@ -41,11 +43,11 @@ func NewDefaultFactory(placements MigPlacementReader) *DefaultFactory {
 func (f *DefaultFactory) Build(devices []gpuv1alpha1.PhysicalGPU) Plan {
 	plan := Plan{
 		Builders: []DeviceBuilder{
-			NewPhysicalDeviceBuilder(),
+			invphysical.NewBuilder(),
 		},
 	}
 
-	if !anyMigSupported(devices) {
+	if !invmig.AnySupported(devices) {
 		return plan
 	}
 	if f.placements == nil {
@@ -59,16 +61,7 @@ func (f *DefaultFactory) Build(devices []gpuv1alpha1.PhysicalGPU) Plan {
 	}
 
 	plan.Context = BuildContext{MigSession: session}
-	plan.Builders = append(plan.Builders, NewMigDeviceBuilder())
+	plan.Builders = append(plan.Builders, invmig.NewBuilder())
 	plan.Close = session.Close
 	return plan
-}
-
-func anyMigSupported(devices []gpuv1alpha1.PhysicalGPU) bool {
-	for _, pgpu := range devices {
-		if migSupported(pgpu) {
-			return true
-		}
-	}
-	return false
 }

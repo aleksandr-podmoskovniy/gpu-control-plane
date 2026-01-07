@@ -23,8 +23,10 @@ import (
 
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	resourcesliceapi "k8s.io/dynamic-resource-allocation/resourceslice"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	k8sresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/resourceslice"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory"
 )
@@ -148,7 +150,66 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 	}
 
 	migCount := 0
-	for _, dev := range slice.Devices {
+	for _, poolSlice := range pool.Slices {
+		for _, dev := range poolSlice.Devices {
+			if attr, ok := dev.Attributes[resourceapi.QualifiedName(allocatable.AttrDeviceType)]; ok && attr.StringValue != nil && *attr.StringValue == string(gpuv1alpha1.DeviceTypeMIG) {
+				migCount++
+				if len(dev.ConsumesCounters) == 0 {
+					t.Fatalf("expected consumes counters on MIG device")
+				}
+			}
+		}
+	}
+	if migCount != 2 {
+		t.Fatalf("expected 2 MIG devices, got %d", migCount)
+	}
+}
+
+func TestResourceSliceBuilderMigSupportedSeparateCounters(t *testing.T) {
+	pgpu := sampleGPU("0000:02:00.0", true)
+	placements := map[string]map[int32][]inventory.MigPlacement{
+		"0000:02:00.0": {
+			5: {
+				{Start: 0, Size: 2},
+				{Start: 2, Size: 2},
+			},
+		},
+	}
+	builder := NewBuilder(&fakePlacementReader{placements: placements})
+	builder.SetSharedCountersLayout(k8sresourceslice.SharedCountersSeparate)
+
+	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := resources.Pools["gpus/node-1"]
+	if len(pool.Slices) != 2 {
+		t.Fatalf("expected 2 slices, got %d", len(pool.Slices))
+	}
+
+	var countersSlice *resourcesliceapi.Slice
+	var devicesSlice *resourcesliceapi.Slice
+	for i := range pool.Slices {
+		slice := &pool.Slices[i]
+		if len(slice.SharedCounters) > 0 {
+			countersSlice = slice
+		}
+		if len(slice.Devices) > 0 {
+			devicesSlice = slice
+		}
+	}
+	if countersSlice == nil {
+		t.Fatalf("expected counters slice")
+	}
+	if devicesSlice == nil {
+		t.Fatalf("expected devices slice")
+	}
+	if len(countersSlice.Devices) != 0 {
+		t.Fatalf("expected counters slice without devices")
+	}
+
+	migCount := 0
+	for _, dev := range devicesSlice.Devices {
 		if attr, ok := dev.Attributes[resourceapi.QualifiedName(allocatable.AttrDeviceType)]; ok && attr.StringValue != nil && *attr.StringValue == string(gpuv1alpha1.DeviceTypeMIG) {
 			migCount++
 			if len(dev.ConsumesCounters) == 0 {
@@ -158,6 +219,39 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 	}
 	if migCount != 2 {
 		t.Fatalf("expected 2 MIG devices, got %d", migCount)
+	}
+}
+
+func TestResourceSliceBuilderMigPlacementsExtendCounters(t *testing.T) {
+	pgpu := sampleGPU("0000:02:00.0", true)
+	placements := map[string]map[int32][]inventory.MigPlacement{
+		"0000:02:00.0": {
+			5: {
+				{Start: 4, Size: 2},
+			},
+		},
+	}
+	builder := NewBuilder(&fakePlacementReader{placements: placements})
+
+	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pool := resources.Pools["gpus/node-1"]
+
+	sliceIdx := -1
+	for i := range pool.Slices {
+		if len(pool.Slices[i].SharedCounters) > 0 {
+			sliceIdx = i
+			break
+		}
+	}
+	if sliceIdx == -1 {
+		t.Fatalf("expected slice with counters")
+	}
+	counterSet := pool.Slices[sliceIdx].SharedCounters[0]
+	if _, ok := counterSet.Counters["memory-slice-5"]; !ok {
+		t.Fatalf("expected memory-slice-5 counter")
 	}
 }
 

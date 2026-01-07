@@ -70,6 +70,10 @@ spec:
               value: "void"
             - name: NVIDIA_DRIVER_ROOT
               value: "/driver-root"
+            - name: HOST_DRIVER_ROOT
+              value: {{ $driverRoot | quote }}
+            - name: CDI_ROOT
+              value: "/etc/cdi"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -108,6 +112,8 @@ spec:
               mountPath: /driver-root
               mountPropagation: HostToContainer
               readOnly: true
+            - name: cdi-root
+              mountPath: /etc/cdi
             - name: kubelet-plugins
               mountPath: /var/lib/kubelet/plugins
               mountPropagation: Bidirectional
@@ -133,5 +139,9 @@ spec:
         - name: kubelet-plugins-registry
           hostPath:
             path: /var/lib/kubelet/plugins_registry
+            type: DirectoryOrCreate
+        - name: cdi-root
+          hostPath:
+            path: /etc/cdi
             type: DirectoryOrCreate
 {{- end }}

@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	invmig "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory/mig"
+	invphysical "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory/physical"
 )
 
 func TestDefaultFactoryNoMig(t *testing.T) {
@@ -33,8 +35,8 @@ func TestDefaultFactoryNoMig(t *testing.T) {
 	if len(plan.Builders) != 1 {
 		t.Fatalf("expected 1 builder, got %d", len(plan.Builders))
 	}
-	if _, ok := plan.Builders[0].(*PhysicalDeviceBuilder); !ok {
-		t.Fatalf("expected PhysicalDeviceBuilder, got %T", plan.Builders[0])
+	if _, ok := plan.Builders[0].(*invphysical.Builder); !ok {
+		t.Fatalf("expected physical builder, got %T", plan.Builders[0])
 	}
 	if plan.Context.MigSession != nil {
 		t.Fatalf("expected no MIG session, got %v", plan.Context.MigSession)
@@ -55,8 +57,8 @@ func TestDefaultFactoryMigSupportedNoPlacements(t *testing.T) {
 	if len(plan.Builders) != 1 {
 		t.Fatalf("expected 1 builder, got %d", len(plan.Builders))
 	}
-	if _, ok := plan.Builders[0].(*PhysicalDeviceBuilder); !ok {
-		t.Fatalf("expected PhysicalDeviceBuilder, got %T", plan.Builders[0])
+	if _, ok := plan.Builders[0].(*invphysical.Builder); !ok {
+		t.Fatalf("expected physical builder, got %T", plan.Builders[0])
 	}
 }
 
@@ -72,11 +74,11 @@ func TestDefaultFactoryMigSupportedWithPlacements(t *testing.T) {
 	if len(plan.Builders) != 2 {
 		t.Fatalf("expected 2 builders, got %d", len(plan.Builders))
 	}
-	if _, ok := plan.Builders[0].(*PhysicalDeviceBuilder); !ok {
-		t.Fatalf("expected PhysicalDeviceBuilder, got %T", plan.Builders[0])
+	if _, ok := plan.Builders[0].(*invphysical.Builder); !ok {
+		t.Fatalf("expected physical builder, got %T", plan.Builders[0])
 	}
-	if _, ok := plan.Builders[1].(*MigDeviceBuilder); !ok {
-		t.Fatalf("expected MigDeviceBuilder, got %T", plan.Builders[1])
+	if _, ok := plan.Builders[1].(*invmig.Builder); !ok {
+		t.Fatalf("expected mig builder, got %T", plan.Builders[1])
 	}
 	if plan.Context.MigSession == nil {
 		t.Fatalf("expected MIG session to be set")

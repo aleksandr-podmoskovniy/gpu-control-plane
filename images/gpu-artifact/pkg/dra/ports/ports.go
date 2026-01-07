@@ -45,7 +45,8 @@ type CheckpointStore interface {
 
 // CDIWriter writes CDI specifications for prepared devices.
 type CDIWriter interface {
-	Write(ctx context.Context, req domain.PrepareRequest) error
+	Write(ctx context.Context, req domain.PrepareRequest) (map[string][]string, error)
+	Delete(ctx context.Context, claimUID string) error
 }
 
 // HookWriter writes VM hook payloads when required.

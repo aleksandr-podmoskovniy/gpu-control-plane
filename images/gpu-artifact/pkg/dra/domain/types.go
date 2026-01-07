@@ -52,9 +52,35 @@ type AllocationResult struct {
 	NodeSelector *NodeSelector
 }
 
+// PrepareDevice references a device that needs node preparation.
+type PrepareDevice struct {
+	Request          string
+	Driver           string
+	Pool             string
+	Device           string
+	ShareID          string
+	ConsumedCapacity map[string]resource.Quantity
+	Attributes       map[string]allocatable.AttributeValue
+}
+
 // PrepareRequest is a minimal prepare/unprepare request representation.
 type PrepareRequest struct {
 	ClaimUID string
 	NodeName string
-	Devices  []AllocatedDevice
+	VFIO     bool
+	Devices  []PrepareDevice
+}
+
+// PreparedDevice represents a prepared device with CDI ids.
+type PreparedDevice struct {
+	Request      string
+	Pool         string
+	Device       string
+	CDIDeviceIDs []string
+}
+
+// PrepareResult contains results for a single claim.
+type PrepareResult struct {
+	ClaimUID string
+	Devices  []PreparedDevice
 }

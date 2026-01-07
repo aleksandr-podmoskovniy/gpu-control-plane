@@ -20,12 +20,29 @@ import (
 	resourcesliceapi "k8s.io/dynamic-resource-allocation/resourceslice"
 
 	allocatablek8s "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/allocatable"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
-func renderSlicePlan(plan slicePlan, renderOpts allocatablek8s.DeviceRenderOptions) []resourcesliceapi.Slice {
+func renderSlicePlan(plan slicePlan, renderOpts allocatablek8s.DeviceRenderOptions, layout SharedCountersLayout) []resourcesliceapi.Slice {
 	slices := make([]resourcesliceapi.Slice, 0, len(plan.groupKeys)*2+1)
 	for _, key := range plan.groupKeys {
 		group := plan.groups[key]
+		if layout == SharedCountersSeparate {
+			if len(group.counterSets) > 0 {
+				slices = append(slices, resourcesliceapi.Slice{
+					SharedCounters: allocatablek8s.RenderCounterSets(group.counterSets),
+				})
+			}
+			if len(group.devicesNoConsumption) > 0 || len(group.devicesWithCounters) > 0 {
+				devices := append(allocatable.DeviceList{}, group.devicesNoConsumption...)
+				devices = append(devices, group.devicesWithCounters...)
+				slices = append(slices, resourcesliceapi.Slice{
+					Devices: allocatablek8s.RenderDevicesWithOptions(devices, renderOpts),
+				})
+			}
+			continue
+		}
+
 		if len(group.devicesNoConsumption) > 0 {
 			slices = append(slices, resourcesliceapi.Slice{
 				Devices: allocatablek8s.RenderDevicesWithOptions(group.devicesNoConsumption, renderOpts),
