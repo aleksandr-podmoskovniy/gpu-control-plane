@@ -29,7 +29,18 @@ func toDeviceSpec(device resourcev1.Device) domainalloc.DeviceSpec {
 		Capacity:                 toCapacities(device.Capacity),
 		Consumes:                 toConsumes(device.ConsumesCounters),
 		AllowMultipleAllocations: device.AllowMultipleAllocations != nil && *device.AllowMultipleAllocations,
+		BindingConditions:        cloneStrings(device.BindingConditions),
+		BindingFailureConditions: cloneStrings(device.BindingFailureConditions),
 	}
+}
+
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
 }
 
 func toAttributes(attrs map[resourcev1.QualifiedName]resourcev1.DeviceAttribute) map[string]domainalloc.AttributeValue {

@@ -21,6 +21,11 @@ import (
 	"os"
 )
 
+const (
+	prepareLockFile       = "pu.lock"
+	prepareCheckpointFile = "checkpoint.json"
+)
+
 func ensureDir(path string) error {
 	info, err := os.Stat(path)
 	switch {

@@ -63,5 +63,20 @@ func renderDeviceWithOptions(spec domain.DeviceSpec, opts DeviceRenderOptions) r
 	if opts.IncludeMultiAllocations && spec.AllowMultipleAllocations {
 		device.AllowMultipleAllocations = ptr.To(true)
 	}
+	if len(spec.BindingConditions) > 0 {
+		device.BindingConditions = cloneStrings(spec.BindingConditions)
+	}
+	if len(spec.BindingFailureConditions) > 0 {
+		device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
+	}
 	return device
+}
+
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
 }

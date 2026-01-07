@@ -30,6 +30,8 @@ type DeviceSpec struct {
 	Capacity                 map[string]CapacityValue
 	Consumes                 []CounterConsumption
 	AllowMultipleAllocations bool
+	BindingConditions        []string
+	BindingFailureConditions []string
 }
 
 // CapacityValue represents a typed device capacity value.

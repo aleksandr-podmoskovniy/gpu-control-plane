@@ -100,11 +100,13 @@ func allocateOnNode(ctx context.Context, nodeName string, devices []CandidateDev
 						}
 					}
 					results = append(results, domain.AllocatedDevice{
-						Request:          req.Name,
-						Driver:           dev.Driver,
-						Pool:             dev.Pool,
-						Device:           dev.Spec.Name,
-						ConsumedCapacity: consumed,
+						Request:                  req.Name,
+						Driver:                   dev.Driver,
+						Pool:                     dev.Pool,
+						Device:                   dev.Spec.Name,
+						ConsumedCapacity:         consumed,
+						BindingConditions:        cloneStrings(dev.Spec.BindingConditions),
+						BindingFailureConditions: cloneStrings(dev.Spec.BindingFailureConditions),
 					})
 					markGroupState(meta, groupState)
 					consumedTotals[dev.Key] = addConsumed(consumedTotals[dev.Key], consumed, dev.Spec.Capacity)
@@ -131,10 +133,12 @@ func allocateOnNode(ctx context.Context, nodeName string, devices []CandidateDev
 					}
 				}
 				results = append(results, domain.AllocatedDevice{
-					Request: req.Name,
-					Driver:  dev.Driver,
-					Pool:    dev.Pool,
-					Device:  dev.Spec.Name,
+					Request:                  req.Name,
+					Driver:                   dev.Driver,
+					Pool:                     dev.Pool,
+					Device:                   dev.Spec.Name,
+					BindingConditions:        cloneStrings(dev.Spec.BindingConditions),
+					BindingFailureConditions: cloneStrings(dev.Spec.BindingFailureConditions),
 				})
 				markGroupState(meta, groupState)
 				usedExclusive[dev.Key] = struct{}{}
@@ -156,4 +160,13 @@ func allocateOnNode(ctx context.Context, nodeName string, devices []CandidateDev
 			NodeName: nodeName,
 		},
 	}, true, nil
+}
+
+func cloneStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
 }

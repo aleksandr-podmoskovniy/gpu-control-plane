@@ -38,9 +38,27 @@ type ResourceSliceWriter interface {
 	Publish(ctx context.Context, nodeName string, inventory allocatable.Inventory) error
 }
 
-// CheckpointStore persists prepare/unprepare state.
-type CheckpointStore interface {
-	Save(ctx context.Context, req domain.PrepareRequest) error
+// PrepareLocker serializes prepare/unprepare calls on a node.
+type PrepareLocker interface {
+	Lock(ctx context.Context) (func() error, error)
+}
+
+// PrepareCheckpointStore persists prepare/unprepare state.
+type PrepareCheckpointStore interface {
+	Load(ctx context.Context) (domain.PrepareCheckpoint, error)
+	Save(ctx context.Context, checkpoint domain.PrepareCheckpoint) error
+}
+
+// MigManager creates and deletes MIG instances.
+type MigManager interface {
+	Prepare(ctx context.Context, req domain.MigPrepareRequest) (domain.PreparedMigDevice, error)
+	Unprepare(ctx context.Context, state domain.PreparedMigDevice) error
+}
+
+// VfioManager binds and unbinds PCI devices to vfio-pci.
+type VfioManager interface {
+	Prepare(ctx context.Context, req domain.VfioPrepareRequest) (domain.PreparedVfioDevice, error)
+	Unprepare(ctx context.Context, state domain.PreparedVfioDevice) error
 }
 
 // CDIWriter writes CDI specifications for prepared devices.

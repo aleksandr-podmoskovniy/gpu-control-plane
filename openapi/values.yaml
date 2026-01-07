@@ -62,6 +62,27 @@ properties:
                 description: PEM-encoded private key of the controller webhook certificate.
             additionalProperties: false
         additionalProperties: false
+      draController:
+        type: object
+        description: DRA controller webhook settings.
+        default: {}
+        properties:
+          cert:
+            type: object
+            description: TLS certificate chain and key used by the DRA admission webhook.
+            default: {}
+            properties:
+              ca:
+                type: string
+                description: PEM-encoded issuing CA bundle for the webhook certificate.
+              crt:
+                type: string
+                description: PEM-encoded certificate presented by the webhook server.
+              key:
+                type: string
+                description: PEM-encoded private key of the webhook certificate.
+            additionalProperties: false
+        additionalProperties: false
       customCertificateData:
         type: object
         description: TLS bundle provided by the operator to replace internally generated certificates.

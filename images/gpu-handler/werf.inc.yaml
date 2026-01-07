@@ -22,6 +22,10 @@ import:
   add: /out/gpu-handler
   to: /app/gpu-handler
   after: install
+- image: {{ .ModuleNamePrefix }}nvidia-mig-manager-build-artifact
+  add: /usr/bin/nvidia-cdi-hook
+  to: /usr/bin/nvidia-cdi-hook
+  after: install
 - image: libs/glibc
   add: /
   to: /

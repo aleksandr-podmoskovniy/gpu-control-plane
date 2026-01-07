@@ -22,14 +22,26 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 )
 
+// AllocationOptions controls optional allocation fields gated by feature flags.
+type AllocationOptions struct {
+	IncludeBindingConditions   bool
+	IncludeAllocationTimestamp bool
+}
+
 // BuildAllocationResult converts domain allocation into API allocation.
 func BuildAllocationResult(claim *resourcev1.ResourceClaim, alloc *domain.AllocationResult, classes map[string]*resourcev1.DeviceClass) (*resourcev1.AllocationResult, error) {
+	return BuildAllocationResultWithOptions(claim, alloc, classes, AllocationOptions{})
+}
+
+// BuildAllocationResultWithOptions converts domain allocation into API allocation with feature options.
+func BuildAllocationResultWithOptions(claim *resourcev1.ResourceClaim, alloc *domain.AllocationResult, classes map[string]*resourcev1.DeviceClass, opts AllocationOptions) (*resourcev1.AllocationResult, error) {
 	if claim == nil || alloc == nil {
 		return nil, nil
 	}
@@ -41,6 +53,14 @@ func BuildAllocationResult(claim *resourcev1.ResourceClaim, alloc *domain.Alloca
 			Driver:  dev.Driver,
 			Pool:    dev.Pool,
 			Device:  dev.Device,
+		}
+		if opts.IncludeBindingConditions {
+			if len(dev.BindingConditions) > 0 {
+				result.BindingConditions = cloneStrings(dev.BindingConditions)
+			}
+			if len(dev.BindingFailureConditions) > 0 {
+				result.BindingFailureConditions = cloneStrings(dev.BindingFailureConditions)
+			}
 		}
 		if len(dev.ConsumedCapacity) > 0 {
 			result.ConsumedCapacity = consumedCapacity(dev.ConsumedCapacity)
@@ -60,6 +80,10 @@ func BuildAllocationResult(claim *resourcev1.ResourceClaim, alloc *domain.Alloca
 			Results: results,
 		},
 		NodeSelector: nodeSelectorForNode(alloc.NodeName),
+	}
+	if opts.IncludeAllocationTimestamp {
+		ts := metav1.Now()
+		out.AllocationTimestamp = &ts
 	}
 
 	config, err := buildAllocationConfig(claim, classes)

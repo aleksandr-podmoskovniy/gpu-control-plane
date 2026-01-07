@@ -1,0 +1,32 @@
+{{- if eq (include "gpuControlPlane.isEnabled" .) "true" }}
+{{- $ns := include "gpuControlPlane.namespace" . }}
+{{- $moduleValues := .Values.gpuControlPlane | default dict }}
+{{- $internal := $moduleValues.internal | default dict }}
+{{- $draController := $internal.draController | default dict }}
+{{- $draCert := $draController.cert | default dict }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  {{- include "helm_lib_module_labels" (list . (dict "app" (include "gpuControlPlane.draControllerName" .))) | nindent 2 }}
+  name: {{ include "gpuControlPlane.draControllerName" . }}-validator
+webhooks:
+  - name: resourceclaimparameters.gpu-control-plane.deckhouse.io
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    rules:
+      - apiGroups:   ["resource.k8s.io"]
+        apiVersions: ["v1", "v1beta1", "v1beta2"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["resourceclaims", "resourceclaimtemplates"]
+        scope:       "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ $ns }}
+        name: {{ include "gpuControlPlane.draControllerName" . }}
+        path: /validate-resource-claim-parameters
+        port: 443
+      caBundle: |
+        {{ $draCert.ca | b64enc }}
+{{- end }}

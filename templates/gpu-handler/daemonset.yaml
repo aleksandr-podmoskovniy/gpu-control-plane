@@ -6,6 +6,7 @@
 {{- $logLevelLower := lower $logLevel }}
 {{- $driverRoot := include "gpuControlPlane.nvidiaDriverRoot" . }}
 {{- $driverRootParent := dir (trimSuffix "/" $driverRoot) }}
+{{- $cdiRoot := include "gpuControlPlane.cdiRoot" . }}
 {{- if and (eq (include "gpuControlPlane.isEnabled" .) "true") $componentEnabled }}
 ---
 apiVersion: apps/v1
@@ -73,7 +74,7 @@ spec:
             - name: HOST_DRIVER_ROOT
               value: {{ $driverRoot | quote }}
             - name: CDI_ROOT
-              value: "/etc/cdi"
+              value: {{ $cdiRoot | quote }}
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -113,7 +114,7 @@ spec:
               mountPropagation: HostToContainer
               readOnly: true
             - name: cdi-root
-              mountPath: /etc/cdi
+              mountPath: {{ $cdiRoot | quote }}
             - name: kubelet-plugins
               mountPath: /var/lib/kubelet/plugins
               mountPropagation: Bidirectional
@@ -142,6 +143,6 @@ spec:
             type: DirectoryOrCreate
         - name: cdi-root
           hostPath:
-            path: /etc/cdi
+            path: {{ $cdiRoot | quote }}
             type: DirectoryOrCreate
 {{- end }}

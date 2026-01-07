@@ -20,16 +20,37 @@ limitations under the License.
 package driver
 
 import (
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/cdi/composite"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/cdi/nvcdi"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/vfio"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/ports"
 )
 
 func newCDIWriter(cfg cdiConfig) (ports.CDIWriter, error) {
-	return nvcdi.New(nvcdi.Options{
+	vendor, err := resolveCDIVendor(cfg.DriverName)
+	if err != nil {
+		return nil, err
+	}
+	standard, err := nvcdi.New(nvcdi.Options{
 		DriverName:        cfg.DriverName,
+		Vendor:            vendor,
+		Class:             defaultClaimClass,
+		DeviceClass:       defaultDeviceClass,
 		DriverRoot:        cfg.DriverRoot,
 		HostDriverRoot:    cfg.HostDriverRoot,
 		CDIRoot:           cfg.CDIRoot,
 		NvidiaCDIHookPath: cfg.NvidiaCDIHookPath,
 	})
+	if err != nil {
+		return nil, err
+	}
+	vfioWriter, err := vfio.NewCDIWriter(vfio.CDIOptions{
+		Vendor:  vendor,
+		Class:   defaultClaimClass,
+		CDIRoot: cfg.CDIRoot,
+	})
+	if err != nil {
+		return composite.New(standard, nil), nil
+	}
+	return composite.New(standard, vfioWriter), nil
 }

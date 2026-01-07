@@ -33,11 +33,11 @@ import (
 
 func TestResourceSliceBuilderEmpty(t *testing.T) {
 	builder := NewBuilder(nil)
-	resources, err := builder.Build(context.Background(), "node-1", nil)
+	result, err := builder.Build(context.Background(), "node-1", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool, ok := resources.Pools["gpus/node-1"]
+	pool, ok := result.Resources.Pools["gpus/node-1"]
 	if !ok {
 		t.Fatalf("expected pool for gpus/node-1")
 	}
@@ -53,11 +53,11 @@ func TestResourceSliceBuilderPhysicalOnly(t *testing.T) {
 	builder := NewBuilder(nil)
 	pgpu := sampleGPU("0000:02:00.0", false)
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 	if len(pool.Slices) != 1 {
 		t.Fatalf("expected 1 slice, got %d", len(pool.Slices))
 	}
@@ -82,11 +82,11 @@ func TestResourceSliceBuilderPhysicalOnlyConsumableCapacity(t *testing.T) {
 	builder.EnableFeatures([]string{"DRAConsumableCapacity"})
 	pgpu := sampleGPU("0000:02:00.0", false)
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 	if len(pool.Slices) != 1 {
 		t.Fatalf("expected 1 slice, got %d", len(pool.Slices))
 	}
@@ -118,11 +118,11 @@ func TestResourceSliceBuilderMigSupported(t *testing.T) {
 	}
 	builder := NewBuilder(&fakePlacementReader{placements: placements})
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 	if len(pool.Slices) != 2 {
 		t.Fatalf("expected 2 slices, got %d", len(pool.Slices))
 	}
@@ -178,11 +178,11 @@ func TestResourceSliceBuilderMigSupportedSeparateCounters(t *testing.T) {
 	builder := NewBuilder(&fakePlacementReader{placements: placements})
 	builder.SetSharedCountersLayout(k8sresourceslice.SharedCountersSeparate)
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 	if len(pool.Slices) != 2 {
 		t.Fatalf("expected 2 slices, got %d", len(pool.Slices))
 	}
@@ -233,11 +233,11 @@ func TestResourceSliceBuilderMigPlacementsExtendCounters(t *testing.T) {
 	}
 	builder := NewBuilder(&fakePlacementReader{placements: placements})
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 
 	sliceIdx := -1
 	for i := range pool.Slices {
@@ -259,11 +259,11 @@ func TestResourceSliceBuilderMigPlacementError(t *testing.T) {
 	pgpu := sampleGPU("0000:02:00.0", true)
 	builder := NewBuilder(&fakePlacementReader{err: errors.New("nvml error")})
 
-	resources, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
+	result, err := builder.Build(context.Background(), "node-1", []gpuv1alpha1.PhysicalGPU{pgpu})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
-	pool := resources.Pools["gpus/node-1"]
+	pool := result.Resources.Pools["gpus/node-1"]
 	if len(pool.Slices) == 0 {
 		t.Fatalf("expected slices to be published")
 	}

@@ -32,8 +32,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra"
+	drawebhook "github.com/aleksandr-podmoskovniy/gpu/pkg/controller/dra/webhook"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
@@ -46,6 +48,10 @@ const (
 	healthProbeBindAddrEnv = "HEALTH_PROBE_BIND_ADDRESS"
 	pprofBindAddrEnv       = "PPROF_BIND_ADDRESS"
 	podNamespaceEnv        = "POD_NAMESPACE"
+	draDeviceStatusEnv     = "DRA_DEVICE_STATUS"
+
+	webhookPort    = 9443
+	webhookCertDir = "/var/lib/gpu-dra-controller/tls"
 )
 
 var scheme = runtime.NewScheme()
@@ -61,16 +67,19 @@ func main() {
 	var pprofAddr string
 	var enableLeaderElection bool
 	var leaderElectionID string
+	var deviceStatusMode string
 
 	logLevel := os.Getenv(logLevelEnv)
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
+	deviceStatusMode = envOr(draDeviceStatusEnv, "auto")
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", envOr(metricsBindAddrEnv, ":8080"), "The address the metrics endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", envOr(healthProbeBindAddrEnv, ":8083"), "The address the probe endpoint binds to.")
 	flag.StringVar(&pprofAddr, "pprof-bind-address", envOr(pprofBindAddrEnv, ""), "Enable pprof endpoint when set.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "Enable leader election for the controller.")
 	flag.StringVar(&leaderElectionID, "leader-election-id", "gpu-dra-controller.deckhouse.io", "Leader election ID.")
+	flag.StringVar(&deviceStatusMode, "dra-device-status", deviceStatusMode, "Enable ResourceClaim device status/binding conditions: auto|true|false.")
 	flag.StringVar(&logLevel, "log-level", logLevel, "Log level.")
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")
@@ -89,6 +98,10 @@ func main() {
 		LeaderElectionNamespace:       leaderElectionNS,
 		LeaderElectionID:              leaderElectionID,
 		LeaderElectionReleaseOnCancel: true,
+		WebhookServer: crwebhook.NewServer(crwebhook.Options{
+			Port:    webhookPort,
+			CertDir: webhookCertDir,
+		}),
 	}
 	if pprofAddr != "" {
 		managerOpts.PprofBindAddress = pprofAddr
@@ -102,8 +115,13 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 	draLog := logger.NewControllerLogger(dra.ControllerName, logLevel, logOutput, logDebugVerbosity, nil)
-	if err := dra.SetupController(ctx, mgr, draLog); err != nil {
+	if err := dra.SetupController(ctx, mgr, draLog, dra.Config{DeviceStatusMode: deviceStatusMode}); err != nil {
 		setupLog.Error("unable to create controller", "controller", dra.ControllerName, logger.SlogErr(err))
+		os.Exit(1)
+	}
+	webhookLog := logger.NewControllerLogger("gpu-dra-webhook", logLevel, logOutput, logDebugVerbosity, nil)
+	if err := drawebhook.SetupWithManager(mgr, webhookLog, drawebhook.Config{}); err != nil {
+		setupLog.Error("unable to create webhook", logger.SlogErr(err))
 		os.Exit(1)
 	}
 

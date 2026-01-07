@@ -25,6 +25,7 @@ import (
 	_ "hooks/pkg/hooks/discovery-node-feature-rule"
 	_ "hooks/pkg/hooks/module_status"
 	_ "hooks/pkg/hooks/tls_certificates_controller"
+	_ "hooks/pkg/hooks/tls_certificates_dra_controller"
 	_ "hooks/pkg/hooks/tls_certificates_metrics_proxy"
 	_ "hooks/pkg/hooks/validate_module_config"
 )

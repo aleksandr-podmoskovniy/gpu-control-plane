@@ -31,6 +31,7 @@ type Allocator struct {
 	client    client.Client
 	allocator *allocator.Service
 	classes   *DeviceClassService
+	options   k8sallocator.AllocationOptions
 }
 
 // NewAllocator creates an Allocator service.
@@ -40,6 +41,14 @@ func NewAllocator(client client.Client) *Allocator {
 		allocator: allocator.NewService(),
 		classes:   NewDeviceClassService(client),
 	}
+}
+
+// SetAllocationOptions updates optional allocation behavior.
+func (a *Allocator) SetAllocationOptions(opts k8sallocator.AllocationOptions) {
+	if a == nil {
+		return
+	}
+	a.options = opts
 }
 
 // Allocate computes allocation for the provided claim.
@@ -84,5 +93,5 @@ func (a *Allocator) Allocate(ctx context.Context, claim *resourcev1.ResourceClai
 		return nil, err
 	}
 
-	return k8sallocator.BuildAllocationResult(claim, result, classes)
+	return k8sallocator.BuildAllocationResultWithOptions(claim, result, classes, a.options)
 }

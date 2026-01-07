@@ -18,7 +18,8 @@ package nvcdi
 
 const (
 	defaultCDIRoot = "/etc/cdi"
-	defaultClass   = "claim"
+	defaultClaimClass  = "claim"
+	defaultDeviceClass = "device"
 )
 
 // Options configures CDI spec generation with nvcdi.
@@ -26,6 +27,7 @@ type Options struct {
 	DriverName        string
 	Vendor            string
 	Class             string
+	DeviceClass       string
 	DriverRoot        string
 	HostDriverRoot    string
 	CDIRoot           string

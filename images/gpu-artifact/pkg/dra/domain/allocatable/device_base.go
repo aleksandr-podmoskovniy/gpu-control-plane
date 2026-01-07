@@ -26,6 +26,8 @@ type deviceBase struct {
 	capacity                 map[string]CapacityValue
 	consumes                 []CounterConsumption
 	allowMultipleAllocations bool
+	bindingConditions        []string
+	bindingFailureConditions []string
 }
 
 func (d *deviceBase) UUID() string {
@@ -47,5 +49,7 @@ func (d *deviceBase) Spec() DeviceSpec {
 		Capacity:                 d.capacity,
 		Consumes:                 d.consumes,
 		AllowMultipleAllocations: d.allowMultipleAllocations,
+		BindingConditions:        d.bindingConditions,
+		BindingFailureConditions: d.bindingFailureConditions,
 	}
 }

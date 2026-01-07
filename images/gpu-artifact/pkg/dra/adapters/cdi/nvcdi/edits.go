@@ -23,11 +23,15 @@ import (
 	"errors"
 	"fmt"
 
+	nvcdiapi "github.com/NVIDIA/nvidia-container-toolkit/pkg/nvcdi"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 )
 
-func (w *Writer) commonEdits() (*cdiapi.ContainerEdits, error) {
-	commonEdits, err := w.nvcdi.GetCommonEdits()
+func (w *Writer) commonEdits(lib nvcdiapi.Interface) (*cdiapi.ContainerEdits, error) {
+	if lib == nil {
+		return nil, errors.New("nvcdi library is nil")
+	}
+	commonEdits, err := lib.GetCommonEdits()
 	if err != nil {
 		return nil, fmt.Errorf("get common CDI edits: %w", err)
 	}

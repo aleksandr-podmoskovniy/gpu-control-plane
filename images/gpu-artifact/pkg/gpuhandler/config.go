@@ -23,6 +23,7 @@ type Config struct {
 	NodeName               string
 	KubeConfig             *rest.Config
 	ConsumableCapacityMode string
+	DeviceStatusMode       string
 	DriverRoot             string
 	HostDriverRoot         string
 	CDIRoot                string

@@ -38,5 +38,6 @@ type Config struct {
 	NvidiaCDIHookPath   string
 	SerializeGRPCCalls  bool
 	EnableDebugResponse bool
+	DeviceStatusEnabled bool
 	ErrorHandler        func(ctx context.Context, err error, msg string)
 }

@@ -25,6 +25,7 @@ import (
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
+	handlerresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/resourceslice"
 )
 
 const publishResourcesHandlerName = "publish-resources"
@@ -37,24 +38,31 @@ type ResourcesPublisher interface {
 	PublishResources(ctx context.Context, resources resourceslice.DriverResources) error
 }
 
+// CDIBaseSyncer updates base CDI specs using DriverResources.
+type CDIBaseSyncer interface {
+	Sync(ctx context.Context, resources resourceslice.DriverResources) error
+}
+
 // ResourceSliceBuilder builds driver resources for a node.
 type ResourceSliceBuilder interface {
-	Build(ctx context.Context, nodeName string, devices []gpuv1alpha1.PhysicalGPU) (resourceslice.DriverResources, error)
+	Build(ctx context.Context, nodeName string, devices []gpuv1alpha1.PhysicalGPU) (handlerresourceslice.BuildResult, error)
 }
 
 // PublishResourcesHandler publishes ResourceSlices based on PhysicalGPU status.
 type PublishResourcesHandler struct {
 	builder      ResourceSliceBuilder
 	publisher    ResourcesPublisher
+	cdiSyncer    CDIBaseSyncer
 	recorder     eventrecord.EventRecorderLogger
 	errorHandler PublishErrorHandler
 }
 
 // NewPublishResourcesHandler constructs a publish handler.
-func NewPublishResourcesHandler(builder ResourceSliceBuilder, publisher ResourcesPublisher, recorder eventrecord.EventRecorderLogger, errorHandler PublishErrorHandler) *PublishResourcesHandler {
+func NewPublishResourcesHandler(builder ResourceSliceBuilder, publisher ResourcesPublisher, cdiSyncer CDIBaseSyncer, recorder eventrecord.EventRecorderLogger, errorHandler PublishErrorHandler) *PublishResourcesHandler {
 	return &PublishResourcesHandler{
 		builder:      builder,
 		publisher:    publisher,
+		cdiSyncer:    cdiSyncer,
 		recorder:     recorder,
 		errorHandler: errorHandler,
 	}
@@ -71,13 +79,22 @@ func (h *PublishResourcesHandler) Handle(ctx context.Context, st state.State) er
 		return nil
 	}
 
-	resources, buildErr := h.builder.Build(ctx, st.NodeName(), st.Ready())
-	h.recordMigPlacementMismatch(ctx, st, resources)
-	publishErr := h.publisher.PublishResources(ctx, resources)
+	result, buildErr := h.builder.Build(ctx, st.NodeName(), st.Ready())
+	h.recordMigPlacementMismatch(ctx, st, result.Resources)
+
+	var cdiErr error
+	if h.cdiSyncer != nil {
+		cdiErr = h.cdiSyncer.Sync(ctx, result.Resources)
+		if cdiErr != nil && h.errorHandler != nil {
+			h.errorHandler(ctx, cdiErr, "sync CDI base spec")
+		}
+	}
+
+	publishErr := h.publisher.PublishResources(ctx, result.Resources)
 	if publishErr != nil && h.errorHandler != nil {
 		h.errorHandler(ctx, publishErr, "publish resource slices")
 	}
-	err := errors.Join(buildErr, publishErr)
-	h.recordPublish(ctx, st, resources, err)
+	err := errors.Join(buildErr, cdiErr, publishErr)
+	h.recordPublish(ctx, st, result.Resources, err)
 	return err
 }

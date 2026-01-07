@@ -22,14 +22,16 @@ package capabilities
 import (
 	"fmt"
 	"strings"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32) string {
+func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID, profileIndex uint32) string {
 	name := normalizeMigProfileName(raw)
 	if name != "" {
-		return name
+		return ensureProfileSuffix(name, profileIndex)
 	}
-	return defaultMigProfileName(sliceCount, memoryMiB, profileID)
+	return ensureProfileSuffix(defaultMigProfileName(sliceCount, memoryMiB, profileID), profileIndex)
 }
 
 func normalizeMigProfileName(raw string) string {
@@ -39,6 +41,39 @@ func normalizeMigProfileName(raw string) string {
 	}
 	name = strings.TrimPrefix(name, "MIG ")
 	return strings.TrimSpace(name)
+}
+
+func ensureProfileSuffix(name string, profileIndex uint32) string {
+	if name == "" {
+		return ""
+	}
+	if strings.ContainsAny(name, "+-") {
+		return name
+	}
+	if suffix := migProfileSuffix(profileIndex); suffix != "" {
+		return name + suffix
+	}
+	return name
+}
+
+func migProfileSuffix(profileIndex uint32) string {
+	switch profileIndex {
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1:
+		return "+me"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME:
+		return "+me.all"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX:
+		return "+gfx"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME:
+		return "-me"
+	default:
+		return ""
+	}
 }
 
 func defaultMigProfileName(sliceCount uint32, memoryMiB uint64, profileID uint32) string {

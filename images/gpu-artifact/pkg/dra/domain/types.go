@@ -31,12 +31,14 @@ type InventorySnapshot struct {
 
 // AllocatedDevice references a device selected for a claim request.
 type AllocatedDevice struct {
-	Request          string
-	Driver           string
-	Pool             string
-	Device           string
-	ShareID          string
-	ConsumedCapacity map[string]resource.Quantity
+	Request                  string
+	Driver                   string
+	Pool                     string
+	Device                   string
+	ShareID                  string
+	ConsumedCapacity         map[string]resource.Quantity
+	BindingConditions        []string
+	BindingFailureConditions []string
 }
 
 // NodeSelector pins an allocation to a specific node.

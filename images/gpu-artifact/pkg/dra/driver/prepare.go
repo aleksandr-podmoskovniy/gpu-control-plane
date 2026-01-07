@@ -71,7 +71,11 @@ func (d *Driver) prepareClaim(ctx context.Context, claim *resourceapi.ResourceCl
 	if err != nil {
 		return prepareErrorResult(err)
 	}
-	req.VFIO = VFIORequested(claim.Annotations)
+	vfioConfigRequested, err := vfioRequestedFromConfig(claim, d.driverName)
+	if err != nil {
+		return prepareErrorResult(err)
+	}
+	req.VFIO = VFIORequested(claim.Annotations) || vfioConfigRequested
 
 	result, err := d.prepareService.Prepare(ctx, req)
 	if err != nil {
@@ -94,6 +98,16 @@ func (d *Driver) prepareClaim(ctx context.Context, claim *resourceapi.ResourceCl
 		"namespace", claim.Namespace,
 		"deviceCount", len(devices),
 	)
+	if d.deviceStatusEnabled {
+		if err := d.updateClaimDeviceStatus(ctx, claim); err != nil {
+			logger.FromContext(ctx).Warn(
+				"failed to update claim device status",
+				"claim", claim.Name,
+				"namespace", claim.Namespace,
+				logger.SlogErr(err),
+			)
+		}
+	}
 
 	return kubeletplugin.PrepareResult{Devices: devices}
 }
@@ -103,7 +117,20 @@ func (d *Driver) unprepareClaim(ctx context.Context, claim kubeletplugin.Namespa
 		return errors.New("prepare service is not configured")
 	}
 	logger.FromContext(ctx).Info("claim unprepare", "claim", claim.Name, "namespace", claim.Namespace)
-	return d.prepareService.Unprepare(ctx, string(claim.UID))
+	if err := d.prepareService.Unprepare(ctx, string(claim.UID)); err != nil {
+		return err
+	}
+	if d.deviceStatusEnabled {
+		if err := d.clearClaimDeviceStatus(ctx, claim); err != nil {
+			logger.FromContext(ctx).Warn(
+				"failed to clear claim device status",
+				"claim", claim.Name,
+				"namespace", claim.Namespace,
+				logger.SlogErr(err),
+			)
+		}
+	}
+	return nil
 }
 
 func prepareErrorResult(err error) kubeletplugin.PrepareResult {

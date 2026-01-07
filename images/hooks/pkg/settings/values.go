@@ -22,6 +22,8 @@ const (
 	InternalModuleConditionsPath  = internalRoot + ".conditions"
 	InternalControllerPath        = internalRoot + ".controller"
 	InternalControllerCertPath    = InternalControllerPath + ".cert"
+	InternalDRAControllerPath     = internalRoot + ".draController"
+	InternalDRAControllerCertPath = InternalDRAControllerPath + ".cert"
 	InternalMetricsPath           = internalRoot + ".metrics"
 	InternalMetricsCertPath       = InternalMetricsPath + ".cert"
 	InternalNodeFeatureRulePath   = internalRoot + ".nodeFeatureRule"

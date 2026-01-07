@@ -47,6 +47,7 @@ const (
 	logOutputEnv             = "LOG_OUTPUT"
 	healthProbeBindAddrEnv   = "HEALTH_PROBE_BIND_ADDRESS"
 	draConsumableCapacityEnv = "DRA_CONSUMABLE_CAPACITY"
+	draDeviceStatusEnv       = "DRA_DEVICE_STATUS"
 	cdiRootEnv               = "CDI_ROOT"
 	hostDriverRootEnv        = "HOST_DRIVER_ROOT"
 	nvidiaDriverRootEnv      = "NVIDIA_DRIVER_ROOT"
@@ -57,6 +58,7 @@ func main() {
 	var probeAddr string
 	var nodeName string
 	var consumableCapacityMode string
+	var deviceStatusMode string
 	var driverRoot string
 	var hostDriverRoot string
 	var cdiRoot string
@@ -66,6 +68,7 @@ func main() {
 	logOutput := os.Getenv(logOutputEnv)
 	logDebugVerbosity := envIntOrDie(logDebugVerbosityEnv)
 	consumableCapacityMode = envOr(draConsumableCapacityEnv, "auto")
+	deviceStatusMode = envOr(draDeviceStatusEnv, "auto")
 	driverRoot = envOr(nvidiaDriverRootEnv, "")
 	hostDriverRoot = envOr(hostDriverRootEnv, "/")
 	cdiRoot = envOr(cdiRootEnv, "/etc/cdi")
@@ -77,6 +80,7 @@ func main() {
 	flag.StringVar(&logOutput, "log-output", logOutput, "Log output.")
 	flag.IntVar(&logDebugVerbosity, "log-debug-verbosity", logDebugVerbosity, "Log debug verbosity.")
 	flag.StringVar(&consumableCapacityMode, "dra-consumable-capacity", consumableCapacityMode, "Enable DRA consumable capacity: auto|true|false.")
+	flag.StringVar(&deviceStatusMode, "dra-device-status", deviceStatusMode, "Enable ResourceClaim device status/binding conditions: auto|true|false.")
 	flag.Parse()
 
 	rootLog := logger.NewLogger(logLevel, logOutput, logDebugVerbosity)
@@ -106,6 +110,7 @@ func main() {
 		NodeName:               nodeName,
 		KubeConfig:             restConfig,
 		ConsumableCapacityMode: consumableCapacityMode,
+		DeviceStatusMode:       deviceStatusMode,
 		DriverRoot:             driverRoot,
 		HostDriverRoot:         hostDriverRoot,
 		CDIRoot:                cdiRoot,

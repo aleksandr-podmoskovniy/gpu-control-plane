@@ -48,6 +48,10 @@ gpu-handler
 {{ include "gpuControlPlane.controllerName" . }}-tls
 {{- end -}}
 
+{{- define "gpuControlPlane.draControllerTLSSecretName" -}}
+{{ include "gpuControlPlane.draControllerName" . }}-tls
+{{- end -}}
+
 {{- define "gpuControlPlane.rootCASecretName" -}}
 {{ include "gpuControlPlane.moduleName" . }}-ca
 {{- end -}}
@@ -99,6 +103,10 @@ deckhouse-gpu-kernel-os
 
 {{- define "gpuControlPlane.nvidiaDriverRoot" -}}
 {{- default "/" (dig "internal" "nvidiaDriverRoot" "" .Values.gpuControlPlane) -}}
+{{- end -}}
+
+{{- define "gpuControlPlane.cdiRoot" -}}
+{{- default "/etc/cdi" (dig "internal" "cdiRoot" "" .Values.gpuControlPlane) -}}
 {{- end -}}
 
 {{- define "gpuControlPlane.managedNodeMatchExpression" -}}

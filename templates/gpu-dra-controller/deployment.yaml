@@ -61,12 +61,19 @@ spec:
             - name: PPROF_BIND_ADDRESS
               value: ":8081"
             {{- end }}
+          volumeMounts:
+            - name: dra-controller-tls
+              mountPath: /var/lib/gpu-dra-controller/tls
+              readOnly: true
           ports:
             - name: metrics
               containerPort: 8080
               protocol: TCP
             - name: pprof
               containerPort: 8081
+              protocol: TCP
+            - name: webhooks
+              containerPort: 9443
               protocol: TCP
             - name: health
               containerPort: 8083
@@ -104,6 +111,9 @@ spec:
       {{- include "helm_lib_node_selector" (tuple . "master") | nindent 6 }}
       {{- include "helm_lib_tolerations" (tuple . "any-node") | nindent 6 }}
       volumes:
+        - name: dra-controller-tls
+          secret:
+            secretName: {{ include "gpuControlPlane.draControllerTLSSecretName" . }}
         - name: kube-rbac-proxy-tls
           secret:
             secretName: {{ include "gpuControlPlane.metricsTLSSecretName" . }}

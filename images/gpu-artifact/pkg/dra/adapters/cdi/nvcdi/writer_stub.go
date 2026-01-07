@@ -29,6 +29,12 @@ import (
 // Writer is a stub CDI writer for non-NVML builds.
 type Writer struct{}
 
+// BaseDevice is a stubbed base device descriptor.
+type BaseDevice struct {
+	Name string
+	UUID string
+}
+
 // New returns an error when NVML is unavailable.
 func New(_ Options) (*Writer, error) {
 	return nil, errors.New("nvcdi requires linux,cgo,nvml build tags")
@@ -41,5 +47,10 @@ func (w *Writer) Write(_ context.Context, _ domain.PrepareRequest) (map[string][
 
 // Delete returns an error when NVML is unavailable.
 func (w *Writer) Delete(_ context.Context, _ string) error {
+	return errors.New("nvcdi requires linux,cgo,nvml build tags")
+}
+
+// WriteBase returns an error when NVML is unavailable.
+func (w *Writer) WriteBase(_ context.Context, _ []BaseDevice) error {
 	return errors.New("nvcdi requires linux,cgo,nvml build tags")
 }

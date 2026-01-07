@@ -30,12 +30,13 @@ import (
 
 // Driver implements kubeletplugin.DRAPlugin and publishes ResourceSlices.
 type Driver struct {
-	helper         *kubeletplugin.Helper
-	driverName     string
-	nodeName       string
-	kubeClient     kubernetes.Interface
-	prepareService *prepare.Service
-	errorHandler   func(ctx context.Context, err error, msg string)
+	helper              *kubeletplugin.Helper
+	driverName          string
+	nodeName            string
+	kubeClient          kubernetes.Interface
+	prepareService      *prepare.Service
+	deviceStatusEnabled bool
+	errorHandler        func(ctx context.Context, err error, msg string)
 }
 
 // PublishResources publishes ResourceSlices for this driver.

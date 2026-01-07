@@ -25,8 +25,15 @@ import (
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	k8sresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/resourceslice"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory"
 )
+
+// BuildResult combines inventory data with rendered driver resources.
+type BuildResult struct {
+	Resources resourceslice.DriverResources
+	Inventory allocatable.Inventory
+}
 
 // Builder builds DriverResources for a node.
 type Builder struct {
@@ -44,9 +51,9 @@ func NewBuilder(placements inventory.MigPlacementReader) *Builder {
 }
 
 // Build renders driver resources for the given node and devices.
-func (b *Builder) Build(_ context.Context, nodeName string, devices []gpuv1alpha1.PhysicalGPU) (resourceslice.DriverResources, error) {
+func (b *Builder) Build(_ context.Context, nodeName string, devices []gpuv1alpha1.PhysicalGPU) (BuildResult, error) {
 	if b.inventory == nil {
-		return resourceslice.DriverResources{}, errors.New("inventory builder is not configured")
+		return BuildResult{}, errors.New("inventory builder is not configured")
 	}
 	poolName := PoolName(nodeName)
 
@@ -57,5 +64,8 @@ func (b *Builder) Build(_ context.Context, nodeName string, devices []gpuv1alpha
 	b.mu.RUnlock()
 
 	resources := k8sresourceslice.BuildDriverResources(poolName, inv, features)
-	return resources, errors.Join(errs...)
+	return BuildResult{
+		Resources: resources,
+		Inventory: inv,
+	}, errors.Join(errs...)
 }

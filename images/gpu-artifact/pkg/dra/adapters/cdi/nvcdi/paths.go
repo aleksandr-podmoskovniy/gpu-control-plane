@@ -20,12 +20,12 @@ limitations under the License.
 package nvcdi
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvmlutil"
 )
 
 func devRootFor(root string) string {
@@ -43,38 +43,5 @@ func devRootFor(root string) string {
 }
 
 func nvmlLibraryOptions(driverRoot string) []nvml.LibraryOption {
-	driverRoot = strings.TrimSpace(driverRoot)
-	if driverRoot == "" {
-		return nil
-	}
-	path, err := findNVMLLibrary(driverRoot)
-	if err != nil {
-		return nil
-	}
-	return []nvml.LibraryOption{nvml.WithLibraryPath(path)}
-}
-
-func findNVMLLibrary(root string) (string, error) {
-	for _, dir := range nvmlLibrarySearchPaths {
-		candidate := filepath.Join(root, dir, "libnvidia-ml.so.1")
-		resolved, err := filepath.EvalSymlinks(candidate)
-		if err != nil {
-			continue
-		}
-		info, err := os.Stat(resolved)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		return resolved, nil
-	}
-	return "", fmt.Errorf("nvml library not found under %s", root)
-}
-
-var nvmlLibrarySearchPaths = []string{
-	"/usr/lib64",
-	"/usr/lib/x86_64-linux-gnu",
-	"/usr/lib/aarch64-linux-gnu",
-	"/lib64",
-	"/lib/x86_64-linux-gnu",
-	"/lib/aarch64-linux-gnu",
+	return nvmlutil.LibraryOptions(driverRoot)
 }

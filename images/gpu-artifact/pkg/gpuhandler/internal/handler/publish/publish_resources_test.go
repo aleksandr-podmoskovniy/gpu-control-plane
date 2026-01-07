@@ -26,6 +26,7 @@ import (
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
+	handlerresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/resourceslice"
 )
 
 type fakeBuilder struct {
@@ -34,9 +35,9 @@ type fakeBuilder struct {
 	got       []gpuv1alpha1.PhysicalGPU
 }
 
-func (b *fakeBuilder) Build(_ context.Context, _ string, devices []gpuv1alpha1.PhysicalGPU) (resourceslice.DriverResources, error) {
+func (b *fakeBuilder) Build(_ context.Context, _ string, devices []gpuv1alpha1.PhysicalGPU) (handlerresourceslice.BuildResult, error) {
 	b.got = append([]gpuv1alpha1.PhysicalGPU{}, devices...)
-	return b.resources, b.err
+	return handlerresourceslice.BuildResult{Resources: b.resources}, b.err
 }
 
 type fakePublisher struct {
@@ -54,7 +55,7 @@ func TestPublishResourcesUsesReadyList(t *testing.T) {
 	st.SetReady([]gpuv1alpha1.PhysicalGPU{healthy, unhealthy})
 
 	builder := &fakeBuilder{}
-	h := NewPublishResourcesHandler(builder, fakePublisher{}, nil, nil)
+	h := NewPublishResourcesHandler(builder, fakePublisher{}, nil, nil, nil)
 	if err := h.Handle(context.Background(), st); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestPublishResourcesJoinsErrors(t *testing.T) {
 
 	buildErr := errors.New("build failed")
 	publishErr := errors.New("publish failed")
-	h := NewPublishResourcesHandler(&fakeBuilder{err: buildErr}, fakePublisher{err: publishErr}, nil, nil)
+	h := NewPublishResourcesHandler(&fakeBuilder{err: buildErr}, fakePublisher{err: publishErr}, nil, nil, nil)
 
 	err := h.Handle(context.Background(), st)
 	if err == nil {

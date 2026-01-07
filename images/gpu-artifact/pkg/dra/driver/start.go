@@ -25,6 +25,10 @@ import (
 
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 
+	checkpointfile "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/checkpoint/file"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/lock/fslock"
+	mignvml "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/mig/nvml"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/vfio"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/prepare"
 )
 
@@ -61,23 +65,44 @@ func Start(ctx context.Context, cfg Config) (*Driver, error) {
 		return nil, fmt.Errorf("ensure CDI root %q: %w", cdiRoot, err)
 	}
 
+	hookPath, err := ResolveNvidiaCDIHookPath(cfg.NvidiaCDIHookPath, pluginPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve nvidia-cdi-hook: %w", err)
+	}
+
 	cdiWriter, err := newCDIWriter(cdiConfig{
 		DriverName:        driverName,
 		DriverRoot:        cfg.DriverRoot,
 		HostDriverRoot:    cfg.HostDriverRoot,
 		CDIRoot:           cdiRoot,
-		NvidiaCDIHookPath: cfg.NvidiaCDIHookPath,
+		NvidiaCDIHookPath: hookPath,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init CDI writer: %w", err)
 	}
 
+	locker := fslock.New(filepath.Join(pluginPath, prepareLockFile))
+	checkpoints := checkpointfile.New(filepath.Join(pluginPath, prepareCheckpointFile))
+	migManager := mignvml.New(mignvml.Options{DriverRoot: cfg.DriverRoot})
+	vfioManager := vfio.New(vfio.Options{})
+	prepareService, err := prepare.NewService(prepare.Options{
+		CDI:         cdiWriter,
+		MIG:         migManager,
+		VFIO:        vfioManager,
+		Locker:      locker,
+		Checkpoints: checkpoints,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init prepare service: %w", err)
+	}
+
 	driver := &Driver{
-		driverName:     driverName,
-		nodeName:       cfg.NodeName,
-		kubeClient:     cfg.KubeClient,
-		prepareService: prepare.NewService(cdiWriter),
-		errorHandler:   cfg.ErrorHandler,
+		driverName:          driverName,
+		nodeName:            cfg.NodeName,
+		kubeClient:          cfg.KubeClient,
+		prepareService:      prepareService,
+		deviceStatusEnabled: cfg.DeviceStatusEnabled,
+		errorHandler:        cfg.ErrorHandler,
 	}
 
 	helper, err := kubeletplugin.Start(

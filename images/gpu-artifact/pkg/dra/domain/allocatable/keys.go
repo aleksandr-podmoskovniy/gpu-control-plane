@@ -26,6 +26,7 @@ const (
 	AttrCCMajor    = "cc_major"
 	AttrCCMinor    = "cc_minor"
 	AttrMigProfile = "mig_profile"
+	AttrMigUUID    = "mig_uuid"
 
 	CapMemory       = "memory"
 	CapSharePercent = "sharePercent"

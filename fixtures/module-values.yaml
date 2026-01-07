@@ -139,6 +139,11 @@ gpuControlPlane:
         ca: CONTROLLER-CA-CRT
         crt: CONTROLLER-CRT
         key: CONTROLLER-KEY
+    draController:
+      cert:
+        ca: DRA-CONTROLLER-CA-CRT
+        crt: DRA-CONTROLLER-CRT
+        key: DRA-CONTROLLER-KEY
     bootstrap:
       components:
         validator:
