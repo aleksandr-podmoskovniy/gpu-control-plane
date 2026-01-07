@@ -160,11 +160,11 @@ func TestNVMLReaderMIGProfilesSuffixByProfileID(t *testing.T) {
 		migMode:   nvml.DEVICE_MIG_ENABLE,
 		migRet:    nvml.SUCCESS,
 		profileInfo: map[int]nvml.GpuInstanceProfileInfo_v3{
-			0: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE, 1, 4, 5952, "", 1, 1, 1, 1, 0),
-			1: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1, 1, 1, 5952, "", 0, 0, 0, 0, 0),
-			2: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME, 1, 1, 5952, "", 0, 0, 0, 0, 0),
-			3: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX, 1, 1, 5952, "", 0, 0, 0, 0, nvml.GPU_INSTANCE_PROFILE_CAPS_GFX),
-			4: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME, 1, 1, 5952, "", 1, 1, 1, 1, 0),
+			0: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE, 1, 4, 5952, "MIG 1g.6gb", 1, 0, 0, 0, 0),
+			1: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1, 1, 1, 5952, "MIG 1g.6gb+me", 0, 0, 0, 0, 0),
+			2: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME, 1, 1, 5952, "MIG 1g.6gb+me.all", 0, 0, 0, 0, 0),
+			3: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX, 1, 1, 5952, "MIG 1g.6gb+gfx", 0, 0, 0, 0, nvml.GPU_INSTANCE_PROFILE_CAPS_GFX),
+			4: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME, 1, 1, 5952, "MIG 1g.6gb-me", 1, 0, 0, 0, 0),
 		},
 		profileRet: nvml.ERROR_NOT_SUPPORTED,
 	}
