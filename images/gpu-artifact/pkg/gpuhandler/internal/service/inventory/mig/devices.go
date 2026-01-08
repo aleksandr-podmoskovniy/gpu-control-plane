@@ -58,9 +58,10 @@ func buildMigDevices(pgpu gpuv1alpha1.PhysicalGPU, session invtypes.MigPlacement
 		totalSlices = placementSlices
 	}
 
+	totals := totalsFromProfiles(*pgpu.Status.Capabilities.MemoryMiB, totalSlices, profiles)
 	counterSet := allocatable.CounterSet{
 		Name:     allocatable.CounterSetNameForPCI(pciAddress),
-		Counters: buildMigCounters(*pgpu.Status.Capabilities.MemoryMiB, totalSlices),
+		Counters: buildMigCounters(totals),
 	}
 
 	var devices allocatable.DeviceList
@@ -79,7 +80,7 @@ func buildMigDevices(pgpu gpuv1alpha1.PhysicalGPU, session invtypes.MigPlacement
 				[]allocatable.CounterConsumption{
 					{
 						CounterSet: counterSet.Name,
-						Counters:   buildMigConsumes(profile.MemoryMiB, placement),
+						Counters:   buildMigConsumes(profile, placement),
 					},
 				},
 			))

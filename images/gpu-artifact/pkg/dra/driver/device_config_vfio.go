@@ -17,10 +17,7 @@ limitations under the License.
 package driver
 
 import (
-	"fmt"
-
 	resourceapi "k8s.io/api/resource/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	configapi "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/configapi"
 )
@@ -41,48 +38,22 @@ func vfioRequestedFromConfig(claim *resourceapi.ResourceClaim, driverName string
 		return false, nil
 	}
 
-	for _, cfg := range claim.Status.Allocation.Devices.Config {
-		opaque := cfg.Opaque
-		if opaque == nil {
-			continue
-		}
-		if opaque.Driver != driverName {
+	configs, err := decodeDeviceConfigs(claim.Status.Allocation.Devices.Config, driverName)
+	if err != nil {
+		return false, err
+	}
+
+	for _, cfg := range configs {
+		if cfg == nil || cfg.Config == nil {
 			continue
 		}
 		if !configApplies(cfg.Requests, requests) {
 			continue
 		}
-
-		decoded, err := runtime.Decode(configapi.StrictDecoder, opaque.Parameters.Raw)
-		if err != nil {
-			return false, fmt.Errorf("decode device config: %w", err)
-		}
-		config, ok := decoded.(configapi.Interface)
-		if !ok {
-			return false, fmt.Errorf("unsupported device config type %T", decoded)
-		}
-		if err := config.Normalize(); err != nil {
-			return false, fmt.Errorf("normalize device config: %w", err)
-		}
-		if err := config.Validate(); err != nil {
-			return false, fmt.Errorf("validate device config: %w", err)
-		}
-		if _, ok := decoded.(*configapi.VfioDeviceConfig); ok {
+		if _, ok := cfg.Config.(*configapi.VfioDeviceConfig); ok {
 			return true, nil
 		}
 	}
 
 	return false, nil
-}
-
-func configApplies(configRequests []string, allocated map[string]struct{}) bool {
-	if len(configRequests) == 0 {
-		return true
-	}
-	for _, name := range configRequests {
-		if _, ok := allocated[name]; ok {
-			return true
-		}
-	}
-	return false
 }

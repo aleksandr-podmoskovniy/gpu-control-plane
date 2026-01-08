@@ -34,6 +34,7 @@ func NewGPUDevice(name, uuid string, attrs map[string]AttributeValue, capacity m
 			capacity:                 capacity,
 			consumes:                 consumes,
 			allowMultipleAllocations: allowMultiple,
+			bindingConditions:        []string{DeviceConditionReady},
 		},
 	}
 }

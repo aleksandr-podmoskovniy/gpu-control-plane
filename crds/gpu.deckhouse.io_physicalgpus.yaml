@@ -122,6 +122,36 @@ spec:
                                     of instances for this profile.
                                   format: int32
                                   type: integer
+                                multiprocessors:
+                                  description: Multiprocessors is the number of
+                                    SMs in the profile.
+                                  format: int32
+                                  type: integer
+                                copyEngines:
+                                  description: CopyEngines is the number of copy
+                                    engines in the profile.
+                                  format: int32
+                                  type: integer
+                                decoders:
+                                  description: Decoders is the number of decoder
+                                    engines in the profile.
+                                  format: int32
+                                  type: integer
+                                encoders:
+                                  description: Encoders is the number of encoder
+                                    engines in the profile.
+                                  format: int32
+                                  type: integer
+                                jpegEngines:
+                                  description: JpegEngines is the number of JPEG
+                                    engines in the profile.
+                                  format: int32
+                                  type: integer
+                                ofaEngines:
+                                  description: OfaEngines is the number of OFA
+                                    engines in the profile.
+                                  format: int32
+                                  type: integer
                                 memoryMiB:
                                   description: MemoryMiB is the framebuffer size for
                                     the profile.

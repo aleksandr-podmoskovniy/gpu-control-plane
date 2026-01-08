@@ -33,6 +33,7 @@ func NewMIGDevice(name, uuid string, attrs map[string]AttributeValue, capacity m
 			attributes:    attrs,
 			capacity:      capacity,
 			consumes:      consumes,
+			bindingConditions: []string{DeviceConditionReady},
 		},
 	}
 }

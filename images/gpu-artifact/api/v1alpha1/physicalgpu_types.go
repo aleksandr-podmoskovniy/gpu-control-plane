@@ -151,6 +151,18 @@ type NvidiaMIGProfile struct {
 	SliceCount int32 `json:"sliceCount,omitempty"`
 	// MaxInstances is the maximum number of instances for this profile.
 	MaxInstances int32 `json:"maxInstances,omitempty"`
+	// Multiprocessors is the number of SMs in the profile.
+	Multiprocessors int32 `json:"multiprocessors,omitempty"`
+	// CopyEngines is the number of copy engines in the profile.
+	CopyEngines int32 `json:"copyEngines,omitempty"`
+	// Decoders is the number of decoder engines in the profile.
+	Decoders int32 `json:"decoders,omitempty"`
+	// Encoders is the number of encoder engines in the profile.
+	Encoders int32 `json:"encoders,omitempty"`
+	// JpegEngines is the number of JPEG engines in the profile.
+	JpegEngines int32 `json:"jpegEngines,omitempty"`
+	// OfaEngines is the number of OFA engines in the profile.
+	OfaEngines int32 `json:"ofaEngines,omitempty"`
 }
 
 // GPUCurrentState describes current driver binding and mode details.

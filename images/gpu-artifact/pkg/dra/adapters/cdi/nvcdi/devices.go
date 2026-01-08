@@ -63,6 +63,7 @@ func (w *Writer) buildDeviceSpecs(req domain.PrepareRequest) ([]cdispec.Device, 
 			}
 			specs[0].ContainerEdits.DeviceNodes = append(specs[0].ContainerEdits.DeviceNodes, nodes...)
 		}
+		applyMpsEdits(&specs[0].ContainerEdits, dev.Attributes)
 		deviceSpecs = append(deviceSpecs, specs[0])
 		deviceIDs[dev.Device] = []string{cdiparser.QualifiedName(w.vendor, w.claimClass, name)}
 	}
@@ -82,4 +83,46 @@ func attrString(attrs map[string]allocatable.AttributeValue, key string) string 
 		return ""
 	}
 	return strings.TrimSpace(*val.String)
+}
+
+func applyMpsEdits(edits *cdispec.ContainerEdits, attrs map[string]allocatable.AttributeValue) {
+	if edits == nil {
+		return
+	}
+	pipeDir := attrString(attrs, allocatable.AttrMpsPipeDir)
+	shmDir := attrString(attrs, allocatable.AttrMpsShmDir)
+	logDir := attrString(attrs, allocatable.AttrMpsLogDir)
+	if pipeDir == "" && shmDir == "" && logDir == "" {
+		return
+	}
+
+	if pipeDir != "" {
+		appendEnv(edits, "CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps")
+		edits.Mounts = append(edits.Mounts, &cdispec.Mount{
+			HostPath:      pipeDir,
+			ContainerPath: "/tmp/nvidia-mps",
+		})
+	}
+	if logDir != "" {
+		appendEnv(edits, "CUDA_MPS_LOG_DIRECTORY=/var/log/nvidia-mps")
+		edits.Mounts = append(edits.Mounts, &cdispec.Mount{
+			HostPath:      logDir,
+			ContainerPath: "/var/log/nvidia-mps",
+		})
+	}
+	if shmDir != "" {
+		edits.Mounts = append(edits.Mounts, &cdispec.Mount{
+			HostPath:      shmDir,
+			ContainerPath: "/dev/shm",
+		})
+	}
+}
+
+func appendEnv(edits *cdispec.ContainerEdits, entry string) {
+	for _, existing := range edits.Env {
+		if existing == entry {
+			return
+		}
+	}
+	edits.Env = append(edits.Env, entry)
 }

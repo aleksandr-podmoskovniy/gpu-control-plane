@@ -39,20 +39,54 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 		infoV3, ret := dev.GetGpuInstanceProfileInfoV3(profile)
 		if ret == nvml.SUCCESS {
 			name := nvmlName(infoV3.Name[:])
-			profiles = appendMigProfile(profiles, &totalSlices, uint32(profile), infoV3.Id, name, infoV3.MemorySizeMB, infoV3.SliceCount, infoV3.InstanceCount)
+			profiles = appendMigProfile(
+				profiles,
+				&totalSlices,
+				infoV3.Id,
+				name,
+				infoV3.MemorySizeMB,
+				infoV3.SliceCount,
+				infoV3.InstanceCount,
+				migProfileCounters{
+					Multiprocessors: int32(infoV3.MultiprocessorCount),
+					CopyEngines:     int32(infoV3.CopyEngineCount),
+					Decoders:        int32(infoV3.DecoderCount),
+					Encoders:        int32(infoV3.EncoderCount),
+					JpegEngines:     int32(infoV3.JpegCount),
+					OfaEngines:      int32(infoV3.OfaCount),
+				},
+			)
 			continue
 		}
 
 		infoV2, ret := dev.GetGpuInstanceProfileInfoV2(profile)
 		if ret == nvml.SUCCESS {
 			name := nvmlName(infoV2.Name[:])
-			profiles = appendMigProfile(profiles, &totalSlices, uint32(profile), infoV2.Id, name, infoV2.MemorySizeMB, infoV2.SliceCount, infoV2.InstanceCount)
+			profiles = appendMigProfile(
+				profiles,
+				&totalSlices,
+				infoV2.Id,
+				name,
+				infoV2.MemorySizeMB,
+				infoV2.SliceCount,
+				infoV2.InstanceCount,
+				migProfileCounters{},
+			)
 			continue
 		}
 
 		infoV1, ret := dev.GetGpuInstanceProfileInfo(profile)
 		if ret == nvml.SUCCESS {
-			profiles = appendMigProfile(profiles, &totalSlices, uint32(profile), infoV1.Id, "", infoV1.MemorySizeMB, infoV1.SliceCount, infoV1.InstanceCount)
+			profiles = appendMigProfile(
+				profiles,
+				&totalSlices,
+				infoV1.Id,
+				"",
+				infoV1.MemorySizeMB,
+				infoV1.SliceCount,
+				infoV1.InstanceCount,
+				migProfileCounters{},
+			)
 		}
 	}
 
@@ -65,12 +99,29 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 	}
 }
 
-func appendMigProfile(profiles []gpuv1alpha1.NvidiaMIGProfile, totalSlices *int32, profileIndex, id uint32, name string, memoryMiB uint64, sliceCount, instanceCount uint32) []gpuv1alpha1.NvidiaMIGProfile {
+type migProfileCounters struct {
+	Multiprocessors int32
+	CopyEngines     int32
+	Decoders        int32
+	Encoders        int32
+	JpegEngines     int32
+	OfaEngines      int32
+}
+
+func appendMigProfile(
+	profiles []gpuv1alpha1.NvidiaMIGProfile,
+	totalSlices *int32,
+	id uint32,
+	name string,
+	memoryMiB uint64,
+	sliceCount, instanceCount uint32,
+	counters migProfileCounters,
+) []gpuv1alpha1.NvidiaMIGProfile {
 	if sliceCount == 0 || memoryMiB == 0 {
 		return profiles
 	}
 
-	profileName := migProfileName(name, sliceCount, memoryMiB, id, profileIndex)
+	profileName := migProfileName(name, sliceCount, memoryMiB, id)
 	if profileName == "" {
 		return profiles
 	}
@@ -81,6 +132,12 @@ func appendMigProfile(profiles []gpuv1alpha1.NvidiaMIGProfile, totalSlices *int3
 		MemoryMiB:    int32(memoryMiB),
 		SliceCount:   int32(sliceCount),
 		MaxInstances: int32(instanceCount),
+		Multiprocessors: counters.Multiprocessors,
+		CopyEngines:     counters.CopyEngines,
+		Decoders:        counters.Decoders,
+		Encoders:        counters.Encoders,
+		JpegEngines:     counters.JpegEngines,
+		OfaEngines:      counters.OfaEngines,
 	})
 
 	candidate := int32(sliceCount) * int32(instanceCount)

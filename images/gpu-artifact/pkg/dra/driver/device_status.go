@@ -27,7 +27,6 @@ import (
 )
 
 const (
-	deviceStatusConditionReady  = "Ready"
 	deviceStatusReasonPrepared  = "Prepared"
 	deviceStatusMessagePrepared = "device prepared"
 )

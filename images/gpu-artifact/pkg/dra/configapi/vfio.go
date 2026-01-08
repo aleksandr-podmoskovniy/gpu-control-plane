@@ -30,6 +30,13 @@ type VfioDeviceConfig struct {
 
 // Normalize updates the configuration with implied defaults.
 func (c *VfioDeviceConfig) Normalize() error {
+	if c == nil {
+		return nil
+	}
+	if c.TypeMeta.APIVersion == "" || c.TypeMeta.Kind == "" {
+		def := DefaultVfioDeviceConfig()
+		c.TypeMeta = def.TypeMeta
+	}
 	return nil
 }
 

@@ -26,12 +26,12 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID, profileIndex uint32) string {
+func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32) string {
 	name := normalizeMigProfileName(raw)
 	if name != "" {
-		return ensureProfileSuffix(name, profileIndex)
+		return applyMigProfileSuffix(name, profileID)
 	}
-	return ensureProfileSuffix(defaultMigProfileName(sliceCount, memoryMiB, profileID), profileIndex)
+	return applyMigProfileSuffix(defaultMigProfileName(sliceCount, memoryMiB, profileID), profileID)
 }
 
 func normalizeMigProfileName(raw string) string {
@@ -43,39 +43,6 @@ func normalizeMigProfileName(raw string) string {
 	return strings.TrimSpace(name)
 }
 
-func ensureProfileSuffix(name string, profileIndex uint32) string {
-	if name == "" {
-		return ""
-	}
-	if strings.ContainsAny(name, "+-") {
-		return name
-	}
-	if suffix := migProfileSuffix(profileIndex); suffix != "" {
-		return name + suffix
-	}
-	return name
-}
-
-func migProfileSuffix(profileIndex uint32) string {
-	switch profileIndex {
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1:
-		return "+me"
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME:
-		return "+me.all"
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
-		nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX:
-		return "+gfx"
-	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
-		nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME:
-		return "-me"
-	default:
-		return ""
-	}
-}
-
 func defaultMigProfileName(sliceCount uint32, memoryMiB uint64, profileID uint32) string {
 	if sliceCount == 0 || memoryMiB == 0 {
 		return ""
@@ -85,4 +52,38 @@ func defaultMigProfileName(sliceCount uint32, memoryMiB uint64, profileID uint32
 		return fmt.Sprintf("profile-%d", profileID)
 	}
 	return fmt.Sprintf("%dg.%dgb", sliceCount, gb)
+}
+
+func applyMigProfileSuffix(name string, profileID uint32) string {
+	if name == "" {
+		return ""
+	}
+	if strings.ContainsAny(name, "+-") {
+		return name
+	}
+	suffix := migProfileSuffix(profileID)
+	if suffix == "" {
+		return name
+	}
+	return name + suffix
+}
+
+func migProfileSuffix(profileID uint32) string {
+	switch profileID {
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_REV1:
+		return "+me"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_ALL_ME:
+		return "+me.all"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_NO_ME,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_NO_ME:
+		return "-me"
+	case nvml.GPU_INSTANCE_PROFILE_1_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_2_SLICE_GFX,
+		nvml.GPU_INSTANCE_PROFILE_4_SLICE_GFX:
+		return "+gfx"
+	default:
+		return ""
+	}
 }

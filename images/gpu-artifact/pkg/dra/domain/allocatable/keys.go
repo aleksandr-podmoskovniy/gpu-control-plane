@@ -27,6 +27,9 @@ const (
 	AttrCCMinor    = "cc_minor"
 	AttrMigProfile = "mig_profile"
 	AttrMigUUID    = "mig_uuid"
+	AttrMpsPipeDir = "gpu.deckhouse.io/mps-pipe-dir"
+	AttrMpsShmDir  = "gpu.deckhouse.io/mps-shm-dir"
+	AttrMpsLogDir  = "gpu.deckhouse.io/mps-log-dir"
 
 	CapMemory       = "memory"
 	CapSharePercent = "sharePercent"

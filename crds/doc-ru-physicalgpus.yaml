@@ -105,6 +105,18 @@ spec:
                                     description: Сколько слайсов занимает профиль.
                                   maxInstances:
                                     description: Максимум инстансов профиля.
+                                  multiprocessors:
+                                    description: Количество SM в профиле.
+                                  copyEngines:
+                                    description: Количество copy engines в профиле.
+                                  decoders:
+                                    description: Количество decoder engines в профиле.
+                                  encoders:
+                                    description: Количество encoder engines в профиле.
+                                  jpegEngines:
+                                    description: Количество JPEG engines в профиле.
+                                  ofaEngines:
+                                    description: Количество OFA engines в профиле.
                 conditions:
                   description: Список условий готовности (DriverReady, HardwareHealthy).
                 currentState:

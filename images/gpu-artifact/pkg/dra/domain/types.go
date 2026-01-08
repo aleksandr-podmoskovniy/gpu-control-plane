@@ -19,6 +19,7 @@ package domain
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	configapi "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/configapi"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
@@ -63,6 +64,7 @@ type PrepareDevice struct {
 	ShareID          string
 	ConsumedCapacity map[string]resource.Quantity
 	Attributes       map[string]allocatable.AttributeValue
+	Config           configapi.Interface `json:"-"`
 }
 
 // PrepareRequest is a minimal prepare/unprepare request representation.

@@ -120,6 +120,8 @@ spec:
               mountPropagation: Bidirectional
             - name: kubelet-plugins-registry
               mountPath: /var/lib/kubelet/plugins_registry
+            - name: host-shm
+              mountPath: /dev/shm
       volumes:
         - name: driver-root-parent
           hostPath:
@@ -141,6 +143,10 @@ spec:
           hostPath:
             path: /var/lib/kubelet/plugins_registry
             type: DirectoryOrCreate
+        - name: host-shm
+          hostPath:
+            path: /dev/shm
+            type: Directory
         - name: cdi-root
           hostPath:
             path: {{ $cdiRoot | quote }}

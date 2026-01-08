@@ -31,6 +31,8 @@ type Service struct {
 	cdi         ports.CDIWriter
 	mig         ports.MigManager
 	vfio        ports.VfioManager
+	timeSlicing ports.TimeSlicingManager
+	mps         ports.MpsManager
 	locker      ports.PrepareLocker
 	checkpoints ports.PrepareCheckpointStore
 	checker     ports.GPUProcessChecker
@@ -44,6 +46,8 @@ type Options struct {
 	CDI               ports.CDIWriter
 	MIG               ports.MigManager
 	VFIO              ports.VfioManager
+	TimeSlicing       ports.TimeSlicingManager
+	Mps               ports.MpsManager
 	Locker            ports.PrepareLocker
 	Checkpoints       ports.PrepareCheckpointStore
 	GPUChecker        ports.GPUProcessChecker
@@ -65,6 +69,8 @@ func NewService(opts Options) (*Service, error) {
 		cdi:         opts.CDI,
 		mig:         opts.MIG,
 		vfio:        opts.VFIO,
+		timeSlicing: opts.TimeSlicing,
+		mps:         opts.Mps,
 		locker:      opts.Locker,
 		checkpoints: opts.Checkpoints,
 		checker:     opts.GPUChecker,

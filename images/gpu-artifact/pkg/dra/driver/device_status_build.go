@@ -19,6 +19,8 @@ package driver
 import (
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
 func buildDeviceStatuses(claim *resourceapi.ResourceClaim, driverName string) []resourceapi.AllocatedDeviceStatus {
@@ -73,7 +75,7 @@ func buildDeviceConditions(result resourceapi.DeviceRequestAllocationResult, now
 		seen[condType] = struct{}{}
 	}
 
-	appendCondition(deviceStatusConditionReady)
+	appendCondition(allocatable.DeviceConditionReady)
 	for _, cond := range result.BindingConditions {
 		appendCondition(cond)
 	}

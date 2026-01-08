@@ -21,6 +21,7 @@ import (
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
+	configapi "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/configapi"
 )
 
 // InventoryProvider returns a node inventory snapshot.
@@ -64,6 +65,17 @@ type VfioManager interface {
 // GPUProcessChecker verifies that a GPU has no running processes.
 type GPUProcessChecker interface {
 	EnsureGPUFree(ctx context.Context, pciBusID string) error
+}
+
+// TimeSlicingManager configures GPU time-slicing.
+type TimeSlicingManager interface {
+	SetTimeSlice(ctx context.Context, deviceUUIDs []string, cfg *configapi.TimeSlicingConfig) error
+}
+
+// MpsManager manages MPS control daemons.
+type MpsManager interface {
+	Start(ctx context.Context, req domain.MpsPrepareRequest) (domain.PreparedMpsState, error)
+	Stop(ctx context.Context, state domain.PreparedMpsState) error
 }
 
 // CDIWriter writes CDI specifications for prepared devices.

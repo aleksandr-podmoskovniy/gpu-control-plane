@@ -16,6 +16,8 @@ limitations under the License.
 
 package domain
 
+import configapi "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/configapi"
+
 // PrepareCheckpoint stores node-local prepare state for idempotency.
 type PrepareCheckpoint struct {
 	Version string                   `json:"version"`
@@ -44,6 +46,7 @@ type PreparedDeviceState struct {
 	CDIDeviceIDs []string            `json:"cdiDeviceIDs,omitempty"`
 	MIG          *PreparedMigDevice  `json:"mig,omitempty"`
 	VFIO         *PreparedVfioDevice `json:"vfio,omitempty"`
+	Sharing      *PreparedSharing    `json:"sharing,omitempty"`
 }
 
 // MigPrepareRequest describes a MIG instance to be created.
@@ -75,4 +78,26 @@ type PreparedVfioDevice struct {
 	PCIBusID       string `json:"pciBusId"`
 	OriginalDriver string `json:"originalDriver"`
 	IommuGroup     int    `json:"iommuGroup"`
+}
+
+// PreparedSharing keeps applied sharing settings for a device.
+type PreparedSharing struct {
+	Strategy   string            `json:"strategy"`
+	DeviceUUID string            `json:"deviceUuid,omitempty"`
+	MPS        *PreparedMpsState `json:"mps,omitempty"`
+}
+
+// MpsPrepareRequest describes MPS daemon creation.
+type MpsPrepareRequest struct {
+	ControlID  string   `json:"controlId"`
+	DeviceUUIDs []string `json:"deviceUuids,omitempty"`
+	Config     *configapi.MpsConfig `json:"config,omitempty"`
+}
+
+// PreparedMpsState stores MPS daemon data for cleanup.
+type PreparedMpsState struct {
+	ControlID string `json:"controlId"`
+	PipeDir   string `json:"pipeDir"`
+	ShmDir    string `json:"shmDir"`
+	LogDir    string `json:"logDir"`
 }

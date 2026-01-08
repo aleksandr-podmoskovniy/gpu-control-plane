@@ -23,7 +23,9 @@ import (
 	checkpointfile "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/checkpoint/file"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/lock/fslock"
 	mignvml "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/mig/nvml"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/mps"
 	nvmlchecker "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/nvml"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/timeslicing"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/vfio"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/ports"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/prepare"
@@ -46,10 +48,14 @@ func buildPrepareService(cfg Config, driverName, pluginPath, cdiRoot, hookPath s
 	migManager := mignvml.New(mignvml.Options{DriverRoot: cfg.DriverRoot})
 	vfioManager := vfio.New(vfio.Options{})
 	gpuChecker := nvmlchecker.NewChecker(nvmlchecker.Options{})
+	timeSlicingManager := timeslicing.New(timeslicing.Options{DriverRoot: cfg.DriverRoot})
+	mpsManager := mps.New(mps.Options{DriverRoot: cfg.DriverRoot, PluginPath: pluginPath})
 	prepareService, err := prepare.NewService(prepare.Options{
 		CDI:               cdiWriter,
 		MIG:               migManager,
 		VFIO:              vfioManager,
+		TimeSlicing:       timeSlicingManager,
+		Mps:               mpsManager,
 		Locker:            locker,
 		Checkpoints:       checkpoints,
 		GPUChecker:        gpuChecker,

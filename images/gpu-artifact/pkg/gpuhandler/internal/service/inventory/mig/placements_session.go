@@ -57,7 +57,11 @@ func (s *nvmlMigPlacementSession) ReadPlacements(pciAddress string, profileIDs [
 		return placements, nil
 	}
 
-	for profile := 0; profile < nvml.GPU_INSTANCE_PROFILE_COUNT; profile++ {
+	maxProfiles := nvml.GPU_INSTANCE_PROFILE_COUNT
+	if maxProfiles < 32 {
+		maxProfiles = 32
+	}
+	for profile := 0; profile < maxProfiles; profile++ {
 		info, ret := dev.GetGpuInstanceProfileInfo(profile)
 		switch ret {
 		case nvml.SUCCESS:

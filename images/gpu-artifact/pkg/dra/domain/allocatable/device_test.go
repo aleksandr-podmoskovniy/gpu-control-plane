@@ -83,6 +83,9 @@ func TestGPUDeviceSpec(t *testing.T) {
 	if counter.Value != 1024 {
 		t.Fatalf("unexpected consumes memory")
 	}
+	if len(spec.BindingConditions) != 1 || spec.BindingConditions[0] != DeviceConditionReady {
+		t.Fatalf("expected binding condition %q", DeviceConditionReady)
+	}
 }
 
 func TestMIGDeviceSpecDefaults(t *testing.T) {
@@ -92,5 +95,8 @@ func TestMIGDeviceSpecDefaults(t *testing.T) {
 	}
 	if len(spec.Attributes) != 0 || len(spec.Capacity) != 0 {
 		t.Fatalf("expected empty attributes and capacity")
+	}
+	if len(spec.BindingConditions) != 1 || spec.BindingConditions[0] != DeviceConditionReady {
+		t.Fatalf("expected binding condition %q", DeviceConditionReady)
 	}
 }

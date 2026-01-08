@@ -42,6 +42,14 @@ func (d *Driver) prepareClaim(ctx context.Context, claim *resourceapi.ResourceCl
 	}
 	req.VFIO = VFIORequested(claim.Annotations) || vfioConfigRequested
 
+	configs, err := decodeDeviceConfigs(claim.Status.Allocation.Devices.Config, d.driverName)
+	if err != nil {
+		return prepareErrorResult(err)
+	}
+	if err := applyDeviceConfigs(&req, configs); err != nil {
+		return prepareErrorResult(err)
+	}
+
 	result, err := d.prepareService.Prepare(ctx, req)
 	if err != nil {
 		return prepareErrorResult(err)
