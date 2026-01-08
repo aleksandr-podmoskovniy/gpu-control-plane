@@ -24,13 +24,9 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
-
-	configapi "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/configapi"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 // ParametersHandler validates device configuration parameters for DRA claims.
@@ -102,47 +98,4 @@ func (h *ParametersHandler) Handle(ctx context.Context, req admission.Request) a
 	return admission.Denied(msg)
 }
 
-func validateDeviceConfigs(configs []resourcev1.DeviceClaimConfiguration, specPath, driverName string) []error {
-	var errs []error
-	for idx, cfg := range configs {
-		opaque := cfg.Opaque
-		if opaque == nil || opaque.Driver != driverName {
-			continue
-		}
-
-		fieldPath := fmt.Sprintf("%s.devices.config[%d].opaque.parameters", specPath, idx)
-		decoded, err := runtime.Decode(configapi.StrictDecoder, opaque.Parameters.Raw)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("error decoding object at %s: %w", fieldPath, err))
-			continue
-		}
-
-		config, ok := decoded.(configapi.Interface)
-		if !ok {
-			errs = append(errs, fmt.Errorf("expected a recognized configuration type at %s but got: %T", fieldPath, decoded))
-			continue
-		}
-
-		if err := config.Normalize(); err != nil {
-			errs = append(errs, fmt.Errorf("error normalizing config at %s: %w", fieldPath, err))
-			continue
-		}
-		if err := config.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("object at %s is invalid: %w", fieldPath, err))
-		}
-	}
-	return errs
-}
-
 var _ admission.Handler = (*ParametersHandler)(nil)
-
-func ensureLog(l *log.Logger) *log.Logger {
-	if l == nil {
-		l = log.NewNop()
-	}
-	return l.With(logger.SlogHandler("dra-claim-webhook"))
-}
-
-func newHandler(log *log.Logger, driverName string) *ParametersHandler {
-	return NewParametersHandler(ensureLog(log), driverName)
-}

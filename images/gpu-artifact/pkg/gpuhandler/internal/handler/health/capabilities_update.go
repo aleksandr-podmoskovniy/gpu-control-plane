@@ -20,14 +20,10 @@ import (
 	"context"
 	"errors"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/handler"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/capabilities"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 func (h *CapabilitiesHandler) updateDevice(ctx context.Context, session capabilities.CapabilitiesSession, pgpu gpuv1alpha1.PhysicalGPU) (*gpuv1alpha1.PhysicalGPU, error) {
@@ -87,39 +83,4 @@ func (h *CapabilitiesHandler) applyDeviceFailure(ctx context.Context, obj, base 
 	setHardwareCondition(obj, metav1.ConditionUnknown, reason, err.Error())
 	h.recordHardwareEvent(ctx, obj, base, reason, err.Error())
 	return h.store.PatchStatus(ctx, obj, base)
-}
-
-func setHardwareCondition(obj *gpuv1alpha1.PhysicalGPU, status metav1.ConditionStatus, reason, message string) {
-	cond := metav1.Condition{
-		Type:               handler.HardwareHealthyType,
-		Status:             status,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: obj.Generation,
-	}
-	meta.SetStatusCondition(&obj.Status.Conditions, cond)
-}
-
-func (h *CapabilitiesHandler) recordHardwareEvent(ctx context.Context, obj, base *gpuv1alpha1.PhysicalGPU, reason, message string) {
-	if h.recorder == nil || obj == nil || base == nil {
-		return
-	}
-	if !hardwareConditionChanged(base, obj) {
-		return
-	}
-
-	log := logger.FromContext(ctx)
-	if obj.Status.NodeInfo != nil && obj.Status.NodeInfo.NodeName != "" {
-		log = log.With("node", obj.Status.NodeInfo.NodeName)
-	}
-	if obj.Status.PCIInfo != nil && obj.Status.PCIInfo.Address != "" {
-		log = log.With("pci", obj.Status.PCIInfo.Address)
-	}
-
-	h.recorder.WithLogging(log).Event(
-		obj,
-		corev1.EventTypeWarning,
-		reason,
-		message,
-	)
 }

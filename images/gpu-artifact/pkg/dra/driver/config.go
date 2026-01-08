@@ -40,4 +40,5 @@ type Config struct {
 	EnableDebugResponse bool
 	DeviceStatusEnabled bool
 	ErrorHandler        func(ctx context.Context, err error, msg string)
+	ResourcesChanged    func()
 }

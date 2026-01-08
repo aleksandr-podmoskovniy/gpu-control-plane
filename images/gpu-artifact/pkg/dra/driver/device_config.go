@@ -57,17 +57,18 @@ func vfioRequestedFromConfig(claim *resourceapi.ResourceClaim, driverName string
 		if err != nil {
 			return false, fmt.Errorf("decode device config: %w", err)
 		}
-		switch typed := decoded.(type) {
-		case *configapi.VfioDeviceConfig:
-			if err := typed.Normalize(); err != nil {
-				return false, fmt.Errorf("normalize VFIO device config: %w", err)
-			}
-			if err := typed.Validate(); err != nil {
-				return false, fmt.Errorf("validate VFIO device config: %w", err)
-			}
-			return true, nil
-		default:
+		config, ok := decoded.(configapi.Interface)
+		if !ok {
 			return false, fmt.Errorf("unsupported device config type %T", decoded)
+		}
+		if err := config.Normalize(); err != nil {
+			return false, fmt.Errorf("normalize device config: %w", err)
+		}
+		if err := config.Validate(); err != nil {
+			return false, fmt.Errorf("validate device config: %w", err)
+		}
+		if _, ok := decoded.(*configapi.VfioDeviceConfig); ok {
+			return true, nil
 		}
 	}
 

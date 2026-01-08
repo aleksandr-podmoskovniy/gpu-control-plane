@@ -20,20 +20,13 @@ limitations under the License.
 package nvcdi
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 
 	nvdevice "github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	nvcdiapi "github.com/NVIDIA/nvidia-container-toolkit/pkg/nvcdi"
-	"github.com/sirupsen/logrus"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
-
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
 )
 
 // Writer generates CDI specs using NVIDIA nvcdi.
@@ -51,76 +44,25 @@ type Writer struct {
 
 // New creates a CDI writer backed by nvcdi.
 func New(opts Options) (*Writer, error) {
-	vendor := strings.TrimSpace(opts.Vendor)
-	if vendor == "" && opts.DriverName != "" {
-		vendor = fmt.Sprintf("k8s.%s", opts.DriverName)
-	}
-	if vendor == "" {
-		return nil, errors.New("vendor is required")
-	}
-	claimClass := strings.TrimSpace(opts.Class)
-	if claimClass == "" {
-		claimClass = defaultClaimClass
-	}
-	deviceClass := strings.TrimSpace(opts.DeviceClass)
-	if deviceClass == "" {
-		deviceClass = defaultDeviceClass
-	}
-	cdiRoot := strings.TrimSpace(opts.CDIRoot)
-	if cdiRoot == "" {
-		cdiRoot = defaultCDIRoot
-	}
-	driverRoot := strings.TrimSpace(opts.DriverRoot)
-	if driverRoot == "" {
-		driverRoot = "/"
-	}
-	targetDriverRoot := strings.TrimSpace(opts.HostDriverRoot)
-	if targetDriverRoot == "" {
-		targetDriverRoot = "/"
+	params, err := normalizeWriterParams(opts)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := os.MkdirAll(cdiRoot, 0o755); err != nil {
-		return nil, fmt.Errorf("create CDI root %q: %w", cdiRoot, err)
+	if err := os.MkdirAll(params.cdiRoot, 0o755); err != nil {
+		return nil, fmt.Errorf("create CDI root %q: %w", params.cdiRoot, err)
 	}
 
-	cache, err := cdiapi.NewCache(cdiapi.WithSpecDirs(cdiRoot))
+	cache, err := newCDICache(params.cdiRoot)
 	if err != nil {
 		return nil, fmt.Errorf("create CDI cache: %w", err)
 	}
 
-	nvmlLib := nvml.New(nvmlLibraryOptions(driverRoot)...)
+	nvmlLib := newNVMLLib(params.driverRoot)
 	deviceLib := nvdevice.New(nvmlLib)
-	logger := logrus.New()
-	logger.SetOutput(io.Discard)
-
-	nvcdiDevice, err := nvcdiapi.New(
-		nvcdiapi.WithDeviceLib(deviceLib),
-		nvcdiapi.WithDriverRoot(driverRoot),
-		nvcdiapi.WithDevRoot(devRootFor(driverRoot)),
-		nvcdiapi.WithLogger(logger),
-		nvcdiapi.WithNvmlLib(nvmlLib),
-		nvcdiapi.WithMode("nvml"),
-		nvcdiapi.WithVendor(vendor),
-		nvcdiapi.WithClass(deviceClass),
-		nvcdiapi.WithNVIDIACDIHookPath(strings.TrimSpace(opts.NvidiaCDIHookPath)),
-	)
+	nvcdiDevice, nvcdiClaim, err := newNvcdiInterfaces(params, deviceLib, nvmlLib)
 	if err != nil {
-		return nil, fmt.Errorf("create nvcdi device library: %w", err)
-	}
-
-	nvcdiClaim, err := nvcdiapi.New(
-		nvcdiapi.WithDeviceLib(deviceLib),
-		nvcdiapi.WithDriverRoot(driverRoot),
-		nvcdiapi.WithDevRoot(devRootFor(driverRoot)),
-		nvcdiapi.WithLogger(logger),
-		nvcdiapi.WithNvmlLib(nvmlLib),
-		nvcdiapi.WithMode("nvml"),
-		nvcdiapi.WithVendor(vendor),
-		nvcdiapi.WithClass(claimClass),
-		nvcdiapi.WithNVIDIACDIHookPath(strings.TrimSpace(opts.NvidiaCDIHookPath)),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create nvcdi claim library: %w", err)
+		return nil, err
 	}
 
 	return &Writer{
@@ -128,76 +70,10 @@ func New(opts Options) (*Writer, error) {
 		nvcdiDevice:      nvcdiDevice,
 		nvcdiClaim:       nvcdiClaim,
 		cache:            cache,
-		driverRoot:       driverRoot,
-		targetDriverRoot: targetDriverRoot,
-		vendor:           vendor,
-		deviceClass:      deviceClass,
-		claimClass:       claimClass,
+		driverRoot:       params.driverRoot,
+		targetDriverRoot: params.targetDriverRoot,
+		vendor:           params.vendor,
+		deviceClass:      params.deviceClass,
+		claimClass:       params.claimClass,
 	}, nil
-}
-
-// Write generates CDI specs for a claim and returns CDI device ids per device.
-func (w *Writer) Write(_ context.Context, req domain.PrepareRequest) (map[string][]string, error) {
-	if w == nil {
-		return nil, errors.New("CDI writer is nil")
-	}
-	if req.ClaimUID == "" {
-		return nil, errors.New("claim UID is required")
-	}
-	if len(req.Devices) == 0 {
-		return nil, errors.New("no devices to prepare")
-	}
-	if req.VFIO {
-		return nil, errors.New("vfio prepare is not implemented")
-	}
-
-	if err := w.initNVML(); err != nil {
-		return nil, err
-	}
-	defer w.nvml.Shutdown()
-
-	commonEdits, err := w.commonEdits(w.nvcdiClaim)
-	if err != nil {
-		return nil, err
-	}
-
-	deviceSpecs, deviceIDs, err := w.buildDeviceSpecs(req)
-	if err != nil {
-		return nil, err
-	}
-	if len(deviceSpecs) == 0 {
-		return nil, errors.New("no CDI device specs generated")
-	}
-
-	spec, err := buildSpec(w.vendor, w.claimClass, deviceSpecs, commonEdits.ContainerEdits)
-	if err != nil {
-		return nil, err
-	}
-
-	specName := cdiapi.GenerateTransientSpecName(w.vendor, w.claimClass, req.ClaimUID)
-	if err := w.writeSpec(spec, specName); err != nil {
-		return nil, err
-	}
-
-	return deviceIDs, nil
-}
-
-// Delete removes CDI specs for a claim.
-func (w *Writer) Delete(_ context.Context, claimUID string) error {
-	if w == nil {
-		return errors.New("CDI writer is nil")
-	}
-	if claimUID == "" {
-		return errors.New("claim UID is required")
-	}
-	specName := cdiapi.GenerateTransientSpecName(w.vendor, w.claimClass, claimUID)
-	return w.cache.RemoveSpec(specName)
-}
-
-func (w *Writer) initNVML() error {
-	ret := w.nvml.Init()
-	if ret == nvml.SUCCESS || ret == nvml.ERROR_ALREADY_INITIALIZED {
-		return nil
-	}
-	return fmt.Errorf("NVML init failed: %s", nvml.ErrorString(ret))
 }

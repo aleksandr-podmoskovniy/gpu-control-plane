@@ -17,8 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"fmt"
-	"strconv"
 	"strings"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
@@ -62,98 +60,4 @@ func BaseAttributes(pgpu gpuv1alpha1.PhysicalGPU, deviceType gpuv1alpha1.DeviceT
 	}
 
 	return attrs
-}
-
-func vendorAttribute(pgpu gpuv1alpha1.PhysicalGPU) string {
-	if val := strings.TrimSpace(pgpu.Labels["gpu.deckhouse.io/vendor"]); val != "" {
-		return val
-	}
-	if pgpu.Status.Capabilities != nil {
-		switch pgpu.Status.Capabilities.Vendor {
-		case gpuv1alpha1.VendorNvidia:
-			return "nvidia"
-		case gpuv1alpha1.VendorAMD:
-			return "amd"
-		case gpuv1alpha1.VendorIntel:
-			return "intel"
-		}
-	}
-	if pgpu.Status.PCIInfo != nil && pgpu.Status.PCIInfo.Vendor != nil {
-		return normalizeLabelValue(pgpu.Status.PCIInfo.Vendor.Name)
-	}
-	return ""
-}
-
-func deviceAttribute(pgpu gpuv1alpha1.PhysicalGPU) string {
-	if val := strings.TrimSpace(pgpu.Labels["gpu.deckhouse.io/device"]); val != "" {
-		return val
-	}
-	if pgpu.Status.PCIInfo != nil && pgpu.Status.PCIInfo.Device != nil {
-		return normalizeLabelValue(pgpu.Status.PCIInfo.Device.Name)
-	}
-	return ""
-}
-
-// PCIAddressFor returns the PCI address of the PhysicalGPU.
-func PCIAddressFor(pgpu gpuv1alpha1.PhysicalGPU) string {
-	if pgpu.Status.PCIInfo == nil {
-		return ""
-	}
-	return strings.TrimSpace(pgpu.Status.PCIInfo.Address)
-}
-
-// DeviceName returns a DNS-safe device name for a PCI address.
-func DeviceName(prefix, pciAddress string) string {
-	return allocatable.SanitizeDNSLabel(fmt.Sprintf("%s-%s", prefix, pciAddress))
-}
-
-func parseComputeCap(raw string) (int, int, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0, 0, false
-	}
-	parts := strings.SplitN(raw, ".", 2)
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, false
-	}
-	if len(parts) == 1 {
-		return major, 0, true
-	}
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, 0, false
-	}
-	return major, minor, true
-}
-
-func stringAttr(val string) allocatable.AttributeValue {
-	return allocatable.AttributeValue{String: &val}
-}
-
-func intAttr(val int64) allocatable.AttributeValue {
-	return allocatable.AttributeValue{Int: &val}
-}
-
-func normalizeLabelValue(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return ""
-	}
-
-	var b strings.Builder
-	b.Grow(len(value))
-	lastDash := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }

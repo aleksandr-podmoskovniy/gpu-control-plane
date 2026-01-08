@@ -19,11 +19,7 @@ package reconciler
 import (
 	"context"
 	"errors"
-	"reflect"
-	"strings"
-	"time"
 
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
@@ -83,69 +79,17 @@ func (r *BaseReconciler[H]) Reconcile(ctx context.Context) (reconcile.Result, er
 
 	logger.FromContext(ctx).Debug("Start reconciliation")
 
-	var result reconcile.Result
-	var errs error
-
-handlersLoop:
-	for _, h := range r.handlers {
-		var name string
-		if named, ok := any(h).(Named); ok {
-			name = named.Name()
-		} else {
-			t := reflect.TypeOf(h)
-			if t == nil {
-				name = "unknown"
-			} else if t.Kind() == reflect.Ptr {
-				name = t.Elem().Name()
-			} else {
-				name = t.Name()
-			}
-		}
-		handlerLog, handlerCtx := logger.GetHandlerContext(ctx, name)
-		res, err := r.execute(handlerCtx, h)
-		switch {
-		case err == nil:
-		case errors.Is(err, ErrStopHandlerChain):
-			handlerLog.Debug("Handler chain execution stopped")
-			result = MergeResults(result, res)
-			break handlersLoop
-		case k8serrors.IsConflict(err):
-			handlerLog.Debug("Conflict occurred during handler execution", logger.SlogErr(err))
-			result.RequeueAfter = 100 * time.Microsecond
-		default:
-			handlerLog.Error("Handler failed with an error", logger.SlogErr(err))
-			errs = errors.Join(errs, err)
-		}
-
-		result = MergeResults(result, res)
-	}
-
-	err := r.update(ctx)
-	switch {
-	case err == nil:
-	case k8serrors.IsConflict(err):
-		logger.FromContext(ctx).Debug("Conflict occurred during resource update", logger.SlogErr(err))
-		result.RequeueAfter = 100 * time.Microsecond
-	case strings.Contains(err.Error(), "no new finalizers can be added if the object is being deleted"):
-		logger.FromContext(ctx).Warn("Forbidden to add finalizers", logger.SlogErr(err))
-		result.RequeueAfter = 1 * time.Second
-	default:
-		logger.FromContext(ctx).Error("Failed to update resource", logger.SlogErr(err))
+	result, errs := r.runHandlers(ctx)
+	if err := r.updateResource(ctx, &result); err != nil {
 		errs = errors.Join(errs, err)
 	}
-
 	if errs != nil {
 		logger.FromContext(ctx).Error("Error occurred during reconciliation", logger.SlogErr(errs))
 		return reconcile.Result{}, errs
 	}
-
-	for _, h := range r.handlers {
-		if finalizer, ok := any(h).(Finalizer); ok {
-			if err := finalizer.Finalize(ctx); err != nil {
-				logger.FromContext(ctx).Error("Failed to finalize resource", logger.SlogErr(err))
-				return reconcile.Result{}, err
-			}
-		}
+	if err := r.runFinalizers(ctx); err != nil {
+		logger.FromContext(ctx).Error("Failed to finalize resource", logger.SlogErr(err))
+		return reconcile.Result{}, err
 	}
 
 	logger.FromContext(ctx).Debug("Reconciliation was successfully completed", "requeue", result.Requeue, "after", result.RequeueAfter)

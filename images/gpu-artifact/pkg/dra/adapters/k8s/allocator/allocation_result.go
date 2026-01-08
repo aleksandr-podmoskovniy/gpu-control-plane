@@ -17,11 +17,7 @@ limitations under the License.
 package allocator
 
 import (
-	"fmt"
-
-	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -92,73 +88,4 @@ func BuildAllocationResultWithOptions(claim *resourcev1.ResourceClaim, alloc *do
 	}
 	out.Devices.Config = config
 	return out, nil
-}
-
-func buildAllocationConfig(claim *resourcev1.ResourceClaim, classes map[string]*resourcev1.DeviceClass) ([]resourcev1.DeviceAllocationConfiguration, error) {
-	var cfg []resourcev1.DeviceAllocationConfiguration
-	if claim == nil {
-		return nil, nil
-	}
-
-	requests := claim.Spec.Devices.Requests
-	if len(requests) == 0 {
-		return nil, nil
-	}
-
-	for _, claimCfg := range claim.Spec.Devices.Config {
-		cfg = append(cfg, resourcev1.DeviceAllocationConfiguration{
-			Source:              resourcev1.AllocationConfigSourceClaim,
-			Requests:            claimCfg.Requests,
-			DeviceConfiguration: claimCfg.DeviceConfiguration,
-		})
-	}
-
-	for _, req := range requests {
-		if req.Exactly == nil {
-			continue
-		}
-		className := req.Exactly.DeviceClassName
-		if className == "" {
-			continue
-		}
-		class, ok := classes[className]
-		if !ok {
-			return nil, fmt.Errorf("deviceclass %q not found", className)
-		}
-		for _, classCfg := range class.Spec.Config {
-			cfg = append(cfg, resourcev1.DeviceAllocationConfiguration{
-				Source:              resourcev1.AllocationConfigSourceClass,
-				Requests:            []string{req.Name},
-				DeviceConfiguration: classCfg.DeviceConfiguration,
-			})
-		}
-	}
-
-	return cfg, nil
-}
-
-func consumedCapacity(in map[string]resource.Quantity) map[resourcev1.QualifiedName]resource.Quantity {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[resourcev1.QualifiedName]resource.Quantity, len(in))
-	for key, val := range in {
-		out[resourcev1.QualifiedName(key)] = val.DeepCopy()
-	}
-	return out
-}
-
-func nodeSelectorForNode(nodeName string) *corev1.NodeSelector {
-	if nodeName == "" {
-		return nil
-	}
-	return &corev1.NodeSelector{
-		NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-			MatchFields: []corev1.NodeSelectorRequirement{{
-				Key:      "metadata.name",
-				Operator: corev1.NodeSelectorOpIn,
-				Values:   []string{nodeName},
-			}},
-		}},
-	}
 }

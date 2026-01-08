@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/nodeagent/internal/service"
@@ -92,31 +91,4 @@ func (h *CleanupHandler) Handle(ctx context.Context, st state.State) error {
 		return nil
 	}
 	return errors.Join(errs...)
-}
-
-func (h *CleanupHandler) recordEvent(log *slog.Logger, obj *gpuv1alpha1.PhysicalGPU, eventType, reason, message string) {
-	if h.recorder == nil || obj == nil {
-		return
-	}
-	if log == nil {
-		h.recorder.Event(obj, eventType, reason, message)
-		return
-	}
-	h.recorder.WithLogging(log).Event(obj, eventType, reason, message)
-}
-
-func physicalGPULog(ctx context.Context, nodeName string, obj *gpuv1alpha1.PhysicalGPU) *slog.Logger {
-	log := logger.FromContext(ctx).With("node", nodeName, "physicalgpu", obj.Name)
-	if obj.Status.PCIInfo != nil && obj.Status.PCIInfo.Address != "" {
-		log = log.With("pci", obj.Status.PCIInfo.Address)
-	}
-	if obj.Labels != nil {
-		if vendor := obj.Labels[state.LabelVendor]; vendor != "" {
-			log = log.With("vendor", vendor)
-		}
-		if device := obj.Labels[state.LabelDevice]; device != "" {
-			log = log.With("device", device)
-		}
-	}
-	return log
 }

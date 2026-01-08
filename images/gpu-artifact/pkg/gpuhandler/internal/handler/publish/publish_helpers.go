@@ -23,6 +23,7 @@ import (
 	resourceapi "k8s.io/api/resource/v1"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
 func pciAddress(pgpu gpuv1alpha1.PhysicalGPU) string {
@@ -64,4 +65,20 @@ func maxMemorySliceIndex(consumes []resourceapi.DeviceCounterConsumption) (int32
 		return 0, false
 	}
 	return maxIdx, true
+}
+
+func devicePCI(dev resourceapi.Device) string {
+	attr, ok := dev.Attributes[resourceapi.QualifiedName(allocatable.AttrPCIAddress)]
+	if !ok || attr.StringValue == nil {
+		return ""
+	}
+	return strings.TrimSpace(*attr.StringValue)
+}
+
+func deviceIsMIG(dev resourceapi.Device) bool {
+	attr, ok := dev.Attributes[resourceapi.QualifiedName(allocatable.AttrDeviceType)]
+	if !ok || attr.StringValue == nil {
+		return false
+	}
+	return *attr.StringValue == string(gpuv1alpha1.DeviceTypeMIG)
 }

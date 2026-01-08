@@ -61,6 +61,11 @@ type VfioManager interface {
 	Unprepare(ctx context.Context, state domain.PreparedVfioDevice) error
 }
 
+// GPUProcessChecker verifies that a GPU has no running processes.
+type GPUProcessChecker interface {
+	EnsureGPUFree(ctx context.Context, pciBusID string) error
+}
+
 // CDIWriter writes CDI specifications for prepared devices.
 type CDIWriter interface {
 	Write(ctx context.Context, req domain.PrepareRequest) (map[string][]string, error)
@@ -70,4 +75,19 @@ type CDIWriter interface {
 // HookWriter writes VM hook payloads when required.
 type HookWriter interface {
 	Write(ctx context.Context, req domain.PrepareRequest) error
+}
+
+// ResourcesChangeNotifier triggers a ResourceSlice refresh.
+type ResourcesChangeNotifier interface {
+	Notify()
+}
+
+// NotifyFunc adapts a function to ResourcesChangeNotifier.
+type NotifyFunc func()
+
+// Notify calls the wrapped function.
+func (f NotifyFunc) Notify() {
+	if f != nil {
+		f()
+	}
 }

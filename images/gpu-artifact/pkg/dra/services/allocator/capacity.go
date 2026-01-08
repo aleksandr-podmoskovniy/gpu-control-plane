@@ -22,17 +22,6 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
-func cloneQuantities(in map[string]resource.Quantity) map[string]resource.Quantity {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]resource.Quantity, len(in))
-	for key, val := range in {
-		out[key] = val.DeepCopy()
-	}
-	return out
-}
-
 func computeConsumedCapacity(req *CapacityRequirements, capacity map[string]allocatable.CapacityValue) (map[string]resource.Quantity, bool) {
 	if len(capacity) == 0 {
 		if req == nil || len(req.Requests) == 0 {
@@ -92,60 +81,4 @@ func addConsumed(existing map[string]resource.Quantity, add map[string]resource.
 		existing[name] = quantityFromValue(total, cap.Unit)
 	}
 	return existing
-}
-
-func calculateConsumedValue(requested *resource.Quantity, capacity allocatable.CapacityValue) (int64, bool) {
-	if requested == nil {
-		if capacity.Policy != nil {
-			return capacity.Policy.Default, true
-		}
-		return capacity.Value, true
-	}
-
-	requestedValue := quantityValue(*requested, capacity.Unit)
-	if capacity.Policy == nil {
-		return requestedValue, true
-	}
-
-	if capacity.Policy.Max > 0 && requestedValue > capacity.Policy.Max {
-		return 0, false
-	}
-
-	consumed := requestedValue
-	min := capacity.Policy.Min
-	if consumed < min {
-		consumed = min
-	}
-	if capacity.Policy.Step > 0 {
-		diff := consumed - min
-		if diff < 0 {
-			diff = 0
-		}
-		remainder := diff % capacity.Policy.Step
-		if remainder != 0 {
-			consumed += capacity.Policy.Step - remainder
-		}
-	}
-	if capacity.Policy.Max > 0 && consumed > capacity.Policy.Max {
-		return 0, false
-	}
-	return consumed, true
-}
-
-func quantityValue(qty resource.Quantity, unit allocatable.CapacityUnit) int64 {
-	switch unit {
-	case allocatable.CapacityUnitMiB:
-		return qty.Value() / (1024 * 1024)
-	default:
-		return qty.Value()
-	}
-}
-
-func quantityFromValue(value int64, unit allocatable.CapacityUnit) resource.Quantity {
-	switch unit {
-	case allocatable.CapacityUnitMiB:
-		return *resource.NewQuantity(value*1024*1024, resource.BinarySI)
-	default:
-		return *resource.NewQuantity(value, resource.DecimalSI)
-	}
 }

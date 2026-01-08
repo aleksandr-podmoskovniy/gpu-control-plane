@@ -27,6 +27,8 @@ const (
 	GroupName = "resource.gpu.deckhouse.io"
 	Version   = "v1alpha1"
 
+	GpuConfigKind        = "GpuConfig"
+	MigDeviceConfigKind  = "MigDeviceConfig"
 	VfioDeviceConfigKind = "VfioDeviceConfig"
 )
 
@@ -50,6 +52,8 @@ func init() {
 		Version: Version,
 	}
 	scheme.AddKnownTypes(schemeGroupVersion,
+		&GpuConfig{},
+		&MigDeviceConfig{},
 		&VfioDeviceConfig{},
 	)
 	metav1.AddToGroupVersion(scheme, schemeGroupVersion)

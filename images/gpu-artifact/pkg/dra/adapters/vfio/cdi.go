@@ -20,20 +20,11 @@ limitations under the License.
 package vfio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
-	cdiparser "tags.cncf.io/container-device-interface/pkg/parser"
-	cdispec "tags.cncf.io/container-device-interface/specs-go"
-
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
 const (
@@ -89,101 +80,4 @@ func NewCDIWriter(opts CDIOptions) (*CDIWriter, error) {
 		sysfsRoot: sysfsRoot,
 		cache:     cache,
 	}, nil
-}
-
-// Write generates CDI specs for vfio-pci devices.
-func (w *CDIWriter) Write(_ context.Context, req domain.PrepareRequest) (map[string][]string, error) {
-	if w == nil {
-		return nil, errors.New("vfio CDI writer is nil")
-	}
-	if req.ClaimUID == "" {
-		return nil, errors.New("claim UID is required")
-	}
-	if len(req.Devices) == 0 {
-		return nil, errors.New("no devices to prepare")
-	}
-
-	deviceSpecs := make([]cdispec.Device, 0, len(req.Devices))
-	deviceIDs := make(map[string][]string, len(req.Devices))
-	for _, dev := range req.Devices {
-		pci := attrString(dev.Attributes, allocatable.AttrPCIAddress)
-		if pci == "" {
-			return nil, fmt.Errorf("pci address is missing for device %q", dev.Device)
-		}
-		group, err := w.readIommuGroup(pci)
-		if err != nil {
-			return nil, err
-		}
-		name := claimDeviceName(req.ClaimUID, dev.Device)
-		deviceSpecs = append(deviceSpecs, cdispec.Device{
-			Name: name,
-			ContainerEdits: cdispec.ContainerEdits{
-				DeviceNodes: []*cdispec.DeviceNode{
-					{Path: filepath.Join(vfioRoot, strconv.Itoa(group))},
-				},
-			},
-		})
-		deviceIDs[dev.Device] = []string{cdiparser.QualifiedName(w.vendor, w.class, name)}
-	}
-
-	spec := cdispec.Spec{
-		Kind: fmt.Sprintf("%s/%s", w.vendor, w.class),
-		ContainerEdits: cdispec.ContainerEdits{
-			DeviceNodes: []*cdispec.DeviceNode{{Path: filepath.Join(vfioRoot, "vfio")}},
-		},
-		Devices: deviceSpecs,
-	}
-	minVersion, err := cdispec.MinimumRequiredVersion(&spec)
-	if err != nil {
-		return nil, fmt.Errorf("detect CDI spec version: %w", err)
-	}
-	spec.Version = minVersion
-
-	specName := cdiapi.GenerateTransientSpecName(w.vendor, w.class, req.ClaimUID)
-	if err := w.cache.WriteSpec(&spec, specName); err != nil {
-		return nil, fmt.Errorf("write CDI spec %q: %w", specName, err)
-	}
-
-	return deviceIDs, nil
-}
-
-// Delete removes CDI specs for a claim.
-func (w *CDIWriter) Delete(_ context.Context, claimUID string) error {
-	if w == nil {
-		return errors.New("vfio CDI writer is nil")
-	}
-	if claimUID == "" {
-		return errors.New("claim UID is required")
-	}
-	specName := cdiapi.GenerateTransientSpecName(w.vendor, w.class, claimUID)
-	return w.cache.RemoveSpec(specName)
-}
-
-func (w *CDIWriter) readIommuGroup(pciBusID string) (int, error) {
-	path := filepath.Join(w.sysfsRoot, pciBusID, "iommu_group")
-	link, err := os.Readlink(path)
-	if err != nil {
-		return 0, fmt.Errorf("read iommu group for %s: %w", pciBusID, err)
-	}
-	group := filepath.Base(link)
-	id, err := strconv.Atoi(group)
-	if err != nil {
-		return 0, fmt.Errorf("parse iommu group for %s: %w", pciBusID, err)
-	}
-	return id, nil
-}
-
-func claimDeviceName(claimUID, deviceName string) string {
-	return fmt.Sprintf("%s-%s", claimUID, deviceName)
-}
-
-func attrString(attrs map[string]allocatable.AttributeValue, key string) string {
-	if attrs == nil {
-		return ""
-	}
-	val, ok := attrs[key]
-	if !ok || val.String == nil {
-		return ""
-	}
-	return strings.TrimSpace(*val.String)
 }

@@ -19,22 +19,11 @@ limitations under the License.
 
 package capabilities
 
-import (
-	"fmt"
-
-	"github.com/NVIDIA/go-nvml/pkg/nvml"
-)
+import "github.com/NVIDIA/go-nvml/pkg/nvml"
 
 // NVMLReader opens a session and reads NVML data.
 type NVMLReader struct {
 	nvml NVML
-}
-
-// NVMLSession reads devices using an initialized NVML instance.
-type NVMLSession struct {
-	nvml          NVML
-	driverVersion string
-	cudaVersion   string
 }
 
 // NewNVMLReader constructs a reader for NVML.
@@ -68,62 +57,4 @@ func (r *NVMLReader) Open() (CapabilitiesSession, error) {
 		driverVersion: driverVersion,
 		cudaVersion:   formatCudaVersion(cudaRaw),
 	}, nil
-}
-
-// Close shuts down NVML for this session.
-func (s *NVMLSession) Close() {
-	if s == nil || s.nvml == nil {
-		return
-	}
-	_ = s.nvml.Shutdown()
-}
-
-// ReadDevice returns NVML capabilities and current state for a PCI address.
-func (s *NVMLSession) ReadDevice(pciAddress string) (*DeviceSnapshot, error) {
-	if pciAddress == "" {
-		return nil, newReadError(ErrMissingPCIAddress, "pci address is empty")
-	}
-	if s == nil || s.nvml == nil {
-		return nil, newReadError(ErrNVMLUnavailable, "NVML is not initialized")
-	}
-
-	dev, ret := s.nvml.DeviceByPCI(pciAddress)
-	if ret != nvml.SUCCESS {
-		return nil, newReadError(ErrNVMLUnavailable, "NVML device lookup failed: %s", s.nvml.ErrorString(ret))
-	}
-
-	capabilities, err := buildCapabilities(dev)
-	if err != nil {
-		return nil, err
-	}
-
-	current, err := buildCurrentState(dev, s.driverVersion, s.cudaVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	return &DeviceSnapshot{
-		Capabilities: capabilities,
-		CurrentState: current,
-	}, nil
-}
-
-type nvmlReadError struct {
-	reason  error
-	message string
-}
-
-func (e *nvmlReadError) Error() string {
-	return e.message
-}
-
-func (e *nvmlReadError) Unwrap() error {
-	return e.reason
-}
-
-func newReadError(reason error, format string, args ...interface{}) error {
-	return &nvmlReadError{
-		reason:  reason,
-		message: fmt.Sprintf(format, args...),
-	}
 }

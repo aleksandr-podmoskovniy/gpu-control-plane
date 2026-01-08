@@ -25,8 +25,8 @@ import (
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 
 	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
 	handlerresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/resourceslice"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
 )
 
 type fakeBuilder struct {

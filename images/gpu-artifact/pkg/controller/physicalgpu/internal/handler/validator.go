@@ -19,12 +19,9 @@ package handler
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	gpuv1alpha1 "github.com/aleksandr-podmoskovniy/gpu/api/v1alpha1"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/conditions"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/controller/physicalgpu/internal/state"
@@ -98,56 +95,4 @@ func (h *ValidatorHandler) Handle(ctx context.Context, st state.PhysicalGPUState
 
 	h.recordDriverReadyEvent(obj, st.Resource.Current())
 	return reconcile.Result{}, nil
-}
-
-type conditionType string
-
-func (ct conditionType) String() string {
-	return string(ct)
-}
-
-type conditionReason string
-
-func (cr conditionReason) String() string {
-	return string(cr)
-}
-
-const (
-	conditionDriverReady conditionType = "DriverReady"
-)
-
-const (
-	reasonValidatorReady    conditionReason = "ValidatorReady"
-	reasonValidatorNotReady conditionReason = "ValidatorNotReady"
-	reasonValidatorMissing  conditionReason = "ValidatorMissing"
-)
-
-func (h *ValidatorHandler) recordDriverReadyEvent(obj *gpuv1alpha1.PhysicalGPU, prev *gpuv1alpha1.PhysicalGPU) {
-	if h.recorder == nil || obj == nil {
-		return
-	}
-
-	newCond := meta.FindStatusCondition(obj.Status.Conditions, conditionDriverReady.String())
-	if newCond == nil {
-		return
-	}
-
-	var oldCond *metav1.Condition
-	if prev != nil {
-		oldCond = meta.FindStatusCondition(prev.Status.Conditions, conditionDriverReady.String())
-	}
-
-	if oldCond != nil &&
-		oldCond.Status == newCond.Status &&
-		oldCond.Reason == newCond.Reason &&
-		oldCond.Message == newCond.Message {
-		return
-	}
-
-	eventType := corev1.EventTypeWarning
-	if newCond.Status == metav1.ConditionTrue {
-		eventType = corev1.EventTypeNormal
-	}
-
-	h.recorder.Event(obj, eventType, newCond.Reason, newCond.Message)
 }

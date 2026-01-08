@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 /*
 Copyright 2025 Flant JSC
 
@@ -14,13 +17,35 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package prepare
+package vfio
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
+
+func (w *CDIWriter) readIommuGroup(pciBusID string) (int, error) {
+	path := filepath.Join(w.sysfsRoot, pciBusID, "iommu_group")
+	link, err := os.Readlink(path)
+	if err != nil {
+		return 0, fmt.Errorf("read iommu group for %s: %w", pciBusID, err)
+	}
+	group := filepath.Base(link)
+	id, err := strconv.Atoi(group)
+	if err != nil {
+		return 0, fmt.Errorf("parse iommu group for %s: %w", pciBusID, err)
+	}
+	return id, nil
+}
+
+func claimDeviceName(claimUID, deviceName string) string {
+	return fmt.Sprintf("%s-%s", claimUID, deviceName)
+}
 
 func attrString(attrs map[string]allocatable.AttributeValue, key string) string {
 	if attrs == nil {
@@ -31,23 +56,4 @@ func attrString(attrs map[string]allocatable.AttributeValue, key string) string 
 		return ""
 	}
 	return strings.TrimSpace(*val.String)
-}
-
-func cloneAttributes(attrs map[string]allocatable.AttributeValue) map[string]allocatable.AttributeValue {
-	if len(attrs) == 0 {
-		return map[string]allocatable.AttributeValue{}
-	}
-	out := make(map[string]allocatable.AttributeValue, len(attrs))
-	for key, val := range attrs {
-		out[key] = val
-	}
-	return out
-}
-
-func isMigDevice(deviceType string) bool {
-	return strings.EqualFold(deviceType, "mig")
-}
-
-func isPhysicalDevice(deviceType string) bool {
-	return strings.EqualFold(deviceType, "physical")
 }

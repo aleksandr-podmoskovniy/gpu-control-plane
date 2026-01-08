@@ -20,16 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
-
-	checkpointfile "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/checkpoint/file"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/lock/fslock"
-	mignvml "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/mig/nvml"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/vfio"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/services/prepare"
 )
 
 // Start initializes and starts the kubelet DRA plugin.
@@ -40,64 +32,23 @@ func Start(ctx context.Context, cfg Config) (*Driver, error) {
 	if cfg.NodeName == "" {
 		return nil, errors.New("node name is required")
 	}
-	driverName := cfg.DriverName
-	if driverName == "" {
-		driverName = defaultDriverName
-	}
-	registrarDir := cfg.RegistrarDir
-	if registrarDir == "" {
-		registrarDir = kubeletplugin.KubeletRegistryDir
-	}
-	pluginRoot := cfg.PluginDataRoot
-	if pluginRoot == "" {
-		pluginRoot = kubeletplugin.KubeletPluginsDir
-	}
-	pluginPath := filepath.Join(pluginRoot, driverName)
-	if err := os.MkdirAll(pluginPath, 0o755); err != nil {
-		return nil, fmt.Errorf("create plugin directory %q: %w", pluginPath, err)
+	paths, err := resolveStartPaths(cfg)
+	if err != nil {
+		return nil, err
 	}
 
-	cdiRoot := cfg.CDIRoot
-	if cdiRoot == "" {
-		cdiRoot = defaultCDIRoot
-	}
-	if err := ensureDir(cdiRoot); err != nil {
-		return nil, fmt.Errorf("ensure CDI root %q: %w", cdiRoot, err)
-	}
-
-	hookPath, err := ResolveNvidiaCDIHookPath(cfg.NvidiaCDIHookPath, pluginPath)
+	hookPath, err := ResolveNvidiaCDIHookPath(cfg.NvidiaCDIHookPath, paths.PluginPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve nvidia-cdi-hook: %w", err)
 	}
 
-	cdiWriter, err := newCDIWriter(cdiConfig{
-		DriverName:        driverName,
-		DriverRoot:        cfg.DriverRoot,
-		HostDriverRoot:    cfg.HostDriverRoot,
-		CDIRoot:           cdiRoot,
-		NvidiaCDIHookPath: hookPath,
-	})
+	prepareService, err := buildPrepareService(cfg, paths.DriverName, paths.PluginPath, paths.CDIRoot, hookPath)
 	if err != nil {
-		return nil, fmt.Errorf("init CDI writer: %w", err)
-	}
-
-	locker := fslock.New(filepath.Join(pluginPath, prepareLockFile))
-	checkpoints := checkpointfile.New(filepath.Join(pluginPath, prepareCheckpointFile))
-	migManager := mignvml.New(mignvml.Options{DriverRoot: cfg.DriverRoot})
-	vfioManager := vfio.New(vfio.Options{})
-	prepareService, err := prepare.NewService(prepare.Options{
-		CDI:         cdiWriter,
-		MIG:         migManager,
-		VFIO:        vfioManager,
-		Locker:      locker,
-		Checkpoints: checkpoints,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("init prepare service: %w", err)
+		return nil, err
 	}
 
 	driver := &Driver{
-		driverName:          driverName,
+		driverName:          paths.DriverName,
 		nodeName:            cfg.NodeName,
 		kubeClient:          cfg.KubeClient,
 		prepareService:      prepareService,
@@ -110,10 +61,10 @@ func Start(ctx context.Context, cfg Config) (*Driver, error) {
 		driver,
 		kubeletplugin.KubeClient(cfg.KubeClient),
 		kubeletplugin.NodeName(cfg.NodeName),
-		kubeletplugin.DriverName(driverName),
+		kubeletplugin.DriverName(paths.DriverName),
 		kubeletplugin.Serialize(cfg.SerializeGRPCCalls),
-		kubeletplugin.RegistrarDirectoryPath(registrarDir),
-		kubeletplugin.PluginDataDirectoryPath(pluginPath),
+		kubeletplugin.RegistrarDirectoryPath(paths.RegistrarDir),
+		kubeletplugin.PluginDataDirectoryPath(paths.PluginPath),
 	)
 	if err != nil {
 		return nil, err

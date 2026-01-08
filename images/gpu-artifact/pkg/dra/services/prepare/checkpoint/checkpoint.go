@@ -14,19 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package prepare
+package checkpoint
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain"
+	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/ports"
 )
 
 const checkpointVersion = "v1"
 
-func (s *Service) loadCheckpoint(ctx context.Context) (domain.PrepareCheckpoint, error) {
-	checkpoint, err := s.checkpoints.Load(ctx)
+// Load retrieves and normalizes prepare checkpoints.
+func Load(ctx context.Context, store ports.PrepareCheckpointStore) (domain.PrepareCheckpoint, error) {
+	if store == nil {
+		return domain.PrepareCheckpoint{}, fmt.Errorf("prepare checkpoint store is not configured")
+	}
+	checkpoint, err := store.Load(ctx)
 	if err != nil {
 		return domain.PrepareCheckpoint{}, fmt.Errorf("load prepare checkpoint: %w", err)
 	}
@@ -39,7 +44,8 @@ func (s *Service) loadCheckpoint(ctx context.Context) (domain.PrepareCheckpoint,
 	return checkpoint, nil
 }
 
-func preparedResultFromClaim(claimUID string, claim domain.PreparedClaim) (domain.PrepareResult, error) {
+// PreparedResultFromClaim builds a prepare result for cached claims.
+func PreparedResultFromClaim(claimUID string, claim domain.PreparedClaim) (domain.PrepareResult, error) {
 	if claim.State != domain.PrepareStateCompleted {
 		return domain.PrepareResult{}, fmt.Errorf("claim %q is not prepared", claimUID)
 	}

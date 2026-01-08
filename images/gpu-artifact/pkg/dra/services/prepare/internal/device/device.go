@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package prepare
+package device
 
 import (
 	"fmt"
@@ -25,8 +25,43 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/domain/allocatable"
 )
 
-func buildMigPrepareRequest(dev domain.PrepareDevice) (domain.MigPrepareRequest, error) {
-	pci := attrString(dev.Attributes, allocatable.AttrPCIAddress)
+// AttrString returns a string attribute or empty string.
+func AttrString(attrs map[string]allocatable.AttributeValue, key string) string {
+	if attrs == nil {
+		return ""
+	}
+	val, ok := attrs[key]
+	if !ok || val.String == nil {
+		return ""
+	}
+	return strings.TrimSpace(*val.String)
+}
+
+// CloneAttributes returns a shallow copy of attributes map.
+func CloneAttributes(attrs map[string]allocatable.AttributeValue) map[string]allocatable.AttributeValue {
+	if len(attrs) == 0 {
+		return map[string]allocatable.AttributeValue{}
+	}
+	out := make(map[string]allocatable.AttributeValue, len(attrs))
+	for key, val := range attrs {
+		out[key] = val
+	}
+	return out
+}
+
+// IsMigDevice returns true for MIG device type.
+func IsMigDevice(deviceType string) bool {
+	return strings.EqualFold(deviceType, "mig")
+}
+
+// IsPhysicalDevice returns true for physical GPU device type.
+func IsPhysicalDevice(deviceType string) bool {
+	return strings.EqualFold(deviceType, "physical")
+}
+
+// BuildMigPrepareRequest converts a prepare device into a MIG request.
+func BuildMigPrepareRequest(dev domain.PrepareDevice) (domain.MigPrepareRequest, error) {
+	pci := AttrString(dev.Attributes, allocatable.AttrPCIAddress)
 	if pci == "" {
 		return domain.MigPrepareRequest{}, fmt.Errorf("pci address is missing for device %q", dev.Device)
 	}
