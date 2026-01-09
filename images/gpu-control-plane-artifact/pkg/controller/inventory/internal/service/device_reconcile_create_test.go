@@ -22,7 +22,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -40,9 +39,8 @@ func TestDeviceServiceReconcileCreateBranches(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		base := newTestClient(t, scheme, node)
-		rec := record.NewFakeRecorder(10)
-
-		svc := NewDeviceService(base, scheme, rec, nil)
+		recorder := newTestRecorderLogger(10)
+		svc := NewDeviceService(base, scheme, recorder, nil)
 
 		device, res, err := svc.Reconcile(ctx, node, snapshot, nil, true, approval, func(d *v1alpha1.GPUDevice, _ invstate.DeviceSnapshot) {
 			d.Status.Hardware.Product = "from-detection"

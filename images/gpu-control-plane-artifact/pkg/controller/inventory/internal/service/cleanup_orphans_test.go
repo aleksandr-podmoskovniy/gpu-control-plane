@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
@@ -65,9 +64,8 @@ func TestCleanupServiceRemoveOrphansDeletesDeviceAndEmitsEvent(t *testing.T) {
 		Status:     v1alpha1.GPUDeviceStatus{NodeName: node.Name},
 	}
 	base := newTestClient(t, scheme, node, device)
-	rec := record.NewFakeRecorder(10)
-
-	svc := NewCleanupService(base, rec)
+	rec, recorder := newTestRecorder(10)
+	svc := NewCleanupService(base, recorder)
 
 	if err := svc.RemoveOrphans(ctx, node, map[string]struct{}{device.Name: {}}); err != nil {
 		t.Fatalf("RemoveOrphans returned error: %v", err)
@@ -100,7 +98,7 @@ func TestCleanupServiceRemoveOrphansDeleteError(t *testing.T) {
 		},
 	}
 
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 	if err := svc.RemoveOrphans(context.Background(), node, map[string]struct{}{"missing": {}}); !errors.Is(err, boom) {
 		t.Fatalf("expected error %v, got %v", boom, err)
 	}

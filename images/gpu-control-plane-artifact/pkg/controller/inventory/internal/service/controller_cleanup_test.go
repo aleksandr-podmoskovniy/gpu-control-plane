@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -65,7 +64,7 @@ func TestCleanupNodeDeletesMetrics(t *testing.T) {
 
 	scheme := newTestScheme(t)
 	cl := newTestClient(t, scheme)
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 
 	if err := svc.CleanupNode(context.Background(), nodeName); err != nil {
 		t.Fatalf("cleanupNode returned error: %v", err)
@@ -78,7 +77,7 @@ func TestDeleteInventoryRemovesResource(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "node-cleanup"},
 	}
 	fixtureClient := newTestClient(t, scheme, inventory)
-	svc := NewCleanupService(fixtureClient, record.NewFakeRecorder(1))
+	svc := NewCleanupService(fixtureClient, newTestRecorderLogger(1))
 
 	if err := svc.DeleteInventory(context.Background(), "node-cleanup"); err != nil {
 		t.Fatalf("deleteInventory returned error: %v", err)
@@ -102,7 +101,7 @@ func TestDeleteInventoryRemovesResource(t *testing.T) {
 			return apierrors.NewNotFound(schema.GroupResource{Group: v1alpha1.GroupVersion.Group, Resource: "gpunodestates"}, obj.GetName())
 		},
 	}
-	delSvc := NewCleanupService(delClient, record.NewFakeRecorder(1))
+	delSvc := NewCleanupService(delClient, newTestRecorderLogger(1))
 
 	if err := delSvc.DeleteInventory(context.Background(), "node-delete-race"); err != nil {
 		t.Fatalf("deleteInventory should ignore not found error from delete, got %v", err)
@@ -121,7 +120,7 @@ func TestDeleteInventoryPropagatesGetError(t *testing.T) {
 		},
 	}
 
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 
 	if err := svc.DeleteInventory(context.Background(), "node-error"); !errors.Is(err, boom) {
 		t.Fatalf("expected error %v, got %v", boom, err)
@@ -139,7 +138,7 @@ func TestCleanupNodeReturnsListError(t *testing.T) {
 		},
 	}
 
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 	if err := svc.CleanupNode(context.Background(), "worker-list-error"); !errors.Is(err, listErr) {
 		t.Fatalf("expected list error, got %v", err)
 	}
@@ -169,7 +168,7 @@ func TestCleanupNodeReturnsDeviceDeleteError(t *testing.T) {
 		},
 	}
 
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 	if err := svc.CleanupNode(context.Background(), "worker-delete"); !errors.Is(err, deleteErr) {
 		t.Fatalf("expected device delete error, got %v", err)
 	}
@@ -196,7 +195,7 @@ func TestCleanupNodeReturnsInventoryDeleteError(t *testing.T) {
 		},
 	}
 
-	svc := NewCleanupService(cl, record.NewFakeRecorder(1))
+	svc := NewCleanupService(cl, newTestRecorderLogger(1))
 	if err := svc.CleanupNode(context.Background(), "worker-inventory"); !errors.Is(err, deleteErr) {
 		t.Fatalf("expected inventory delete error, got %v", err)
 	}

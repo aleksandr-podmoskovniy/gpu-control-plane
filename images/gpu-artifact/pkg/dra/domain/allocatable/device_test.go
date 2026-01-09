@@ -86,6 +86,9 @@ func TestGPUDeviceSpec(t *testing.T) {
 	if len(spec.BindingConditions) != 1 || spec.BindingConditions[0] != DeviceConditionReady {
 		t.Fatalf("expected binding condition %q", DeviceConditionReady)
 	}
+	if len(spec.BindingFailureConditions) != 1 || spec.BindingFailureConditions[0] != DeviceConditionReady {
+		t.Fatalf("expected binding failure condition %q", DeviceConditionReady)
+	}
 }
 
 func TestMIGDeviceSpecDefaults(t *testing.T) {
@@ -98,5 +101,8 @@ func TestMIGDeviceSpecDefaults(t *testing.T) {
 	}
 	if len(spec.BindingConditions) != 1 || spec.BindingConditions[0] != DeviceConditionReady {
 		t.Fatalf("expected binding condition %q", DeviceConditionReady)
+	}
+	if len(spec.BindingFailureConditions) != 1 || spec.BindingFailureConditions[0] != DeviceConditionReady {
+		t.Fatalf("expected binding failure condition %q", DeviceConditionReady)
 	}
 }

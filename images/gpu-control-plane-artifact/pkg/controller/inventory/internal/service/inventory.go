@@ -17,12 +17,12 @@ package service
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -31,16 +31,17 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/conditions"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
 
 type InventoryService struct {
 	client   client.Client
 	scheme   *runtime.Scheme
-	recorder record.EventRecorder
+	recorder eventrecord.EventRecorderLogger
 }
 
-func NewInventoryService(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder) *InventoryService {
+func NewInventoryService(c client.Client, scheme *runtime.Scheme, recorder eventrecord.EventRecorderLogger) *InventoryService {
 	return &InventoryService{
 		client:   c,
 		scheme:   scheme,
@@ -139,7 +140,16 @@ func (s *InventoryService) Reconcile(ctx context.Context, node *corev1.Node, sna
 		if !inventoryComplete {
 			eventType = corev1.EventTypeWarning
 		}
-		s.recorder.Eventf(node, eventType, invstate.EventInventoryChanged, "Condition %s changed to %t (%s)", invstate.ConditionInventoryComplete, inventoryComplete, inventoryReason)
+		log := logr.FromContextOrDiscard(ctx).WithValues("node", node.Name)
+		s.recorder.WithLogging(log).Eventf(
+			node,
+			eventType,
+			invstate.EventInventoryChanged,
+			"Condition %s changed to %t (%s)",
+			invstate.ConditionInventoryComplete,
+			inventoryComplete,
+			inventoryReason,
+		)
 	}
 
 	if equality.Semantic.DeepEqual(resource.Current().Status, inventory.Status) {

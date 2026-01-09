@@ -39,6 +39,11 @@ func buildMigProfiles(dev NVMLDevice) *gpuv1alpha1.NvidiaMIGCapabilities {
 		infoV3, ret := dev.GetGpuInstanceProfileInfoV3(profile)
 		if ret == nvml.SUCCESS {
 			name := nvmlName(infoV3.Name[:])
+			if name == "" {
+				if infoV2, ret := dev.GetGpuInstanceProfileInfoV2(profile); ret == nvml.SUCCESS {
+					name = nvmlName(infoV2.Name[:])
+				}
+			}
 			profiles = appendMigProfile(
 				profiles,
 				&totalSlices,

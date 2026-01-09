@@ -17,13 +17,13 @@ package service
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -33,6 +33,7 @@ import (
 	invpci "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/pci"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
 
@@ -44,11 +45,11 @@ type DeviceHandler interface {
 type DeviceService struct {
 	client   client.Client
 	scheme   *runtime.Scheme
-	recorder record.EventRecorder
+	recorder eventrecord.EventRecorderLogger
 	handlers []DeviceHandler
 }
 
-func NewDeviceService(c client.Client, scheme *runtime.Scheme, recorder record.EventRecorder, handlers []DeviceHandler) *DeviceService {
+func NewDeviceService(c client.Client, scheme *runtime.Scheme, recorder eventrecord.EventRecorderLogger, handlers []DeviceHandler) *DeviceService {
 	return &DeviceService{
 		client:   c,
 		scheme:   scheme,
@@ -170,7 +171,13 @@ func (s *DeviceService) createDevice(
 		return nil, reconcile.Result{}, err
 	}
 	if s.recorder != nil {
-		s.recorder.Eventf(
+		log := logr.FromContextOrDiscard(ctx).WithValues(
+			"node", node.Name,
+			"deviceIndex", snapshot.Index,
+			"vendor", snapshot.Vendor,
+			"device", snapshot.Device,
+		)
+		s.recorder.WithLogging(log).Eventf(
 			device,
 			corev1.EventTypeNormal,
 			invstate.EventDeviceDetected,

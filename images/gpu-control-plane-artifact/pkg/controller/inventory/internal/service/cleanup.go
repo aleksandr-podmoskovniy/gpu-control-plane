@@ -17,13 +17,14 @@ package service
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
 	commonobject "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/common/object"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 	invmetrics "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/monitoring/metrics/inventory"
 )
 
@@ -37,10 +38,10 @@ type CleanupService interface {
 
 type cleanupService struct {
 	client   client.Client
-	recorder record.EventRecorder
+	recorder eventrecord.EventRecorderLogger
 }
 
-func NewCleanupService(c client.Client, recorder record.EventRecorder) CleanupService {
+func NewCleanupService(c client.Client, recorder eventrecord.EventRecorderLogger) CleanupService {
 	return &cleanupService{client: c, recorder: recorder}
 }
 
@@ -92,7 +93,14 @@ func (c *cleanupService) RemoveOrphans(ctx context.Context, node *corev1.Node, o
 			return err
 		}
 		if c.recorder != nil {
-			c.recorder.Eventf(node, corev1.EventTypeNormal, invstate.EventDeviceRemoved, "GPU device %s removed from inventory", name)
+			log := logr.FromContextOrDiscard(ctx).WithValues("node", node.Name, "device", name)
+			c.recorder.WithLogging(log).Eventf(
+				node,
+				corev1.EventTypeNormal,
+				invstate.EventDeviceRemoved,
+				"GPU device %s removed from inventory",
+				name,
+			)
 		}
 	}
 	return nil

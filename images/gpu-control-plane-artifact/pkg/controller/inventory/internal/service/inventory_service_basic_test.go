@@ -20,7 +20,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1alpha1 "github.com/aleksandr-podmoskovniy/gpu-control-plane/api/gpu/v1alpha1"
@@ -50,7 +49,7 @@ func TestInventoryServiceReconcileCreatesInventoryAndSetsCondition(t *testing.T)
 	node := newTestNode("node-create-inv")
 	base := newTestClient(t, scheme, node)
 
-	svc := NewInventoryService(base, scheme, record.NewFakeRecorder(10))
+	svc := NewInventoryService(base, scheme, newTestRecorderLogger(10))
 	snapshot := invstate.NodeSnapshot{
 		FeatureDetected: true,
 		Devices:         []invstate.DeviceSnapshot{{Index: "0"}},
@@ -88,7 +87,7 @@ func TestInventoryServiceReconcileFeatureMissingAndNoDevicesBranches(t *testing.
 	}
 
 	base := newTestClient(t, scheme, node, inventory)
-	svc := NewInventoryService(base, scheme, record.NewFakeRecorder(10))
+	svc := NewInventoryService(base, scheme, newTestRecorderLogger(10))
 
 	t.Run("feature missing", func(t *testing.T) {
 		snap := invstate.NodeSnapshot{FeatureDetected: false, Devices: []invstate.DeviceSnapshot{{Index: "0"}}}

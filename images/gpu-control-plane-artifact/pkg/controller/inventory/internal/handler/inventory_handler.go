@@ -20,7 +20,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -28,6 +27,7 @@ import (
 	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	ctrlreconciler "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/reconciler"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 )
 
 // InventoryHandler reconciles GPUDevice and GPUNodeState resources for a node.
@@ -38,7 +38,7 @@ type InventoryHandler struct {
 	inventorySvc InventoryService
 	cleanupSvc   CleanupService
 	detectionSvc DetectionCollector
-	recorder     record.EventRecorder
+	recorder     eventrecord.EventRecorderLogger
 }
 
 func NewInventoryHandler(
@@ -48,7 +48,7 @@ func NewInventoryHandler(
 	inventorySvc InventoryService,
 	cleanupSvc CleanupService,
 	detectionSvc DetectionCollector,
-	recorder record.EventRecorder,
+	recorder eventrecord.EventRecorderLogger,
 ) *InventoryHandler {
 	return &InventoryHandler{
 		log:          log,
@@ -66,11 +66,11 @@ func (h *InventoryHandler) Name() string {
 }
 
 func (h *InventoryHandler) Handle(ctx context.Context, state invstate.InventoryState) (reconcile.Result, error) {
-	log := logr.FromContextOrDiscard(ctx)
 	node := state.Node()
 	if node == nil {
 		return reconcile.Result{}, nil
 	}
+	log := logr.FromContextOrDiscard(ctx).WithValues("node", node.Name)
 
 	nodeSnapshot := state.Snapshot()
 	snapshotList := nodeSnapshot.Devices
@@ -97,9 +97,16 @@ func (h *InventoryHandler) Handle(ctx context.Context, state invstate.InventoryS
 		if d, err := h.detectionSvc.Collect(ctx, node.Name); err == nil {
 			detections = d
 		} else {
-			log.V(1).Info("gfd-extender telemetry unavailable", "node", node.Name, "error", err)
+			log.V(1).Info("gfd-extender telemetry unavailable", "error", err)
 			if h.recorder != nil {
-				h.recorder.Eventf(node, corev1.EventTypeWarning, invstate.EventDetectUnavailable, "gfd-extender unavailable for node %s: %v", node.Name, err)
+				h.recorder.WithLogging(log).Eventf(
+					node,
+					corev1.EventTypeWarning,
+					invstate.EventDetectUnavailable,
+					"gfd-extender unavailable for node %s: %v",
+					node.Name,
+					err,
+				)
 			}
 		}
 	}

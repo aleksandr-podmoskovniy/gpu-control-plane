@@ -25,6 +25,7 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/indexer"
 	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
 	invwatcher "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/watcher"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 )
 
 type Watcher interface {
@@ -39,7 +40,8 @@ func (r *Reconciler) SetupController(ctx context.Context, mgr manager.Manager, c
 
 	r.client = mgr.GetClient()
 	r.scheme = mgr.GetScheme()
-	r.recorder = mgr.GetEventRecorderFor(ControllerName)
+	r.recorder = eventrecord.NewEventRecorderLogger(mgr, ControllerName).
+		WithLogging(r.log.WithName(ControllerName))
 	if r.detectionCollector == nil {
 		r.detectionCollector = invservice.NewDetectionCollector(r.client)
 	}

@@ -22,7 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -31,6 +30,7 @@ import (
 	invservice "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/service"
 	invstate "github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/inventory/internal/state"
 	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/controller/moduleconfig"
+	"github.com/aleksandr-podmoskovniy/gpu-control-plane/controller/pkg/eventrecord"
 )
 
 const (
@@ -51,7 +51,7 @@ type Reconciler struct {
 	cfg              config.ControllerConfig
 	handlers         []Handler
 	deviceHandlers   []invservice.DeviceHandler
-	recorder         record.EventRecorder
+	recorder         eventrecord.EventRecorderLogger
 	resyncPeriod     time.Duration
 	resyncMu         sync.RWMutex
 	store            *moduleconfig.ModuleConfigStore

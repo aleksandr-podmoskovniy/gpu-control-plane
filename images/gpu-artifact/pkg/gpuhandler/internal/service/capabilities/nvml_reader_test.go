@@ -320,6 +320,56 @@ func TestNVMLReaderMIGProfilesFallbackV2(t *testing.T) {
 	}
 }
 
+func TestNVMLReaderMIGProfilesFallbackNameFromV2(t *testing.T) {
+	dev := &fakeNVMLDevice{
+		name:      "NVIDIA A30",
+		uuid:      "GPU-123",
+		memory:    nvml.Memory{Total: 24576 * 1024 * 1024},
+		major:     8,
+		minor:     0,
+		arch:      nvml.DEVICE_ARCH_AMPERE,
+		boardPart: "900-21001-0040-100",
+		migMode:   nvml.DEVICE_MIG_ENABLE,
+		migRet:    nvml.SUCCESS,
+		profileInfo: map[int]nvml.GpuInstanceProfileInfo_v3{
+			0: profileInfoWithEnginesAndCaps(nvml.GPU_INSTANCE_PROFILE_1_SLICE, 1, 4, 5952, "", 1, 0, 0, 0, 0),
+		},
+		profileInfoV2: map[int]nvml.GpuInstanceProfileInfo_v2{
+			0: profileInfoV2(nvml.GPU_INSTANCE_PROFILE_1_SLICE, 1, 4, 5952, "MIG 1g.6gb+me"),
+		},
+		profileRet: nvml.ERROR_NOT_SUPPORTED,
+	}
+
+	reader := NewNVMLReader(&fakeNVML{
+		initRet:       nvml.SUCCESS,
+		driverVersion: "590.48.01",
+		driverRet:     nvml.SUCCESS,
+		cudaVersion:   13000,
+		cudaRet:       nvml.SUCCESS,
+		deviceRet:     nvml.SUCCESS,
+		device:        dev,
+	})
+
+	session, err := reader.Open()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer session.Close()
+
+	snapshot, err := session.ReadDevice("0000:02:00.0")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	profiles := snapshot.Capabilities.Nvidia.MIG.Profiles
+	if len(profiles) != 1 {
+		t.Fatalf("expected 1 profile, got %d", len(profiles))
+	}
+	if profiles[0].Name != "1g.6gb+me" {
+		t.Fatalf("expected profile name 1g.6gb+me, got %q", profiles[0].Name)
+	}
+}
+
 func TestNVMLReaderPartialData(t *testing.T) {
 	dev := &fakeNVMLDevice{
 		name:           "NVIDIA A30",
