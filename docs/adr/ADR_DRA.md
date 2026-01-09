@@ -1,4 +1,3 @@
-````md
 # Техническое задание: GPU Provisioning + DRA Driver (Kubernetes ≥ 1.34)
 
 Документ предназначен как **самодостаточное ТЗ** и рабочий план реализации.
@@ -75,21 +74,25 @@
 ### 2.0 Принципы проектирования (почему так устроено)
 
 **Главная идея:** собрать систему из независимых и простых компонентов, которые общаются только через API Kubernetes и DRA‑объекты, чтобы:
-1) каждая часть делала один маленький кусок работы;
-2) изменения были локальными (не ломают остальные части);
-3) поведение было предсказуемым и тестируемым.
+
+1. каждая часть делала один маленький кусок работы;
+2. изменения были локальными (не ломают остальные части);
+3. поведение было предсказуемым и тестируемым.
 
 **Как мы декомпозируем:**
+
 - **Control‑plane** управляет только API‑логикой (CRD lifecycle, генерация DeviceClass, оркестрация DaemonSet’ов).
 - **Node‑agents** (thin/thick) делают работу на узлах: thin — инвентарь, thick — DRA publish + prepare/unprepare.
 - **DRA allocation controller** отдельно принимает решения о размещении (allocation), не смешивая это с подготовкой устройств.
 
 **Что это дает:**
+
 - Нет “сквозной логики” между инвентарем, аллокацией и драйвером.
 - Упростили ответственность: если проблема в инвентаре — лечим node‑agent, если в allocation — лечим allocator.
 - Поведение объясняется по шагам, а не через «магические» поля.
 
 **Базовые инженерные правила:**
+
 - **Слои**: domain → ports → adapters → services. Ни один слой не “перепрыгивает” через другой.
 - **Handler‑цепочки** для контроллеров: каждый шаг делает одно действие и легко тестируется.
 - **Prepare/Unprepare**: фиксированный порядок шагов, StepTaker‑pipeline уже используется (state/step пакеты).
@@ -104,8 +107,9 @@
 
 Состав контроллеров (v0):
 
-1. **AgentOrchestratorController**  
-   - Watch: Cluster config (ConfigMap/CRD `GPUOperatorConfig`)  
+1. **AgentOrchestratorController**
+
+   - Watch: Cluster config (ConfigMap/CRD `GPUOperatorConfig`)
    - Reconcile: выкатывает на ноды DaemonSet’ы:
      - `gpu-node-agent` (thin)
      - `gpu-handler` (node runtime: capabilities + DRA publish/prepare)
@@ -113,8 +117,9 @@
      - `dcgm-exporter` (только NVIDIA)
      - (в будущем) `driver-installer` (опционально)
 
-2. **Admission Webhook**  
-  - В v0 **не требуется**: основной путь — Extended Resources без мутаций Pod.
+2. **Admission Webhook**
+
+- В v0 **не требуется**: основной путь — Extended Resources без мутаций Pod.
 
 > Важно: control-plane **не участвует** в выдаче GPU в workload напрямую. Это делает DRA driver.
 
@@ -125,8 +130,8 @@
 - Сканирует `/sys/bus/pci/devices`.
 - Находит GPU по class code (`0x0300` / `0x0302`) и vendor id (v0: только `10de`).
 - Создает/патчит `PhysicalGPU`:
-  - status.pciInfo.*
-  - status.nodeInfo.*
+  - status.pciInfo.\*
+  - status.nodeInfo.\*
   - labels: node/vendor/device (нормализованное имя)
 - Заполняет `currentState.driverType` из binding драйвера (sysfs).
 - Удаляет `PhysicalGPU`, если устройство исчезло (с финалайзером/garbage safety, см. ниже).
@@ -164,8 +169,8 @@
 
 #### 2.2.1 Инвентарь
 
-1) `gpu-node-agent` на ноде обнаруживает PCI GPU (udev + watch delete) → создаёт `PhysicalGPU` CR.  
-2) `gpu-handler` разворачивается **после `DriverReady=True`** (gate).
+1. `gpu-node-agent` на ноде обнаруживает PCI GPU (udev + watch delete) → создаёт `PhysicalGPU` CR.
+2. `gpu-handler` разворачивается **после `DriverReady=True`** (gate).
    После старта он на каждом цикле синхронизации проверяет `DriverReady`:
    - при `DriverReady=True` делает NVML‑снапшот, обогащает `PhysicalGPU.status`,
      выставляет `HardwareHealthy`, публикует `ResourceSlice` и принимает `NodePrepare/Unprepare`;
@@ -174,20 +179,20 @@
 
 #### 2.2.2 UX (v0, основной): DeviceClass → Extended Resource → Pod
 
-1) Админ создаёт **DeviceClass** (DRA) и задаёт `spec.extendedResourceName`.
-2) Пользователь запрашивает extended resource в Pod (`resources.requests/limits`).
-3) Scheduler сам создаёт “special” `ResourceClaim` и пишет allocation.
+1. Админ создаёт **DeviceClass** (DRA) и задаёт `spec.extendedResourceName`.
+2. Пользователь запрашивает extended resource в Pod (`resources.requests/limits`).
+3. Scheduler сам создаёт “special” `ResourceClaim` и пишет allocation.
 
 #### 2.2.3 UX (v0, опционально): ResourceClaimTemplate для `sharePercent`
 
-1) Пользователь создаёт **ResourceClaimTemplate** с `deviceClassName`, `count` и `capacity.requests.sharePercent`.
-2) Pod ссылается на template через `spec.resourceClaims`.
+1. Пользователь создаёт **ResourceClaimTemplate** с `deviceClassName`, `count` и `capacity.requests.sharePercent`.
+2. Pod ссылается на template через `spec.resourceClaims`.
 
 #### 2.2.4 Allocation + Prepare
 
-1) `gpu-dra-controller` видит `ResourceClaim` без allocation → выбирает конкретные DRA‑devices из ResourceSlice и пишет allocation.
-2) Scheduler выбирает ноду, kubelet вызывает `NodePrepareResources` у `gpu-handler`.
-3) `gpu-handler`:
+1. `gpu-dra-controller` видит `ResourceClaim` без allocation → выбирает конкретные DRA‑devices из ResourceSlice и пишет allocation.
+2. Scheduler выбирает ноду, kubelet вызывает `NodePrepareResources` у `gpu-handler`.
+3. `gpu-handler`:
    - обеспечивает правильный режим карты **по типу запрошенного устройства** (Physical/MIG),
    - при аннотации `gpu.deckhouse.io/vfio: "true"` и эксклюзивной аллокации
      выполняет VFIO bind (режим Physical),
@@ -197,7 +202,7 @@
      `HOST_DRIVER_ROOT`, а при пустом `NVIDIA_CDI_HOOK_PATH` `nvidia-cdi-hook` копируется
      в каталог плагина и используется в spec,
    - (для VM) пишет “hook input” (json/yaml) для QEMU hook.
-4) Workload стартует. На Unprepare всё очищается.
+4. Workload стартует. На Unprepare всё очищается.
 
 ### 2.3 Логика работы проекта (как части складываются в одно целое)
 
@@ -264,6 +269,7 @@ flowchart TD
 ```
 
 **Кратко о взаимодействии:**
+
 - Все компоненты общаются **только через Kubernetes API**.
 - `gpu-node-agent` пишет `PhysicalGPU`, `gpu-handler` публикует `ResourceSlice`.
 - Аллокатор выбирает **только** из `ResourceSlice`, а реальная подготовка происходит в `NodePrepare/NodeUnprepare`.
@@ -275,6 +281,7 @@ flowchart TD
 ### 4.1 Назначение
 
 `PhysicalGPU` = **инвентарь физической карты**, единый объект, который:
+
 - появляется/исчезает вместе с PCI устройством,
 - хранит health и driver readiness,
 - хранит snapshot capabilities, на основе которых строим ResourceSlice.
@@ -379,40 +386,40 @@ status:
       mig:
         mode: Enabled|Disabled|NotAvailable|Unknown # только если поддерживается и читается
 
-````
+```
 
 ### 4.2.1 Правила заполнения `currentState`
 
-* `currentState.driverType` заполняется из sysfs (binding драйвера) и **может** появиться до `DriverReady`.
-* `currentState.nvidia.*` заполняем **только** при `DriverReady=True` и `currentState.driverType=Nvidia`
+- `currentState.driverType` заполняется из sysfs (binding драйвера) и **может** появиться до `DriverReady`.
+- `currentState.nvidia.*` заполняем **только** при `DriverReady=True` и `currentState.driverType=Nvidia`
   (доступен драйвер/NVML).
-* `currentState.nvidia.mig` пишем только если `capabilities.nvidia.migSupported=true`
+- `currentState.nvidia.mig` пишем только если `capabilities.nvidia.migSupported=true`
   и режим читается.
-* Если `migSupported=false`, блок `capabilities.nvidia.mig` **полностью отсутствует** (включая `totalSlices`).
-* `currentState.nvidia.powerLimitCurrentW` и `powerLimitEnforcedW` пишем только если NVML
+- Если `migSupported=false`, блок `capabilities.nvidia.mig` **полностью отсутствует** (включая `totalSlices`).
+- `currentState.nvidia.powerLimitCurrentW` и `powerLimitEnforcedW` пишем только если NVML
   возвращает значения (мВт переводим в Вт).
-* VFIO в статусе **не отражаем**: режим включается на `NodePrepare` по аннотации Pod и при эксклюзивной аллокации.
+- VFIO в статусе **не отражаем**: режим включается на `NodePrepare` по аннотации Pod и при эксклюзивной аллокации.
 
 ### 4.2.2 Условия заполнения полей `PhysicalGPU.status`
 
-* `nodeInfo` — **по возможности** из `gpu-node-agent`:
+- `nodeInfo` — **по возможности** из `gpu-node-agent`:
   - `os.*` из `/etc/os-release`;
   - `kernelRelease` из `/proc/sys/kernel/osrelease` (эквивалент `uname -r`);
   - `bareMetal` из DMI‑эвристики.
-  Если источник недоступен — поле не пишем.
-* `metadata.name`: `<nodeName>-<index>-<vendorID>-<deviceID>`, где `index` — порядок по
+    Если источник недоступен — поле не пишем.
+- `metadata.name`: `<nodeName>-<index>-<vendorID>-<deviceID>`, где `index` — порядок по
   отсортированным PCI‑адресам. Имя основано на PCI, чтобы быть стабильным без NVML.
   GPU UUID сохраняем в `currentState.nvidia.gpuUUID` (когда доступен).
-* `pciInfo` — всегда из sysfs + `pci.ids`:
+- `pciInfo` — всегда из sysfs + `pci.ids`:
   - `class.code`, `vendor.id`, `device.id` из `/sys/bus/pci/devices/<BDF>/*`;
   - `class.name`, `vendor.name`, `device.name` — по `pci.ids` (если нет — поле не пишем).
-* `currentState.driverType` — из sysfs, при наличии binding.
-* `currentState.nvidia.*` — **только** при `DriverReady=True` и `currentState.driverType=Nvidia`
+- `currentState.driverType` — из sysfs, при наличии binding.
+- `currentState.nvidia.*` — **только** при `DriverReady=True` и `currentState.driverType=Nvidia`
   (доступен драйвер/NVML).
-* `capabilities` — **только** при `DriverReady=True` и успешном NVML‑снапшоте.
+- `capabilities` — **только** при `DriverReady=True` и успешном NVML‑снапшоте.
   Для NVIDIA power limit берём из NVML `DeviceGetPowerManagementLimitConstraints` и пишем в Вт.
-* `capabilities.nvidia` пишем только если `capabilities.vendor=Nvidia`.
-* `conditions`:
+- `capabilities.nvidia` пишем только если `capabilities.vendor=Nvidia`.
+- `conditions`:
   - `DriverReady` выставляет валидатор (`gpu-controller`);
   - `HardwareHealthy` выставляет `gpu-handler` по результату NVML;
   - при `DriverReady=False/Unknown` выставляем `HardwareHealthy=Unknown` с `reason=DriverNotReady`;
@@ -425,44 +432,44 @@ status:
 
 ### 4.2.2.1 Статус реализации заполнения полей (capabilities/currentState)
 
-* `capabilities.productName` — NVML `GetName` (ok).
-* `capabilities.memoryMiB` — NVML `GetMemoryInfo.Total` (ok).
-* `capabilities.vendor` — фиксируем `Nvidia` при успешном NVML‑снапшоте (ok).
-* `capabilities.nvidia.computeCap` — NVML `GetCudaComputeCapability` (ok).
-* `capabilities.nvidia.productArchitecture` — NVML `GetArchitecture` (ok).
-* `capabilities.nvidia.boardPartNumber` — NVML `GetBoardPartNumber` (по возможности).
-* `capabilities.nvidia.computeTypes` — фиксированный список типов (ok, без NVML).
-* `capabilities.nvidia.powerLimitMinW/MaxW` — NVML `GetPowerManagementLimitConstraints` (по возможности).
-* `capabilities.nvidia.migSupported` — NVML `GetMigMode` (ok).
-* `capabilities.nvidia.mig.profiles` — NVML `GetGpuInstanceProfileInfoV3`, имя профиля берём из NVML (без довычислений суффиксов). Если NVML имя пустое — fallback к базовому `Ng.Xgb`.
-* `capabilities.nvidia.mig.totalSlices` — вычисление по профилям (ok).
-* `currentState.nvidia.gpuUUID` — NVML `GetUUID` (ok).
-* `currentState.nvidia.driverVersion` — NVML `SystemGetDriverVersion` (ok).
-* `currentState.nvidia.cudaVersion` — NVML `SystemGetCudaDriverVersion` (ok).
-* `currentState.nvidia.powerLimitCurrentW/EnforcedW` — NVML `GetPowerManagementLimit`/`GetEnforcedPowerLimit` (по возможности).
-* `currentState.nvidia.mig.mode` — NVML `GetMigMode` (по возможности).
+- `capabilities.productName` — NVML `GetName` (ok).
+- `capabilities.memoryMiB` — NVML `GetMemoryInfo.Total` (ok).
+- `capabilities.vendor` — фиксируем `Nvidia` при успешном NVML‑снапшоте (ok).
+- `capabilities.nvidia.computeCap` — NVML `GetCudaComputeCapability` (ok).
+- `capabilities.nvidia.productArchitecture` — NVML `GetArchitecture` (ok).
+- `capabilities.nvidia.boardPartNumber` — NVML `GetBoardPartNumber` (по возможности).
+- `capabilities.nvidia.computeTypes` — фиксированный список типов (ok, без NVML).
+- `capabilities.nvidia.powerLimitMinW/MaxW` — NVML `GetPowerManagementLimitConstraints` (по возможности).
+- `capabilities.nvidia.migSupported` — NVML `GetMigMode` (ok).
+- `capabilities.nvidia.mig.profiles` — NVML `GetGpuInstanceProfileInfoV3`, имя профиля берём из NVML (без довычислений суффиксов). Если NVML имя пустое — fallback к базовому `Ng.Xgb`.
+- `capabilities.nvidia.mig.totalSlices` — вычисление по профилям (ok).
+- `currentState.nvidia.gpuUUID` — NVML `GetUUID` (ok).
+- `currentState.nvidia.driverVersion` — NVML `SystemGetDriverVersion` (ok).
+- `currentState.nvidia.cudaVersion` — NVML `SystemGetCudaDriverVersion` (ok).
+- `currentState.nvidia.powerLimitCurrentW/EnforcedW` — NVML `GetPowerManagementLimit`/`GetEnforcedPowerLimit` (по возможности).
+- `currentState.nvidia.mig.mode` — NVML `GetMigMode` (по возможности).
 
 ### 4.2.3 Логика `HardwareHealthy` и ретраи NVML
 
-* `gpu-handler` работает **event‑driven** (watch `PhysicalGPU`) и имеет heartbeat‑тикер
+- `gpu-handler` работает **event‑driven** (watch `PhysicalGPU`) и имеет heartbeat‑тикер
   для обнаружения “тихих” отказов NVML без событий в k8s.
-* При первом сбое NVML фиксируем время, но **не меняем** `HardwareHealthy` в течение
+- При первом сбое NVML фиксируем время, но **не меняем** `HardwareHealthy` в течение
   grace‑периода; в это время делаем ретраи с backoff.
-* После grace‑периода выставляем `HardwareHealthy=Unknown` с `reason=NVMLUnavailable`,
+- После grace‑периода выставляем `HardwareHealthy=Unknown` с `reason=NVMLUnavailable`,
   продолжаем ретраи с backoff; при успешном NVML‑снапшоте возвращаем `HardwareHealthy=True`.
 
 ### 4.2.4 Несколько GPU на одной ноде
 
-* На **каждую физическую карту** создаётся отдельный `PhysicalGPU` (1 PCI‑device → 1 CR).
-* `gpu-handler` на ноде обрабатывает **все** `PhysicalGPU` этой ноды:
+- На **каждую физическую карту** создаётся отдельный `PhysicalGPU` (1 PCI‑device → 1 CR).
+- `gpu-handler` на ноде обрабатывает **все** `PhysicalGPU` этой ноды:
   - сопоставляет NVML‑устройство по `pciInfo.address`;
   - обновляет `capabilities/currentState` **по карте**, без влияния на соседние карты.
-* Ошибка или деградация одной карты **не блокирует** обработку остальных.
+- Ошибка или деградация одной карты **не блокирует** обработку остальных.
 
 ### 4.3 Важный принцип
 
-* **Нет `spec.desiredMode` / `allowModeSwitch`**.
-* Управление режимом происходит **имплицитно по типу аллокации** и выполняется на ноде в `NodePrepareResources`.
+- **Нет `spec.desiredMode` / `allowModeSwitch`**.
+- Управление режимом происходит **имплицитно по типу аллокации** и выполняется на ноде в `NodePrepareResources`.
 
 ---
 
@@ -479,13 +486,13 @@ metadata:
   name: cuda-job
 spec:
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    resources:
-      requests:
-        gpu.deckhouse.io/a30: "1"
-      limits:
-        gpu.deckhouse.io/a30: "1"
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      resources:
+        requests:
+          gpu.deckhouse.io/a30: "1"
+        limits:
+          gpu.deckhouse.io/a30: "1"
 ```
 
 `gpu.deckhouse.io/a30` — это `DeviceClass.spec.extendedResourceName`
@@ -504,14 +511,14 @@ spec:
   spec:
     devices:
       requests:
-      - name: gpu
-        exactly:
-          deviceClassName: nvidia-a30-mig-2g.12gb
-          count: 4
-          # capacity:
-          #   requests:
-          #     sharePercent: "50" # для TimeSlicing/MPS (KEP‑5075)
-        # config: []  # необязательно, непрозрачные параметры для драйвера gpu.deckhouse.io
+        - name: gpu
+          exactly:
+            deviceClassName: nvidia-a30-mig-2g.12gb
+            count: 4
+            # capacity:
+            #   requests:
+            #     sharePercent: "50" # для TimeSlicing/MPS (KEP‑5075)
+          # config: []  # необязательно, непрозрачные параметры для драйвера gpu.deckhouse.io
 ```
 
 ---
@@ -520,19 +527,20 @@ spec:
 
 ### 6.1 Ключевые сущности DRA (напоминание)
 
-* `DeviceClass` — “класс устройств” + selector/config.
-* `ResourceSlice` — “витрина” доступных устройств на нодах.
-* `ResourceClaim` — “заявка” + allocation.
-* Extended resources — основной UX в v0 (KEP‑5004).
+- `DeviceClass` — “класс устройств” + selector/config.
+- `ResourceSlice` — “витрина” доступных устройств на нодах.
+- `ResourceClaim` — “заявка” + allocation.
+- Extended resources — основной UX в v0 (KEP‑5004).
 
 ### 6.2 Где находится `count`?
 
 `count` — это часть запроса устройств (DeviceRequest) в DRA API: “ExactCount … count field”.
 
 В v0 есть два пути:
-1) **Extended Resources (основной путь)** — `count` берётся из запроса ресурса в Pod
+
+1. **Extended Resources (основной путь)** — `count` берётся из запроса ресурса в Pod
    (`resources.requests/limits`), scheduler преобразует это в `DeviceRequest.exactly.count`.
-2) **ResourceClaimTemplate (опционально)** — `count` задаётся в
+2. **ResourceClaimTemplate (опционально)** — `count` задаётся в
    `ResourceClaimTemplate.spec.spec.devices.requests[].exactly.count`.
 
 `sharePercent` (KEP‑5075) задаётся **только** через `ResourceClaimTemplate.spec.spec.devices.requests[].exactly.capacity.requests.sharePercent`
@@ -543,12 +551,12 @@ spec:
 
 ### 6.3 Labels PhysicalGPU и механизм выбора устройств
 
-* **Выбор устройств делает DRA**, а не `PhysicalGPU`:
+- **Выбор устройств делает DRA**, а не `PhysicalGPU`:
   - админ задаёт `DeviceClass` с CEL‑селектором;
   - `gpu-dra-controller` выбирает устройства из `ResourceSlice` по этому селектору и инвариантам.
-* **Labels на `PhysicalGPU`** нужны для UX/диагностики,
+- **Labels на `PhysicalGPU`** нужны для UX/диагностики,
   но **не участвуют** в аллокации.
-* **Labels на Node** используются для простого управления публикацией MIG‑офферов (если нужно отключать MIG на части узлов).
+- **Labels на Node** используются для простого управления публикацией MIG‑офферов (если нужно отключать MIG на части узлов).
 
 ## 7. Таблица атрибутов/капасити/каунтеров в ResourceSlice + CEL
 
@@ -556,50 +564,51 @@ spec:
 
 ### 7.1 Ограничения ResourceSlice, которые учитываем
 
-* На device уровне: **attributes + capacity <= 32** ключа суммарно.
-* В одном ResourceSlice: **devices <= 128**.
-* `consumesCounters.counterSet` ссылается на counterSet, опубликованный в `sharedCounters` для того же `pool`/`generation`.
-* Kubernetes 1.34: `sharedCounters` публикуем inline вместе с устройствами.
-* Kubernetes 1.35+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
-* `pool.resourceSliceCount` учитывает **все** ResourceSlice одного `pool`/`generation`, включая counters‑slice и devices‑slice.
+- На device уровне: **attributes + capacity <= 32** ключа суммарно.
+- В одном ResourceSlice: **devices <= 128**.
+- `consumesCounters.counterSet` ссылается на counterSet, опубликованный в `sharedCounters` для того же `pool`/`generation`.
+- Kubernetes 1.34: `sharedCounters` публикуем inline вместе с устройствами.
+- Kubernetes 1.35+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
+- `pool.resourceSliceCount` учитывает **все** ResourceSlice одного `pool`/`generation`, включая counters‑slice и devices‑slice.
 
 **Что такое counters‑slice, partitionable devices‑slice и physical‑slice:**
-* **Counters‑slice** — ResourceSlice только с `sharedCounters` (без устройств).
-* **Partitionable devices‑slice** — ResourceSlice только с устройствами `consumesCounters` (MIG‑офферы).
-* **Physical‑slice** — ResourceSlice только с `devices` (Physical‑офферы), без `sharedCounters`.
-* Scheduler/allocator считает доступность counters по `counterSet` в рамках одного `pool`/`generation`: **available = sharedCounters − sum(consumesCounters)**.
-* Все slice относятся к одному `pool` и одной `generation`, поэтому планирование видит их как единый набор данных.
+
+- **Counters‑slice** — ResourceSlice только с `sharedCounters` (без устройств).
+- **Partitionable devices‑slice** — ResourceSlice только с устройствами `consumesCounters` (MIG‑офферы).
+- **Physical‑slice** — ResourceSlice только с `devices` (Physical‑офферы), без `sharedCounters`.
+- Scheduler/allocator считает доступность counters по `counterSet` в рамках одного `pool`/`generation`: **available = sharedCounters − sum(consumesCounters)**.
+- Все slice относятся к одному `pool` и одной `generation`, поэтому планирование видит их как единый набор данных.
 
 ### 7.2 Стандартные ключи (общие для всех вендоров)
 
-| Категория      | Ключ                          |        Тип | Пример           | Назначение                    | Пример CEL‑селектора                                                  |
-| -------------- | ----------------------------- | ---------: | ---------------- | ----------------------------- | --------------------------------------------------------------------- |
-| attribute      | `gpu.deckhouse.io/vendor`     |     string | `"nvidia"`       | Фильтр вендора                | `device.attributes["gpu.deckhouse.io/vendor"] == "nvidia"`            |
-| attribute      | `gpu.deckhouse.io/deviceType` |     string | `"MIG"`          | Physical/MIG                  | `device.attributes["gpu.deckhouse.io/deviceType"] == "MIG"`           |
-| attribute      | `gpu.deckhouse.io/device`     |     string | `"a30-pcie"`     | нормализованная модель        | `device.attributes["gpu.deckhouse.io/device"] in ["a30-pcie","a100-pcie"]` |
-| attribute      | `gpu.deckhouse.io/pciAddress` |     string | `"0000:02:00.0"` | Диагностика/трейсинг          | `device.attributes["gpu.deckhouse.io/pciAddress"].matches("0000:.*")` |
-| capacity       | `memory`                      |   quantity | `24576Mi`        | VRAM минимум                  | `device.capacity["memory"].compareTo(quantity("12Gi")) >= 0`          |
-| capacity       | `sharePercent`                |   quantity | `50`             | доля для TimeSlicing/MPS (KEP‑5075) | `device.capacity["sharePercent"] >= 10`                         |
-| shared counter | `memory`                      |   quantity | `40Gi`           | общий пул памяти              | (используется при подсчете)                                           |
-| shared counter | `memory-slice-<N>`            |        int | `1`              | MIG‑слайсы (KEP‑4815)         | (используется при подсчете)                                           |
+| Категория      | Ключ                          |      Тип | Пример           | Назначение                          | Пример CEL‑селектора                                                       |
+| -------------- | ----------------------------- | -------: | ---------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| attribute      | `gpu.deckhouse.io/vendor`     |   string | `"nvidia"`       | Фильтр вендора                      | `device.attributes["gpu.deckhouse.io/vendor"] == "nvidia"`                 |
+| attribute      | `gpu.deckhouse.io/deviceType` |   string | `"MIG"`          | Physical/MIG                        | `device.attributes["gpu.deckhouse.io/deviceType"] == "MIG"`                |
+| attribute      | `gpu.deckhouse.io/device`     |   string | `"a30-pcie"`     | нормализованная модель              | `device.attributes["gpu.deckhouse.io/device"] in ["a30-pcie","a100-pcie"]` |
+| attribute      | `gpu.deckhouse.io/pciAddress` |   string | `"0000:02:00.0"` | Диагностика/трейсинг                | `device.attributes["gpu.deckhouse.io/pciAddress"].matches("0000:.*")`      |
+| capacity       | `memory`                      | quantity | `24576Mi`        | VRAM минимум                        | `device.capacity["memory"].compareTo(quantity("12Gi")) >= 0`               |
+| capacity       | `sharePercent`                | quantity | `50`             | доля для TimeSlicing/MPS (KEP‑5075) | `device.capacity["sharePercent"] >= 10`                                    |
+| shared counter | `memory`                      | quantity | `40Gi`           | общий пул памяти                    | (используется при подсчете)                                                |
+| shared counter | `memory-slice-<N>`            |      int | `1`              | MIG‑слайсы (KEP‑4815)               | (используется при подсчете)                                                |
 
-*Примечание:* `sharePercent` используется только при `allowMultipleAllocations` (TimeSlicing/MPS) и задаётся в claim через `capacity.requests`.
+_Примечание:_ `sharePercent` используется только при `allowMultipleAllocations` (TimeSlicing/MPS) и задаётся в claim через `capacity.requests`.
 
-### 7.3 NVIDIA‑специфика (nvidia.*)
+### 7.3 NVIDIA‑специфика (nvidia.\*)
 
-| Категория      | Ключ                       |    Тип | Пример         | Назначение                              | CEL                                                               |   |                                                                                                   |
-| -------------- | -------------------------- | -----: | -------------- | --------------------------------------- | ----------------------------------------------------------------- | - | ------------------------------------------------------------------------------------------------- |
-| attribute      | `gpu_uuid`                 | string | `"GPU-..."`    | трассировка                             | `has(device.attributes["gpu_uuid"])`                              |   |                                                                                                   |
-| attribute      | `driverVersion`            | string | `"565.77"`     | диагностика                             | `device.attributes["driverVersion"].startsWith("565")`            |   |                                                                                                   |
-| attribute      | `cc_major`                 |    int | `8`            | compute capability                      | `device.attributes["cc_major"] >= 8`                              |   |                                                                                                   |
-| attribute      | `cc_minor`                 |    int | `0`            | compute capability                      | `device.attributes["cc_major"] > 8                                |   | (device.attributes["cc_major"] == 8 && device.attributes["cc_minor"] >= 6)`                       |
-| attribute      | `mig_profile`              | string | `"2g.12gb"`    | фильтр профиля                          | `device.attributes["mig_profile"] == "2g.12gb"`                   |   |                                                                                                   |
-| shared counter | `multiprocessors`          |    int | `98`           | SMs (KEP‑4815)                          | (используется при подсчете)                                       |   |                                                                                                   |
-| shared counter | `copy-engines`             |    int | `7`            | копирующие движки (KEP‑4815)            | (используется при подсчете)                                       |   |                                                                                                   |
-| shared counter | `decoders`                 |    int | `5`            | декодеры (KEP‑4815)                     | (используется при подсчете)                                       |   |                                                                                                   |
-| shared counter | `encoders`                 |    int | `0`            | энкодеры (KEP‑4815)                     | (используется при подсчете)                                       |   |                                                                                                   |
-| shared counter | `jpeg-engines`             |    int | `1`            | JPEG (KEP‑4815)                         | (используется при подсчете)                                       |   |                                                                                                   |
-| shared counter | `ofa-engines`              |    int | `1`            | OFA (KEP‑4815)                          | (используется при подсчете)                                       |   |                                                                                                   |
+| Категория      | Ключ              |    Тип | Пример      | Назначение                   | CEL                                                    |     |                                                                             |
+| -------------- | ----------------- | -----: | ----------- | ---------------------------- | ------------------------------------------------------ | --- | --------------------------------------------------------------------------- |
+| attribute      | `gpu_uuid`        | string | `"GPU-..."` | трассировка                  | `has(device.attributes["gpu_uuid"])`                   |     |                                                                             |
+| attribute      | `driverVersion`   | string | `"565.77"`  | диагностика                  | `device.attributes["driverVersion"].startsWith("565")` |     |                                                                             |
+| attribute      | `cc_major`        |    int | `8`         | compute capability           | `device.attributes["cc_major"] >= 8`                   |     |                                                                             |
+| attribute      | `cc_minor`        |    int | `0`         | compute capability           | `device.attributes["cc_major"] > 8                     |     | (device.attributes["cc_major"] == 8 && device.attributes["cc_minor"] >= 6)` |
+| attribute      | `mig_profile`     | string | `"2g.12gb"` | фильтр профиля               | `device.attributes["mig_profile"] == "2g.12gb"`        |     |                                                                             |
+| shared counter | `multiprocessors` |    int | `98`        | SMs (KEP‑4815)               | (используется при подсчете)                            |     |                                                                             |
+| shared counter | `copy-engines`    |    int | `7`         | копирующие движки (KEP‑4815) | (используется при подсчете)                            |     |                                                                             |
+| shared counter | `decoders`        |    int | `5`         | декодеры (KEP‑4815)          | (используется при подсчете)                            |     |                                                                             |
+| shared counter | `encoders`        |    int | `0`         | энкодеры (KEP‑4815)          | (используется при подсчете)                            |     |                                                                             |
+| shared counter | `jpeg-engines`    |    int | `1`         | JPEG (KEP‑4815)              | (используется при подсчете)                            |     |                                                                             |
+| shared counter | `ofa-engines`     |    int | `1`         | OFA (KEP‑4815)               | (используется при подсчете)                            |     |                                                                             |
 
 ### 7.4 DeviceClass selectors (v0)
 
@@ -624,62 +633,65 @@ device.attributes["mig_profile"] == "2g.12gb"
 ### 7.5 Публикация ResourceSlice (KEP‑4815 + KEP‑5075)
 
 **Базовые правила node‑side DRA runtime (`gpu-handler`):**
-* Стартует `gpu-handler` и публикует ResourceSlice через `PublishResources`.
-* Инвентаризация и офферы строятся **из `PhysicalGPU.status.capabilities`**.
-* CDI: базовый spec синхронизируется при PublishResources (CDI_ROOT по умолчанию `/etc/cdi`, можно `/var/run/cdi`) + per‑claim spec на Prepare.
-* Есть checkpoint подготовленных claim’ов, Prepare/Unprepare идемпотентны.
-* Сериализация Prepare/Unprepare на ноде через lock‑file.
-* MIG создаётся **динамически** в Prepare (по выбранному офферу).
+
+- Стартует `gpu-handler` и публикует ResourceSlice через `PublishResources`.
+- Инвентаризация и офферы строятся **из `PhysicalGPU.status.capabilities`**.
+- CDI: базовый spec синхронизируется при PublishResources (CDI_ROOT по умолчанию `/etc/cdi`, можно `/var/run/cdi`) + per‑claim spec на Prepare.
+- Есть checkpoint подготовленных claim’ов, Prepare/Unprepare идемпотентны.
+- Сериализация Prepare/Unprepare на ноде через lock‑file.
+- MIG создаётся **динамически** в Prepare (по выбранному офферу).
 
 **Как делаем мы (динамический провиженинг):**
-* Публикуем офферы **только** для `PhysicalGPU` с `DriverReady=True` и `HardwareHealthy=True`.
-* Physical‑офферы публикуем отдельным **physical‑slice** (только devices).
-* Kubernetes 1.34: `sharedCounters` публикуем inline вместе с MIG‑офферами.
-* Kubernetes 1.35+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
-* Публикуем **потенциальные оферы** для Physical/MIG одновременно,
+
+- Публикуем офферы **только** для `PhysicalGPU` с `DriverReady=True` и `HardwareHealthy=True`.
+- Physical‑офферы публикуем отдельным **physical‑slice** (только devices).
+- Kubernetes 1.34: `sharedCounters` публикуем inline вместе с MIG‑офферами.
+- Kubernetes 1.35+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
+- Публикуем **потенциальные оферы** для Physical/MIG одновременно,
   если карта поддерживает эти режимы.
-* `sharedCounters` и устройства, которые на них ссылаются, публикуем раздельно
+- `sharedCounters` и устройства, которые на них ссылаются, публикуем раздельно
   (counters‑slice + devices‑slice), все в одном `pool`/`generation`
   и с общим `resourceSliceCount`.
-* Публикация ResourceSlice делается через helper kubelet‑DRA API внутри `gpu-handler`,
+- Публикация ResourceSlice делается через helper kubelet‑DRA API внутри `gpu-handler`,
   `pool.name = "gpus/<nodeName>"`.
-* **Counters‑slice** (только `sharedCounters`):
+- **Counters‑slice** (только `sharedCounters`):
   - `memory`, `memory-slice-0..N`,
     `multiprocessors`, `copy-engines`, `decoders`, `encoders`, `jpeg-engines`, `ofa-engines`.
-* **Partitionable devices‑slice** (MIG `devices`):
+- **Partitionable devices‑slice** (MIG `devices`):
   - содержит MIG‑офферы с `consumesCounters`.
-* **Physical‑slice** (только `devices`):
+- **Physical‑slice** (только `devices`):
   - содержит Physical‑офферы без `consumesCounters`.
-* **Collaborative sharing (TimeSlicing/MPS)**:
+- **Collaborative sharing (TimeSlicing/MPS)**:
   - режим задаётся в `DeviceClass.spec.config` (driver‑config: Exclusive/TimeSlicing/MPS);
   - для `TimeSlicing/MPS` у оффера `Physical` выставляем `allowMultipleAllocations: true`;
   - публикуем capacity `sharePercent` с `requestPolicy` (min=1, max=100, step=1, default=100);
   - пользователь задаёт долю через `capacity.requests.sharePercent` в claim.
-* **VFIO — это опция Physical, а не отдельный оффер**:
+- **VFIO — это опция Physical, а не отдельный оффер**:
   - включается **только** по аннотации Pod `gpu.deckhouse.io/vfio: "true"`;
   - требует **эксклюзивной** аллокации;
   - допускается **только** на bare‑metal (см. `nodeInfo.bareMetal`).
   - после Prepare/Unprepare выполняем репаблиш ResourceSlice при изменениях (MIG/VFIO),
     исключая офферы, несовместимые с текущим режимом (через NotifyResources шаги).
-* **Как определяем bare‑metal (в `gpu-node-agent`):**
+- **Как определяем bare‑metal (в `gpu-node-agent`):**
   - читаем `/sys/class/dmi/id/product_name` и `/sys/class/dmi/id/sys_vendor`;
   - эвристика “VM”: значения содержат `KVM`, `VMware`, `VirtualBox`, `QEMU`, `Bochs`, `Xen`, `Amazon EC2`, `Google`, `Microsoft Corporation`, `OpenStack`;
   - если DMI недоступен → считаем **VM** (fail‑closed);
   - результат пишем в `PhysicalGPU.status.nodeInfo.bareMetal`.
-* **OS/Kernel для driver‑installer (в `gpu-node-agent`):**
+- **OS/Kernel для driver‑installer (в `gpu-node-agent`):**
   - читаем `/etc/os-release` → `ID` и `VERSION_ID`;
   - читаем `/proc/sys/kernel/osrelease` → версия ядра;
   - пишем в `PhysicalGPU.status.nodeInfo.os` и `PhysicalGPU.status.nodeInfo.kernelRelease`.
-* **Аллокатор** группирует устройства по `counterSet` (`pgpu-<pciAddress>`) и не допускает смешивания
+- **Аллокатор** группирует устройства по `counterSet` (`pgpu-<pciAddress>`) и не допускает смешивания
   типов на одной карте (invariant). SharedCounters учитываются при выборе (не допускаем превышение
   counters, а устройства с `consumesCounters` требуют наличия соответствующего `sharedCounters`).
-* `NodePrepare` **включает MIG и создаёт GI/CI** только если карта свободна и
+- `NodePrepare` **включает MIG и создаёт GI/CI** только если карта свободна и
   аллокация требует MIG.
 
 **Итог:**
-* Scheduler видит все потенциальные режимы,
-* но реальные изменения на ноде происходят только при allocation,
-* и мы не допускаем конфликтов между Physical и MIG.
+
+- Scheduler видит все потенциальные режимы,
+- но реальные изменения на ноде происходят только при allocation,
+- и мы не допускаем конфликтов между Physical и MIG.
 
 ### 7.6 Формат ResourceSlice (что именно публикуем)
 
@@ -700,23 +712,23 @@ spec:
     resourceSliceCount: 3
   nodeName: <node>
   devices:
-  - name: gpu-0000-02-00-0
-    attributes:
-      gpu.deckhouse.io/vendor: "nvidia"
-      gpu.deckhouse.io/device: "a30-pcie"
-      gpu.deckhouse.io/deviceType: "Physical"
-    capacity:
-      memory: 24576Mi
-      # Для TimeSlicing/MPS публикуем sharePercent и allowMultipleAllocations
-      sharePercent:
-        value: "100"
-        requestPolicy:
-          default: "100"
-          validRange:
-            min: "1"
-            max: "100"
-            step: "1"
-    allowMultipleAllocations: true # только при TimeSlicing/MPS
+    - name: gpu-0000-02-00-0
+      attributes:
+        gpu.deckhouse.io/vendor: "nvidia"
+        gpu.deckhouse.io/device: "a30-pcie"
+        gpu.deckhouse.io/deviceType: "Physical"
+      capacity:
+        memory: 24576Mi
+        # Для TimeSlicing/MPS публикуем sharePercent и allowMultipleAllocations
+        sharePercent:
+          value: "100"
+          requestPolicy:
+            default: "100"
+            validRange:
+              min: "1"
+              max: "100"
+              step: "1"
+      allowMultipleAllocations: true # только при TimeSlicing/MPS
 ```
 
 **Counters‑slice (`sharedCounters`):**
@@ -734,13 +746,13 @@ spec:
     resourceSliceCount: 3
   nodeName: <node>
   sharedCounters:
-  - name: pgpu-0000-02-00-0
-    counters:
-      memory: 24576Mi
-      memory-slice-0: "1"
-      memory-slice-1: "1"
-      memory-slice-2: "1"
-      memory-slice-3: "1"
+    - name: pgpu-0000-02-00-0
+      counters:
+        memory: 24576Mi
+        memory-slice-0: "1"
+        memory-slice-1: "1"
+        memory-slice-2: "1"
+        memory-slice-3: "1"
 ```
 
 **Partitionable devices‑slice (MIG `devices` + `consumesCounters`):**
@@ -775,6 +787,7 @@ spec:
 ```
 
 **Примечания:**
+
 - `allowMultipleAllocations` и `sharePercent` публикуем **только** для режимов TimeSlicing/MPS.
 - Для Exclusive режима эти поля не публикуем.
 - `memory-slice-<N>` в MIG‑оффере вычисляется из профиля MIG (NVML/driver), в CRD эти `placements` не храним.
@@ -817,9 +830,9 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 
 ### 8.2 Как достигаем “динамически под claim”
 
-* Пользователь выбирает тип девайса через `DeviceClass` (v0).
-* Тип устройства определяется по выбранному офферу (атрибут `deviceType`), config берётся из DeviceClass.
-* NodePrepare на ноде переключает режим карты (если нужно) **только если карта свободна** (нет активных allocations и нет “внешних” клиентов — проверяется через vendor backend).
+- Пользователь выбирает тип девайса через `DeviceClass` (v0).
+- Тип устройства определяется по выбранному офферу (атрибут `deviceType`), config берётся из DeviceClass.
+- NodePrepare на ноде переключает режим карты (если нужно) **только если карта свободна** (нет активных allocations и нет “внешних” клиентов — проверяется через vendor backend).
 
 ---
 
@@ -831,9 +844,9 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 
 **Watch**:
 
-* `ResourceClaim` (и `ResourceClaimTemplate` если нужно для диагностик)
-* `DeviceClass`
-* `ResourceSlice`
+- `ResourceClaim` (и `ResourceClaimTemplate` если нужно для диагностик)
+- `DeviceClass`
+- `ResourceSlice`
 
 **Reconcile (высокоуровнево)**:
 
@@ -841,14 +854,16 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 2. Определить запрошенный `DeviceClass` (через claim spec; extended-resource mapping используем в v0).
 3. Список кандидатов:
 
-   * все ResourceSlices с `spec.driver == gpu.deckhouse.io`
-   * все устройства, удовлетворяющие DeviceClass.selector (CEL)
+   - все ResourceSlices с `spec.driver == gpu.deckhouse.io`
+   - все устройства, удовлетворяющие DeviceClass.selector (CEL)
+
 4. Группируем кандидатов по нодам, внутри сортируем по имени устройства (стабильный порядок).
 5. Для каждой ноды (first‑fit по устройствам) соблюдаем:
 
-   * safety invariant (типовая совместимость: MIG vs Physical) по `counterSet`;
-   * sharedCounters/consumesCounters для partitionable устройств (суммирование и проверка лимитов);
-   * `allowMultipleAllocations` через `consumedCapacity` + `requestPolicy` (min/max/step).
+   - safety invariant (типовая совместимость: MIG vs Physical) по `counterSet`;
+   - sharedCounters/consumesCounters для partitionable устройств (суммирование и проверка лимитов);
+   - `allowMultipleAllocations` через `consumedCapacity` + `requestPolicy` (min/max/step).
+
 6. Пишем `ResourceClaim.status.allocation` (SSA/status patch), включая `consumedCapacity` и `shareID` для shared‑устройств.
 7. В случае гонок — retry на conflict.
 
@@ -856,50 +871,54 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 
 **Функции**:
 
-* старт helper‑части DRA (gRPC plugin: driver name, plugin data dir, registrar dir);
-* публикация ResourceSlice через helper (`pool.name = "gpus/<nodeName>"`);
-* CDI: базовый spec синхронизируется при PublishResources + per‑claim spec на Prepare;
-* NodePrepare:
+- старт helper‑части DRA (gRPC plugin: driver name, plugin data dir, registrar dir);
+- публикация ResourceSlice через helper (`pool.name = "gpus/<nodeName>"`);
+- CDI: базовый spec синхронизируется при PublishResources + per‑claim spec на Prepare;
+- NodePrepare:
 
-  * выполняет “mutation” хоста:
+  - выполняет “mutation” хоста:
 
-    * MIG: enable MIG (если нужно), create GI/CI
-    * Physical + аннотация `gpu.deckhouse.io/vfio: "true"`: bind VFIO (только при `Exclusive`)
-    * TimeSlicing/MPS: применяет `sharePercent` по `shareID` из allocation
-  * генерирует CDI spec
-  * (VM) генерирует QEMU hook input
-  * обновляет checkpoint (PrepareStarted/PrepareCompleted)
-* NodeUnprepare:
+    - MIG: enable MIG (если нужно), create GI/CI
+    - Physical + аннотация `gpu.deckhouse.io/vfio: "true"`: bind VFIO (только при `Exclusive`)
+    - TimeSlicing/MPS: применяет `sharePercent` по `shareID` из allocation
 
-  * reverse операции, cleanup, rebind drivers при необходимости.
-  * обновляет checkpoint и репаблишит ResourceSlice при необходимости
-* сериализация Prepare/Unprepare через lock‑file на ноде.
+  - генерирует CDI spec
+  - (VM) генерирует QEMU hook input
+  - обновляет checkpoint (PrepareStarted/PrepareCompleted)
+
+- NodeUnprepare:
+
+  - reverse операции, cleanup, rebind drivers при необходимости.
+  - обновляет checkpoint и репаблишит ResourceSlice при необходимости
+
+- сериализация Prepare/Unprepare через lock‑file на ноде.
 
 ### 9.2.1 Runtime‑директории и сокеты kubelet‑plugin
 
-* `PluginDataDirectoryPath`: `/var/lib/kubelet/plugins/gpu.deckhouse.io`  
+- `PluginDataDirectoryPath`: `/var/lib/kubelet/plugins/gpu.deckhouse.io`
   - внутри создаётся `dra.sock` (gRPC DRA API для kubelet);
   - путь **обязан** быть одинаковым внутри контейнера и на хосте;
   - директория должна существовать заранее.
-* `RegistrarDirectoryPath`: `/var/lib/kubelet/plugins_registry`  
+- `RegistrarDirectoryPath`: `/var/lib/kubelet/plugins_registry`
   - kubelet наблюдает этот каталог на предмет регистрационных сокетов;
   - имя по умолчанию: `gpu.deckhouse.io-reg.sock`  
     (при rolling‑update: `gpu.deckhouse.io-<uid>-reg.sock`).
-* Лок‑файл для Prepare/Unprepare: `/var/lib/kubelet/plugins/gpu.deckhouse.io/pu.lock`.
-* Checkpoint Prepare/Unprepare: `/var/lib/kubelet/plugins/gpu.deckhouse.io/checkpoint.json`.
-* Минимальные hostPath‑монтирования в pod:
+- Лок‑файл для Prepare/Unprepare: `/var/lib/kubelet/plugins/gpu.deckhouse.io/pu.lock`.
+- Checkpoint Prepare/Unprepare: `/var/lib/kubelet/plugins/gpu.deckhouse.io/checkpoint.json`.
+- Минимальные hostPath‑монтирования в pod:
   - `/var/lib/kubelet/plugins`;
   - `/var/lib/kubelet/plugins_registry`.
 
 ### 9.2.1.1 gRPC интерфейсы
 
-* DRA gRPC: `k8s.io/kubelet/pkg/apis/dra/v1`  
+- DRA gRPC: `k8s.io/kubelet/pkg/apis/dra/v1`  
   (NodePrepareResources / NodeUnprepareResources / NodeGetInfo и т.п.).
-* Регистрация плагина: `k8s.io/kubelet/pkg/apis/pluginregistration/v1`.
+- Регистрация плагина: `k8s.io/kubelet/pkg/apis/pluginregistration/v1`.
 
 ### 9.2.2 Детализация node‑side DRA (публикация, prepare/unprepare)
 
 **Inventory и офферы (публикация ResourceSlice):**
+
 1. Берём список `PhysicalGPU` своей ноды и используем `status.capabilities`
    как источник профилей и размеров (NVML уже обработан `gpu-handler`).
 2. Для MIG формируем полный список **профилей и placements**,
@@ -909,6 +928,7 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 5. При изменениях (prepare/unprepare, VFIO bind, MIG create/delete) — **репаблиш** ResourceSlice.
 
 **Prepare (NodePrepareResources):**
+
 1. Берём lock‑file `pu.lock` (node‑global) — чтобы prepare/unprepare не пересекались.
 2. Читаем checkpoint; если claim уже `PrepareCompleted` — **идемпотентный noop** (ничего не делаем).
 3. Вычисляем план:
@@ -926,6 +946,7 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 10. Репаблиш ResourceSlice при изменениях VFIO/MIG (после успешного Prepare).
 
 **Unprepare (NodeUnprepareResources):**
+
 1. Берём lock‑file `pu.lock`.
 2. Читаем checkpoint; если claim отсутствует — noop (ничего не делаем).
 3. Для MIG: удаляем CI/GI (если они были созданы).
@@ -937,37 +958,37 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 
 ### 9.2.3 CDI‑спеки (как и когда пишем)
 
-* **Базовый spec** синхронизируется при PublishResources:
+- **Базовый spec** синхронизируется при PublishResources:
   - общий `commonEdits` (включая `NVIDIA_VISIBLE_DEVICES=void`);
   - device‑specs для Physical (MIG попадает в per‑claim на Prepare);
   - пишем в `CDI_ROOT` (по умолчанию `/etc/cdi`, можно `/var/run/cdi`).
-* **Per‑claim spec** пишется на Prepare в том же `CDI_ROOT` и удаляется на Unprepare.
+- **Per‑claim spec** пишется на Prepare в том же `CDI_ROOT` и удаляется на Unprepare.
   Для VFIO используется отдельный CDI‑spec с `/dev/vfio/*`.
   Для MIG добавляем `nvidia-caps` device nodes на основе `/proc/driver/nvidia/capabilities`
   (GI/CI access).
-* `nvidia-cdi-hook`: если `NVIDIA_CDI_HOOK_PATH` пуст, копируем `/usr/bin/nvidia-cdi-hook`
+- `nvidia-cdi-hook`: если `NVIDIA_CDI_HOOK_PATH` пуст, копируем `/usr/bin/nvidia-cdi-hook`
   в каталог плагина и используем в CDI spec.
 
 ### 9.2.4 MIG create/delete (динамика)
 
-* MIG создаётся **только** в Prepare, когда:
+- MIG создаётся **только** в Prepare, когда:
   - карта свободна,
   - выбран MIG‑offer,
   - профиль/placement соответствуют доступным `GpuInstanceProfileInfo`.
-* В v1 добавляем политику эвикта workload’ов **на уровне карты** для смены режима.
+- В v1 добавляем политику эвикта workload’ов **на уровне карты** для смены режима.
   В v0 проверка “карта свободна” пока не реализована (enable MIG — best‑effort).
-* Последовательность:
+- Последовательность:
   - `EnsureMode(enabled=true)` при необходимости;
   - `CreateGpuInstanceWithPlacement` → `CreateComputeInstance`;
   - поиск соответствующего MIG‑device UUID по GI/CI ID;
   - запись в prepared‑devices и CDI.
-* На Unprepare удаляем CI → GI (в обратном порядке).
+- На Unprepare удаляем CI → GI (в обратном порядке).
 
 ### 9.2.5 VFIO как опция Physical
 
-* VFIO — **не отдельный deviceType**, а режим Physical при `Exclusive`.
-* Включается по аннотации Pod `gpu.deckhouse.io/vfio: "true"`.
-* Требует:
+- VFIO — **не отдельный deviceType**, а режим Physical при `Exclusive`.
+- Включается по аннотации Pod `gpu.deckhouse.io/vfio: "true"`.
+- Требует:
   - `nodeInfo.bareMetal=true`,
   - IOMMU включен,
   - нет VFs,
@@ -982,17 +1003,20 @@ kubectl get resourceslices <slice-name> -o json | jq '.spec.devices'
 Если `DeckhouseControlPlane.status.externalManagedControlPlane=true`, то `control-plane-manager` **не** управляет static‑pod манифестами. В таком режиме feature‑gates нужно включать прямо на master‑нодах.
 
 **Что включаем (минимум для DRA v0):**
-* `DRAPartitionableDevices=true`
-* `DRAConsumableCapacity=true`
-* `DRAExtendedResource=true`
-* `DRADeviceBindingConditions=true`
+
+- `DRAPartitionableDevices=true`
+- `DRAConsumableCapacity=true`
+- `DRAExtendedResource=true`
+- `DRADeviceBindingConditions=true`
 
 **Где править (на каждой master‑ноде):**
-* `/etc/kubernetes/manifests/kube-apiserver.yaml`
-* `/etc/kubernetes/manifests/kube-scheduler.yaml`
-* `/etc/kubernetes/manifests/kube-controller-manager.yaml`
+
+- `/etc/kubernetes/manifests/kube-apiserver.yaml`
+- `/etc/kubernetes/manifests/kube-scheduler.yaml`
+- `/etc/kubernetes/manifests/kube-controller-manager.yaml`
 
 **Как править через kubectl (пример):**
+
 ```
 kubectl debug -n kube-system node/<master> --image=python:3.12-alpine -- /bin/sh -c 'python - <<\"PY\"
 files = [
@@ -1033,6 +1057,7 @@ PY'
 ```
 
 **Проверка:**
+
 ```
 kubectl -n kube-system get pod kube-apiserver-<master> -o jsonpath='{.spec.containers[0].command}' | tr ' ' '\n' | rg feature-gates
 ```
@@ -1046,71 +1071,83 @@ kubectl -n kube-system get pod kube-apiserver-<master> -o jsonpath='{.spec.conta
 ### 10.1 Паттерны контроллеров (обязательны)
 
 **1) Composition root (`SetupController`)**
-* Файл `<name>/setup.go` (composition root для контроллера).
-* Внутри: сбор зависимостей, `eventrecord.NewEventRecorderLogger`, создание сервисов, списка handler’ов.
-* `controller.New(..., controller.Options{RecoverPanic, CacheSyncTimeout, UsePriorityQueue, LogConstructor})`.
-* Регистрация `indexer.IndexALL(...)`, `r.SetupController(...)`, webhook/metrics (если есть).
-* **Почему так:** единая точка wiring снижает расхождения между контроллерами.
+
+- Файл `<name>/setup.go` (composition root для контроллера).
+- Внутри: сбор зависимостей, `eventrecord.NewEventRecorderLogger`, создание сервисов, списка handler’ов.
+- `controller.New(..., controller.Options{RecoverPanic, CacheSyncTimeout, UsePriorityQueue, LogConstructor})`.
+- Регистрация `indexer.IndexALL(...)`, `r.SetupController(...)`, webhook/metrics (если есть).
+- **Почему так:** единая точка wiring снижает расхождения между контроллерами.
 
 **2) Тонкий reconciler**
-* Файл `<name>/reconciler.go` (тонкий reconciler).
-* Алгоритм: `Resource.Fetch` → `state.New(...)` → `reconciler.NewBaseReconciler(handlers)` → `Resource.Update`.
-* `ErrStopHandlerChain` для корректного early‑exit.
-* Обновление `status.observedGeneration` — всегда в `Resource.Update`.
-* `pkg/controller/reconciler/results.go` — `MergeResults(...)` для объединения результатов handler’ов.
-* **Почему так:** логика читаема, легко тестируется через handlers.
+
+- Файл `<name>/reconciler.go` (тонкий reconciler).
+- Алгоритм: `Resource.Fetch` → `state.New(...)` → `reconciler.NewBaseReconciler(handlers)` → `Resource.Update`.
+- `ErrStopHandlerChain` для корректного early‑exit.
+- Обновление `status.observedGeneration` — всегда в `Resource.Update`.
+- `pkg/controller/reconciler/results.go` — `MergeResults(...)` для объединения результатов handler’ов.
+- **Почему так:** логика читаема, легко тестируется через handlers.
 
 **3) Resource wrapper**
-* `pkg/controller/reconciler/resource.go` + `pkg/controller/reconciler/resource_update.go`: единая логика fetch/status/update/metadata patch.
-* Status обновляется через `client.Status().Update`, metadata — через JSONPatch (finalizers/labels/annotations).
-* `conditions` из `pkg/controller/conditions` (единая модель статусов/причин).
-* **Почему так:** минимум конфликтов и одинаковые update‑паттерны во всех контроллерах.
+
+- `pkg/controller/reconciler/resource.go` + `pkg/controller/reconciler/resource_update.go`: единая логика fetch/status/update/metadata patch.
+- Status обновляется через `client.Status().Update`, metadata — через JSONPatch (finalizers/labels/annotations).
+- `conditions` из `pkg/controller/conditions` (единая модель статусов/причин).
+- **Почему так:** минимум конфликтов и одинаковые update‑паттерны во всех контроллерах.
 
 **4) Handler chain**
-* Каждый handler — отдельный файл, один шаг.
-* Handler **не** работает с k8s‑клиентом напрямую — только через service.
-* Можно реализовать `Finalize()` для post‑update действий.
-* **Почему так:** SRP + маленькие unit‑тесты на каждый шаг.
+
+- Каждый handler — отдельный файл, один шаг.
+- Handler **не** работает с k8s‑клиентом напрямую — только через service.
+- Можно реализовать `Finalize()` для post‑update действий.
+- **Почему так:** SRP + маленькие unit‑тесты на каждый шаг.
 
 **5) State + Service**
-* `internal/state` — снимок только для чтения/вычисления без побочных эффектов.
-* `internal/service` — I/O и внешние вызовы (k8s client, filesystem, exec).
-* Интерфейсы сервисов — в `pkg/controller/service` (mocks через `moq`).
-* **Почему так:** удобная подмена в тестах, отсутствие “скрытого” I/O.
+
+- `internal/state` — снимок только для чтения/вычисления без побочных эффектов.
+- `internal/service` — I/O и внешние вызовы (k8s client, filesystem, exec).
+- Интерфейсы сервисов — в `pkg/controller/service` (mocks через `moq`).
+- **Почему так:** удобная подмена в тестах, отсутствие “скрытого” I/O.
 
 **6) Watchers**
-* Каждый watcher — отдельный файл (`internal/watcher/*`).
-* Интерфейс: `Watch(mgr, ctr) error`.
-* Для зависимостей по ссылкам — `pkg/controller/watchers/ObjectRefWatcher`
+
+- Каждый watcher — отдельный файл (`internal/watcher/*`).
+- Интерфейс: `Watch(mgr, ctr) error`.
+- Для зависимостей по ссылкам — `pkg/controller/watchers/ObjectRefWatcher`
   с `UpdateEventsFilter` и `RequestEnqueuer`.
-* **Почему так:** чистое разделение энкьюинга и бизнес‑логики.
+- **Почему так:** чистое разделение энкьюинга и бизнес‑логики.
 
 **7) Indexer**
-* `pkg/controller/indexer` хранит `IndexGetters` и `IndexALL`.
-* Индексы используют `state` для быстрых list‑операций по связям.
-* **Почему так:** стабильные связи и предсказуемая производительность.
+
+- `pkg/controller/indexer` хранит `IndexGetters` и `IndexALL`.
+- Индексы используют `state` для быстрых list‑операций по связям.
+- **Почему так:** стабильные связи и предсказуемая производительность.
 
 **8) Validator checks (v0)**
-* Валидатор реализован в `pkg/controller/physicalgpu/internal/service/validator.go`.
-* Единый пайплайн валидаторов вынесем в отдельный пакет позже, когда появятся дополнительные проверки.
-* **Почему так:** сейчас нужен один валидатор, дальше — унификация.
+
+- Валидатор реализован в `pkg/controller/physicalgpu/internal/service/validator.go`.
+- Единый пайплайн валидаторов вынесем в отдельный пакет позже, когда появятся дополнительные проверки.
+- **Почему так:** сейчас нужен один валидатор, дальше — унификация.
 
 **9) ResourceBuilder**
-* `pkg/common/resource_builder` — сборка k8s объектов (ownerRefs, annotations, finalizers).
-* **Почему так:** единый стиль metadata и меньше ручной сборки.
+
+- `pkg/common/resource_builder` — сборка k8s объектов (ownerRefs, annotations, finalizers).
+- **Почему так:** единый стиль metadata и меньше ручной сборки.
 
 **10) StepTaker pipeline**
-* `pkg/common/steptaker` — детерминированные шаги Prepare/Unprepare.
-* Используется в `pkg/dra/services/prepare`.
-* **Почему так:** предсказуемость и безопасный rollback/cleanup.
+
+- `pkg/common/steptaker` — детерминированные шаги Prepare/Unprepare.
+- Используется в `pkg/dra/services/prepare`.
+- **Почему так:** предсказуемость и безопасный rollback/cleanup.
 
 **11) testutil**
-* `pkg/common/testutil` — общие тестовые helpers (файловые фикстуры и простые утилиты).
-* **Почему так:** уменьшает boilerplate в unit‑тестах.
+
+- `pkg/common/testutil` — общие тестовые helpers (файловые фикстуры и простые утилиты).
+- **Почему так:** уменьшает boilerplate в unit‑тестах.
 
 **12) Размер файлов**
-* 80–200 LOC на файл, максимум ~300.
-* **Почему так:** проще ревью и точечные изменения.
+
+- 80–200 LOC на файл, максимум ~300.
+- **Почему так:** проще ревью и точечные изменения.
 
 ### 10.2 Структура модуля (Deckhouse, целевая после миграции)
 
@@ -1150,22 +1187,24 @@ kubectl -n kube-system get pod kube-apiserver-<master> -o jsonpath='{.spec.conta
 ```
 
 **Что где хранится и зачем:**
-* `images/` — все Docker-образы модуля. Каждый runtime-образ содержит ровно один бинарник (или upstream binary).
-* `images/gpu-artifact` — единый исходник Go; в `/out` кладет несколько бинарников.
-* `images/gpu-handler-prestart` — отдельный образ init‑контейнера для подготовки NVML‑окружения (предстартовая проверка).
-* `images/hooks` — Go hooks (module-sdk): установка CRDs, валидация ModuleConfig, TLS, module status.
-* `templates/` — Kubernetes-манифесты, по одному подкаталогу на компонент; так проще обновлять/масштабировать независимо.
-* `templates/bootstrap` — запускает только upstream компоненты, без нашей бизнес-логики (validator/dcgm/dcgm-exporter).
-* `crds/` — CRD-схемы и doc-ru.
-* `build/base-images` — общий pinned набор base image digest, чтобы сборка была воспроизводимой.
-* `openapi/` — schema ModuleConfig (валидация + docs).
+
+- `images/` — все Docker-образы модуля. Каждый runtime-образ содержит ровно один бинарник (или upstream binary).
+- `images/gpu-artifact` — единый исходник Go; в `/out` кладет несколько бинарников.
+- `images/gpu-handler-prestart` — отдельный образ init‑контейнера для подготовки NVML‑окружения (предстартовая проверка).
+- `images/hooks` — Go hooks (module-sdk): установка CRDs, валидация ModuleConfig, TLS, module status.
+- `templates/` — Kubernetes-манифесты, по одному подкаталогу на компонент; так проще обновлять/масштабировать независимо.
+- `templates/bootstrap` — запускает только upstream компоненты, без нашей бизнес-логики (validator/dcgm/dcgm-exporter).
+- `crds/` — CRD-схемы и doc-ru.
+- `build/base-images` — общий pinned набор base image digest, чтобы сборка была воспроизводимой.
+- `openapi/` — schema ModuleConfig (валидация + docs).
 
 **Legacy, которые остаются в репозитории до полного cutover (новый стек их не использует):**
-* `images/gpu-control-plane-*`
-* `images/nvidia-device-plugin`
-* `images/nvidia-mig-manager`
-* `images/gfd-extender`
-* связанные шаблоны старого стека
+
+- `images/gpu-control-plane-*`
+- `images/nvidia-device-plugin`
+- `images/nvidia-mig-manager`
+- `images/gfd-extender`
+- связанные шаблоны старого стека
 
 ### 10.2.1 Фактическая структура репозитория (на сейчас)
 
@@ -1207,33 +1246,35 @@ kubectl -n kube-system get pod kube-apiserver-<master> -o jsonpath='{.spec.conta
 **Ключевая мысль:** мы разводим control‑plane и node‑runtime не по “названиям”, а по типу ответственности.
 Это делает код проще для поддержки и исключает сквозные зависимости.
 
-* **`cmd/*`** — только wiring и запуск конкретного бинарника.
+- **`cmd/*`** — только wiring и запуск конкретного бинарника.
   Никакой бизнес‑логики; только сбор зависимостей и флаги.
-* **`pkg/controller/*`** — control‑plane контроллеры.
+- **`pkg/controller/*`** — control‑plane контроллеры.
   Они живут в manager‑процессе, используют reconcile‑цепочки и работают только с API.
-* **`pkg/nodeagent/*`** — thin‑agent.
+- **`pkg/nodeagent/*`** — thin‑agent.
   Его задача — обнаружить PCI‑устройства, синхронизировать `PhysicalGPU` и завершиться по событиям.
-* **`pkg/gpuhandler/*`** — node‑runtime.
+- **`pkg/gpuhandler/*`** — node‑runtime.
   Он читает `PhysicalGPU`, делает NVML‑снапшот, заполняет `capabilities/currentState`,
   публикует ResourceSlice и выполняет `NodePrepare/Unprepare`.
-* **`pkg/dra/*`** — DRA ядро (драйвер + аллокация).
+- **`pkg/dra/*`** — DRA ядро (драйвер + аллокация).
   Здесь живут сервисы аллокации и DRA‑логика.
   Доменный слой (`pkg/dra/domain/*`) **не** содержит k8s‑типов.
   Все k8s‑типы и рендер в `resource.k8s.io` вынесены в адаптеры (`pkg/dra/adapters/k8s/*`).
   CGO‑код остаётся в `pkg/gpuhandler/internal/service/{nvml,capabilities,inventory}` и в DRA‑адаптерах
   `pkg/dra/adapters/cdi/nvcdi` + `pkg/dra/adapters/mig/nvml` (используется в `gpu-handler` и `gpu-handler`‑DRA).
-* **`pkg/common/*`** — общие utilities (patch, resource_builder, steptaker).
+- **`pkg/common/*`** — общие utilities (patch, resource_builder, steptaker).
 
 **Как ветки взаимодействуют:**
-1) `nodeagent` пишет `PhysicalGPU` →  
-2) `gpuhandler` читает `PhysicalGPU`, дополняет capabilities, строит inventory →  
-3) k8s‑адаптер `resourceslice` рендерит inventory в DRA‑витрину →  
-4) `gpu-dra-controller` читает ResourceSlice и пишет allocation в ResourceClaim.
+
+1. `nodeagent` пишет `PhysicalGPU` →
+2. `gpuhandler` читает `PhysicalGPU`, дополняет capabilities, строит inventory →
+3. k8s‑адаптер `resourceslice` рендерит inventory в DRA‑витрину →
+4. `gpu-dra-controller` читает ResourceSlice и пишет allocation в ResourceClaim.
 
 **Почему так:**
-* Это минимизирует “сквозные” зависимости.
-* Каждая ветка тестируется отдельно (unit‑tests по веткам логики).
-* Нода‑код не тянет k8s‑controller runtime, а control‑plane не тянет CGO.
+
+- Это минимизирует “сквозные” зависимости.
+- Каждая ветка тестируется отдельно (unit‑tests по веткам логики).
+- Нода‑код не тянет k8s‑controller runtime, а control‑plane не тянет CGO.
 
 #### 10.3.2 Фактическая структура (с пояснениями по каждому файлу)
 
@@ -1721,24 +1762,27 @@ images/gpu-artifact/
 с **Go‑бинарём** `gpu-handler-prestart` (логика 1:1 с NVIDIA DRA prestart).
 
 **Ключевые правила:**
-* `NVIDIA_DRIVER_ROOT` — корень установки драйвера на **хосте**.
+
+- `NVIDIA_DRIVER_ROOT` — корень установки драйвера на **хосте**.
   - По умолчанию `"/"` (драйвер установлен в стандартные пути хоста).
   - Если драйвер ставится контейнером и кладётся в `/run/nvidia/driver`, то
     используем `internal.nvidiaDriverRoot="/run/nvidia/driver"`.
-* Внутри контейнера драйвер доступен по пути `/driver-root` (симлинк на host‑root).
-* Бинарь ищет `nvidia-smi` и `libnvidia-ml.so.1` **строго** в стандартных подпутях
+- Внутри контейнера драйвер доступен по пути `/driver-root` (симлинк на host‑root).
+- Бинарь ищет `nvidia-smi` и `libnvidia-ml.so.1` **строго** в стандартных подпутях
   `NVIDIA_DRIVER_ROOT` (например `/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1`).
 
 **Как монтируется host‑root:**
-* Если `NVIDIA_DRIVER_ROOT="/"` → `driver-root-parent` монтирует `/` read‑only,
+
+- Если `NVIDIA_DRIVER_ROOT="/"` → `driver-root-parent` монтирует `/` read‑only,
   без mountPropagation; симлинк `/driver-root` указывает на `/`.
-* Если `NVIDIA_DRIVER_ROOT!="/"` → `driver-root-parent` монтирует `dir(NVIDIA_DRIVER_ROOT)`
+- Если `NVIDIA_DRIVER_ROOT!="/"` → `driver-root-parent` монтирует `dir(NVIDIA_DRIVER_ROOT)`
   c `mountPropagation: HostToContainer`, `driver-root` монтирует сам `NVIDIA_DRIVER_ROOT`.
 
 Это позволяет работать одинаково и при установке драйвера на хост в стандартные пути,
 и при “контейнерной” установке драйвера в `/run/nvidia/driver`.
 
 **Структура кода prestart (as simple as possible):**
+
 ```
 pkg/gpuhandler/prestart/
   os.go             # FS/exec адаптеры (I/O)
@@ -1750,23 +1794,26 @@ pkg/gpuhandler/prestart/
   *_test.go         # unit‑tests по веткам probe/hints
 ```
 
-----
+---
 
 ## 13. План работ (v0)
 
 1. CRD: PhysicalGPU. (DeviceClass — нативный DRA объект, создаётся админом напрямую.)
 2. thin-agent:
 
-   * sysfs scan PCI,
-   * create/update/delete PhysicalGPU.
+   - sysfs scan PCI,
+   - create/update/delete PhysicalGPU.
+
 3. gpu-controller (оркестрация):
 
-   * выкладка node‑агентов.
+   - выкладка node‑агентов.
+
 4. DRA stack (наш):
 
-   * gpu-dra-controller: allocation
-   * gpu-handler: publisher + prepare/unprepare
-   * NVIDIA backend: Physical + MIG
+   - gpu-dra-controller: allocation
+   - gpu-handler: publisher + prepare/unprepare
+   - NVIDIA backend: Physical + MIG
+
 5. DCGM + exporter wiring (NVIDIA).
 6. Документация и примеры.
 
@@ -1778,22 +1825,24 @@ pkg/gpuhandler/prestart/
 2. Создали DeviceClass (DRA) с `extendedResourceName`.
 3. Pod запросил extended resource:
 
-   * scheduler создал special ResourceClaim,
-   * claim allocated,
-   * pod запускается,
-   * в контейнере доступен GPU (CUDA/MIG).
+   - scheduler создал special ResourceClaim,
+   - claim allocated,
+   - pod запускается,
+   - в контейнере доступен GPU (CUDA/MIG).
+
 4. VM + VFIO (концептуально):
 
-   * allocation эксклюзивный,
-   * vfio bind выполнен,
-   * QEMU hook получает корректный payload,
-   * VM стартует (в рамках окружения).
-5. Метрики:
+   - allocation эксклюзивный,
+   - vfio bind выполнен,
+   - QEMU hook получает корректный payload,
+   - VM стартует (в рамках окружения).
 
-   * DCGM exporter работает (NVIDIA),
-   * наши метрики аллокаций присутствуют.
+5. Метрики:
+   - DCGM exporter работает (NVIDIA),
+   - наши метрики аллокаций присутствуют.
 
 ---
 
 ```
+
 ```
