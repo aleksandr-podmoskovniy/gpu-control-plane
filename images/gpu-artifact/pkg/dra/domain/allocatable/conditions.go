@@ -16,5 +16,9 @@ limitations under the License.
 
 package allocatable
 
-// DeviceConditionReady is the standard condition used for binding readiness.
-const DeviceConditionReady = "Ready"
+const (
+	// DeviceConditionReady is the standard condition used for binding readiness.
+	DeviceConditionReady = "Ready"
+	// DeviceConditionBindingFailed is the standard condition used for binding failures.
+	DeviceConditionBindingFailed = "BindingFailed"
+)
