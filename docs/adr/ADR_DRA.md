@@ -598,11 +598,11 @@ _Примечание:_ `sharePercent` используется только п�
 
 | Категория      | Ключ              |    Тип | Пример      | Назначение                   | CEL                                                    |     |                                                                             |
 | -------------- | ----------------- | -----: | ----------- | ---------------------------- | ------------------------------------------------------ | --- | --------------------------------------------------------------------------- |
-| attribute      | `gpu_uuid`        | string | `"GPU-..."` | трассировка                  | `has(device.attributes["gpu_uuid"])`                   |     |                                                                             |
-| attribute      | `driverVersion`   | string | `"565.77"`  | диагностика                  | `device.attributes["driverVersion"].startsWith("565")` |     |                                                                             |
-| attribute      | `cc_major`        |    int | `8`         | compute capability           | `device.attributes["cc_major"] >= 8`                   |     |                                                                             |
-| attribute      | `cc_minor`        |    int | `0`         | compute capability           | `device.attributes["cc_major"] > 8                     |     | (device.attributes["cc_major"] == 8 && device.attributes["cc_minor"] >= 6)` |
-| attribute      | `mig_profile`     | string | `"2g.12gb"` | фильтр профиля               | `device.attributes["mig_profile"] == "2g.12gb"`        |     |                                                                             |
+| attribute      | `gpu.deckhouse.io/gpuUUID`        | string | `"GPU-..."` | трассировка                  | `has(device.attributes["gpu.deckhouse.io/gpuUUID"])`                   |     |                                                                             |
+| attribute      | `gpu.deckhouse.io/driverVersion`   | string | `"565.77"`  | диагностика                  | `device.attributes["gpu.deckhouse.io/driverVersion"].startsWith("565")` |     |                                                                             |
+| attribute      | `gpu.deckhouse.io/ccMajor`        |    int | `8`         | compute capability           | `device.attributes["gpu.deckhouse.io/ccMajor"] >= 8`                   |     |                                                                             |
+| attribute      | `gpu.deckhouse.io/ccMinor`        |    int | `0`         | compute capability           | `device.attributes["gpu.deckhouse.io/ccMajor"] > 8                     |     | (device.attributes["gpu.deckhouse.io/ccMajor"] == 8 && device.attributes["gpu.deckhouse.io/ccMinor"] >= 6)` |
+| attribute      | `gpu.deckhouse.io/migProfile`     | string | `"2g.12gb"` | фильтр профиля               | `device.attributes["gpu.deckhouse.io/migProfile"] == "2g.12gb"`        |     |                                                                             |
 | shared counter | `multiprocessors` |    int | `98`        | SMs (KEP‑4815)               | (используется при подсчете)                            |     |                                                                             |
 | shared counter | `copy-engines`    |    int | `7`         | копирующие движки (KEP‑4815) | (используется при подсчете)                            |     |                                                                             |
 | shared counter | `decoders`        |    int | `5`         | декодеры (KEP‑4815)          | (используется при подсчете)                            |     |                                                                             |
@@ -623,7 +623,7 @@ spec:
         device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
         device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
         device.attributes["gpu.deckhouse.io/device"] == "a30-pcie" &&
-device.attributes["mig_profile"] == "2g.12gb"
+        device.attributes["gpu.deckhouse.io/migProfile"] == "2g.12gb"
 ```
 
 > Для классов с TimeSlicing/MPS можно добавить селектор `device.allowMultipleAllocations == true`.
@@ -775,7 +775,7 @@ spec:
       gpu.deckhouse.io/vendor: "nvidia"
       gpu.deckhouse.io/device: "a30-pcie"
       gpu.deckhouse.io/deviceType: "MIG"
-        mig_profile: "2g.12gb"
+      gpu.deckhouse.io/migProfile: "2g.12gb"
     capacity:
       memory: 12032Mi
     consumesCounters:
