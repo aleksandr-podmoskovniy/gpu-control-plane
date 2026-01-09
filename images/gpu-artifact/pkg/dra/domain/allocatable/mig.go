@@ -27,13 +27,14 @@ type MIGDevice struct {
 func NewMIGDevice(name, uuid string, attrs map[string]AttributeValue, capacity map[string]CapacityValue, consumes []CounterConsumption) *MIGDevice {
 	return &MIGDevice{
 		deviceBase: deviceBase{
-			uuid:          uuid,
-			deviceType:    gpuv1alpha1.DeviceTypeMIG,
-			canonicalName: name,
-			attributes:    attrs,
-			capacity:      capacity,
-			consumes:      consumes,
-			bindingConditions: []string{DeviceConditionReady},
+			uuid:                     uuid,
+			deviceType:               gpuv1alpha1.DeviceTypeMIG,
+			canonicalName:            name,
+			attributes:               attrs,
+			capacity:                 capacity,
+			consumes:                 consumes,
+			bindingConditions:        []string{DeviceConditionReady},
+			bindingFailureConditions: []string{},
 		},
 	}
 }

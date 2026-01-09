@@ -17,11 +17,7 @@ limitations under the License.
 package gpuhandler
 
 import (
-	"context"
-	"fmt"
-
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 
@@ -29,15 +25,10 @@ import (
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/dra/driver"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/eventrecord"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/handler"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/handler/health"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/handler/inventory"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/handler/publish"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/capabilities"
 	inventorysvc "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/inventory"
-	handlerresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/service/resourceslice"
 	"github.com/aleksandr-podmoskovniy/gpu/pkg/gpuhandler/internal/state"
-	"github.com/aleksandr-podmoskovniy/gpu/pkg/logger"
 )
 
 type bootstrapService struct {
@@ -67,53 +58,4 @@ func newBootstrapService(cfg Config, log *log.Logger, scheme *runtime.Scheme, st
 		placements: placements,
 		tracker:    tracker,
 	}
-}
-
-func (b *bootstrapService) Start(ctx context.Context, notify func()) (*bootstrapResult, error) {
-	kubeClient, err := kubernetes.NewForConfig(b.cfg.KubeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("create kube clientset: %w", err)
-	}
-
-	builder := handlerresourceslice.NewBuilder(b.placements)
-	recorder, stopRecorder := newEventRecorder(kubeClient, b.scheme, handlerComponent)
-	if recorder != nil {
-		recorder = recorder.WithLogging(b.log.With(logger.SlogController(handlerComponent)))
-	}
-
-	featureGates := b.initFeatureGates(kubeClient, builder, recorder, notify)
-	deviceStatusEnabled := b.resolveDeviceStatus(kubeClient)
-
-	draDriver, err := b.startDriver(ctx, kubeClient, deviceStatusEnabled, featureGates.HandleError, notify)
-	if err != nil {
-		if stopRecorder != nil {
-			stopRecorder()
-		}
-		return nil, fmt.Errorf("start DRA driver: %w", err)
-	}
-	cdiSyncer := b.buildCDISyncer()
-
-	steps := handler.NewSteps(
-		b.log,
-		inventory.NewDiscoverHandler(b.store),
-		health.NewMarkNotReadyHandler(b.store, b.tracker, recorder),
-		inventory.NewFilterReadyHandler(),
-		health.NewCapabilitiesHandler(b.reader, b.store, b.tracker, recorder),
-		health.NewFilterHealthyHandler(),
-		publish.NewPublishResourcesHandler(builder, draDriver, cdiSyncer, recorder, featureGates.HandleError),
-	)
-
-	stop := func() {
-		draDriver.Shutdown()
-		if stopRecorder != nil {
-			stopRecorder()
-		}
-	}
-
-	return &bootstrapResult{
-		driver:   draDriver,
-		steps:    steps,
-		stop:     stop,
-		recorder: recorder,
-	}, nil
 }

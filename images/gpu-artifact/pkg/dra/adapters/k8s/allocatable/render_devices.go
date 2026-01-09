@@ -65,8 +65,13 @@ func renderDeviceWithOptions(spec domain.DeviceSpec, opts DeviceRenderOptions) r
 	}
 	if len(spec.BindingConditions) > 0 {
 		device.BindingConditions = cloneStrings(spec.BindingConditions)
+		if len(spec.BindingFailureConditions) > 0 {
+			device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
+		} else {
+			device.BindingFailureConditions = []string{}
+		}
 	}
-	if len(spec.BindingFailureConditions) > 0 {
+	if len(spec.BindingFailureConditions) > 0 && len(spec.BindingConditions) == 0 {
 		device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
 	}
 	return device
