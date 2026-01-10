@@ -25,7 +25,7 @@ import (
 	k8sresourceslice "github.com/aleksandr-podmoskovniy/gpu/pkg/dra/adapters/k8s/resourceslice"
 )
 
-const sharedCountersSeparateMinVersion = "v1.34.0"
+const sharedCountersSeparateMinVersion = "v1.35.0"
 
 func resolveSharedCountersLayout(kubeClient kubernetes.Interface) (k8sresourceslice.SharedCountersLayout, string, string, error) {
 	if kubeClient == nil {

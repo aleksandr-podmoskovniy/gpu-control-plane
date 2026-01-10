@@ -198,8 +198,8 @@ func TestNVMLReaderMIGProfilesSuffixByProfileID(t *testing.T) {
 	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE] != "1g.6gb" {
 		t.Fatalf("expected profile 1_slice name 1g.6gb, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
 	}
-	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1] != "1g.6gb+me" {
-		t.Fatalf("expected profile 1_slice_rev1 name 1g.6gb+me, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1] != "1g.6gb" {
+		t.Fatalf("expected profile 1_slice_rev1 name 1g.6gb, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1])
 	}
 	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME] != "1g.6gb+me.all" {
 		t.Fatalf("expected profile 1_slice_all_me name 1g.6gb+me.all, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_ALL_ME])
@@ -259,8 +259,8 @@ func TestNVMLReaderMIGProfilesNameFromNVML(t *testing.T) {
 	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE] != "1g.6gb" {
 		t.Fatalf("expected profile 1_slice name 1g.6gb, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE])
 	}
-	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1] != "1g.6gb+me" {
-		t.Fatalf("expected profile 1_slice_rev1 name 1g.6gb+me, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1])
+	if names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1] != "1g.6gb" {
+		t.Fatalf("expected profile 1_slice_rev1 name 1g.6gb, got %q", names[nvml.GPU_INSTANCE_PROFILE_1_SLICE_REV1])
 	}
 }
 

@@ -17,7 +17,7 @@
 
 ### 0.2 Факты и ограничения (из вводных)
 
-- Kubernetes **с 1.34** (partitionable devices с раздельными slices — **1.34+**).
+- Kubernetes **с 1.34** (partitionable devices; раздельные slices — **1.35+**).
 - DRA API: `resource.k8s.io/v1`. Extended resources (KEP‑5004) **используем в v0**.
   - включаем `DeviceClass.spec.extendedResourceName` и опираемся на scheduler‑создаваемые ResourceClaim.
 - Включены feature gates: `DRAPartitionableDevices` (KEP‑4815), `DRAConsumableCapacity` (KEP‑5075), `DRAExtendedResource` (KEP‑5004).
@@ -41,7 +41,8 @@
 2. **Единый механизм выдачи**: DRA (ResourceSlice/DeviceClass/ResourceClaim).
 3. **Partitionable devices (KEP‑4815)**:
    - для MIG — shared counters (v0: `memory`, `memory-slice-0..N`) и набор “виртуальных устройств‑оферов” под профили;
-   - **Kubernetes 1.34+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
+  - **Kubernetes 1.35+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
+  - **Kubernetes 1.34**: используем inline‑layout (и `sharedCounters`, и `devices` в одном ResourceSlice), иначе apiserver валидирует `consumesCounters.counterSet` только внутри одного слайса;
    - если фича отключена или поля дропаются, деградируем до exclusive Physical без MIG.
 4. **Collaborative sharing (KEP‑5075)**:
    - TimeSlicing/MPS реализуем через consumable capacity `sharePercent` + `allowMultipleAllocations`;
@@ -566,7 +567,8 @@ spec:
 - На device уровне: **attributes + capacity <= 32** ключа суммарно.
 - В одном ResourceSlice: **devices <= 128**.
 - `consumesCounters.counterSet` ссылается на counterSet, опубликованный в `sharedCounters` для того же `pool`/`generation`.
-- Kubernetes 1.34+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
+- Kubernetes 1.35+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
+- Kubernetes 1.34: используем inline‑layout (и `sharedCounters`, и `devices` в одном ResourceSlice), иначе `consumesCounters.counterSet` не валидируется.
 - `pool.resourceSliceCount` учитывает **все** ResourceSlice одного `pool`/`generation`, включая counters‑slice и devices‑slice.
 
 **Что такое counters‑slice, partitionable devices‑slice и physical‑slice:**
@@ -643,10 +645,11 @@ spec:
 
 - Публикуем офферы **только** для `PhysicalGPU` с `DriverReady=True` и `HardwareHealthy=True`.
 - Physical‑офферы публикуем отдельным **physical‑slice** (только devices).
-- Kubernetes 1.34+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
+- Kubernetes 1.35+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
+- Kubernetes 1.34: используем inline‑layout (и `sharedCounters`, и MIG‑офферы в одном ResourceSlice).
 - Публикуем **потенциальные оферы** для Physical/MIG одновременно,
   если карта поддерживает эти режимы.
-- `sharedCounters` и устройства, которые на них ссылаются, публикуем раздельно
+- При layout=separate `sharedCounters` и устройства, которые на них ссылаются, публикуем раздельно
   (counters‑slice + devices‑slice), все в одном `pool`/`generation`
   и с общим `resourceSliceCount`.
 - Публикация ResourceSlice делается через helper kubelet‑DRA API внутри `gpu-handler`,
