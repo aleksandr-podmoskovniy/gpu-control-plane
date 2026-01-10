@@ -41,9 +41,11 @@
 2. **Единый механизм выдачи**: DRA (ResourceSlice/DeviceClass/ResourceClaim).
 3. **Partitionable devices (KEP‑4815)**:
    - для MIG — shared counters (v0: `memory`, `memory-slice-0..N`) и набор “виртуальных устройств‑оферов” под профили;
-  - **Kubernetes 1.35+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
-  - **Kubernetes 1.34**: используем inline‑layout (и `sharedCounters`, и `devices` в одном ResourceSlice), иначе apiserver валидирует `consumesCounters.counterSet` только внутри одного слайса;
-   - если фича отключена или поля дропаются, деградируем до exclusive Physical без MIG.
+
+- **Kubernetes 1.35+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
+- **Kubernetes 1.34**: используем inline‑layout (и `sharedCounters`, и `devices` в одном ResourceSlice), иначе apiserver валидирует `consumesCounters.counterSet` только внутри одного слайса;
+- если фича отключена или поля дропаются, деградируем до exclusive Physical без MIG.
+
 4. **Collaborative sharing (KEP‑5075)**:
    - TimeSlicing/MPS реализуем через consumable capacity `sharePercent` + `allowMultipleAllocations`;
 5. **Динамическая подстройка под claim**:
