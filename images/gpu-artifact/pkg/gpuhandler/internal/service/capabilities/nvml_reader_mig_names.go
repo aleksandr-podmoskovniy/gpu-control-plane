@@ -28,18 +28,18 @@ import (
 
 func migProfileName(raw string, sliceCount uint32, memoryMiB uint64, profileID uint32) string {
 	name := normalizeMigProfileName(raw)
-	fromNVML := name != ""
-	if !fromNVML {
+	if name == "" {
 		name = defaultMigProfileName(sliceCount, memoryMiB, profileID)
 	}
 	if name == "" {
 		return ""
 	}
-	if !fromNVML {
-		suffix := migProfileSuffix(profileID)
-		if suffix != "" && !strings.ContainsAny(name, "+-") {
-			name = name + suffix
-		}
+	if hasProfileSuffix(name) {
+		return name
+	}
+	suffix := migProfileSuffix(profileID)
+	if suffix != "" {
+		return name + suffix
 	}
 	return name
 }
@@ -62,6 +62,11 @@ func defaultMigProfileName(sliceCount uint32, memoryMiB uint64, profileID uint32
 		return fmt.Sprintf("profile-%d", profileID)
 	}
 	return fmt.Sprintf("%dg.%dgb", sliceCount, gb)
+}
+
+func hasProfileSuffix(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "+me") || strings.Contains(lower, "+gfx") || strings.Contains(lower, "-me")
 }
 
 func migProfileSuffix(profileID uint32) string {
