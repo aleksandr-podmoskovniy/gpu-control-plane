@@ -24,6 +24,7 @@ kubectl get physicalgpus.gpu.deckhouse.io -o wide
 ```
 
 Найдено:
+
 - `k8s-w1-gpu.apiac.ru`: NVIDIA GeForce RTX 3090 Ti, label `gpu.deckhouse.io/device=geforce-rtx-3090-ti`, MIG: нет
 - `k8s-w2-gpu.apiac.ru`: NVIDIA GeForce RTX 3090, label `gpu.deckhouse.io/device=geforce-rtx-3090`, MIG: нет
 - `k8s-w3-gpu.apiac.ru`: NVIDIA A30 PCIe, label `gpu.deckhouse.io/device=a30-pcie`, MIG: да
@@ -111,11 +112,11 @@ metadata:
   name: nvidia-rtx-3090-ti-physical
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical" &&
-        device.attributes["gpu.deckhouse.io/device"] == "geforce-rtx-3090-ti"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
   extendedResourceName: gpu.deckhouse.io/rtx3090ti
 ---
 apiVersion: resource.k8s.io/v1
@@ -124,11 +125,11 @@ metadata:
   name: nvidia-rtx-3090-physical
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical" &&
-        device.attributes["gpu.deckhouse.io/device"] == "geforce-rtx-3090"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090"
   extendedResourceName: gpu.deckhouse.io/rtx3090
 ---
 apiVersion: resource.k8s.io/v1
@@ -137,11 +138,11 @@ metadata:
   name: nvidia-a30-physical
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical" &&
-        device.attributes["gpu.deckhouse.io/device"] == "a30-pcie"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie"
   extendedResourceName: gpu.deckhouse.io/a30
 ```
 
@@ -159,14 +160,14 @@ spec:
   nodeSelector:
     kubernetes.io/hostname: k8s-w1-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      requests:
-        gpu.deckhouse.io/rtx3090ti: "1"
-      limits:
-        gpu.deckhouse.io/rtx3090ti: "1"
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        requests:
+          gpu.deckhouse.io/rtx3090ti: "1"
+        limits:
+          gpu.deckhouse.io/rtx3090ti: "1"
 ---
 apiVersion: v1
 kind: Pod
@@ -176,14 +177,14 @@ spec:
   nodeSelector:
     kubernetes.io/hostname: k8s-w2-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      requests:
-        gpu.deckhouse.io/rtx3090: "1"
-      limits:
-        gpu.deckhouse.io/rtx3090: "1"
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        requests:
+          gpu.deckhouse.io/rtx3090: "1"
+        limits:
+          gpu.deckhouse.io/rtx3090: "1"
 ---
 apiVersion: v1
 kind: Pod
@@ -193,14 +194,14 @@ spec:
   nodeSelector:
     kubernetes.io/hostname: k8s-w3-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      requests:
-        gpu.deckhouse.io/a30: "1"
-      limits:
-        gpu.deckhouse.io/a30: "1"
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        requests:
+          gpu.deckhouse.io/a30: "1"
+        limits:
+          gpu.deckhouse.io/a30: "1"
 ```
 
 **Проверки:**
@@ -215,11 +216,13 @@ kubectl exec -it cuda-physical-a30 -- nvidia-smi -L
 ```
 
 Ожидаемое:
+
 - Scheduler создал special ResourceClaim.
 - В `ResourceClaim.status.allocation` есть `results` для `gpu.deckhouse.io`.
 - В Pod виден GPU.
 
 Факт:
+
 - В namespace `gpu-e2e` (label включён) создание подов падает из‑за pod webhook:
   `failed calling webhook "pod.gpu-control-plane.deckhouse.io": the server could not find the requested resource`.
 - В namespace без label создание подов с GPU запрещено политикой `gpu-control-plane-gpu-enabled-namespace`.
@@ -237,10 +240,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: gpu
-      exactly:
-        deviceClassName: nvidia-rtx-3090-ti-physical
-        count: 1
+      - name: gpu
+        exactly:
+          deviceClassName: nvidia-rtx-3090-ti-physical
+          count: 1
 ---
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaim
@@ -249,10 +252,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: gpu
-      exactly:
-        deviceClassName: nvidia-rtx-3090-physical
-        count: 1
+      - name: gpu
+        exactly:
+          deviceClassName: nvidia-rtx-3090-physical
+          count: 1
 ---
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaim
@@ -261,10 +264,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: gpu
-      exactly:
-        deviceClassName: nvidia-a30-physical
-        count: 1
+      - name: gpu
+        exactly:
+          deviceClassName: nvidia-a30-physical
+          count: 1
 ```
 
 ```yaml
@@ -275,17 +278,17 @@ metadata:
   name: cuda-claim-physical-3090ti
 spec:
   resourceClaims:
-  - name: gpu
-    resourceClaimName: claim-physical-3090ti
+    - name: gpu
+      resourceClaimName: claim-physical-3090ti
   nodeSelector:
     kubernetes.io/hostname: k8s-w1-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: gpu
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: gpu
 ---
 apiVersion: v1
 kind: Pod
@@ -293,17 +296,17 @@ metadata:
   name: cuda-claim-physical-3090
 spec:
   resourceClaims:
-  - name: gpu
-    resourceClaimName: claim-physical-3090
+    - name: gpu
+      resourceClaimName: claim-physical-3090
   nodeSelector:
     kubernetes.io/hostname: k8s-w2-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: gpu
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: gpu
 ---
 apiVersion: v1
 kind: Pod
@@ -311,17 +314,17 @@ metadata:
   name: cuda-claim-physical-a30
 spec:
   resourceClaims:
-  - name: gpu
-    resourceClaimName: claim-physical-a30
+    - name: gpu
+      resourceClaimName: claim-physical-a30
   nodeSelector:
     kubernetes.io/hostname: k8s-w3-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: gpu
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: gpu
 ```
 
 **Проверки:**
@@ -351,12 +354,12 @@ metadata:
   name: nvidia-a30-mig-2g12
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
-        device.attributes["gpu.deckhouse.io/device"] == "a30-pcie" &&
-        device.attributes["gpu.deckhouse.io/migProfile"] == "2g.12gb"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"
 ```
 
 ```yaml
@@ -368,10 +371,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: mig
-      exactly:
-        deviceClassName: nvidia-a30-mig-2g12
-        count: 1
+      - name: mig
+        exactly:
+          deviceClassName: nvidia-a30-mig-2g12
+          count: 1
 ```
 
 ```yaml
@@ -382,17 +385,17 @@ metadata:
   name: cuda-claim-mig
 spec:
   resourceClaims:
-  - name: mig
-    resourceClaimName: claim-mig-2g12
+    - name: mig
+      resourceClaimName: claim-mig-2g12
   nodeSelector:
     kubernetes.io/hostname: k8s-w3-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: mig
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: mig
 ```
 
 Повторять этот сценарий только на A30 (MIG‑узел).
@@ -406,6 +409,7 @@ kubectl exec -it cuda-claim-mig -- nvidia-smi -L
 ```
 
 Ожидаемое:
+
 - Для 1.35+: отдельный counters‑slice и devices‑slice.
 - У MIG‑устройств `consumesCounters` ссылается на `sharedCounters` того же pool/generation.
 
@@ -421,21 +425,21 @@ metadata:
   name: nvidia-rtx-3090-ti-timeslicing
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical" &&
-        device.attributes["gpu.deckhouse.io/device"] == "geforce-rtx-3090-ti"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
   config:
-  - opaque:
-      driver: gpu.deckhouse.io
-      parameters:
-        apiVersion: resource.gpu.deckhouse.io/v1alpha1
-        kind: GpuConfig
-        sharing:
-          strategy: TimeSlicing
-          timeSlicingConfig:
-            interval: Long
+    - opaque:
+        driver: gpu.deckhouse.io
+        parameters:
+          apiVersion: resource.gpu.deckhouse.io/v1alpha1
+          kind: GpuConfig
+          sharing:
+            strategy: TimeSlicing
+            timeSlicingConfig:
+              interval: Long
 ```
 
 ```yaml
@@ -448,13 +452,13 @@ spec:
   spec:
     devices:
       requests:
-      - name: gpu
-        exactly:
-          deviceClassName: nvidia-rtx-3090-ti-timeslicing
-          count: 1
-          capacity:
-            requests:
-              sharePercent: "50"
+        - name: gpu
+          exactly:
+            deviceClassName: nvidia-rtx-3090-ti-timeslicing
+            count: 1
+            capacity:
+              requests:
+                sharePercent: "50"
 ```
 
 ```yaml
@@ -465,20 +469,21 @@ metadata:
   name: cuda-timeslicing-3090ti
 spec:
   resourceClaims:
-  - name: gpu
-    resourceClaimTemplateName: rct-timeslicing-3090ti
+    - name: gpu
+      resourceClaimTemplateName: rct-timeslicing-3090ti
   nodeSelector:
     kubernetes.io/hostname: k8s-w1-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: gpu
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: gpu
 ```
 
 Повторить для остальных карт:
+
 - RTX 3090: заменить `geforce-rtx-3090-ti` → `geforce-rtx-3090`, имена на `*-3090`, `nodeSelector` на `k8s-w2-gpu.apiac.ru`.
 - A30: заменить `geforce-rtx-3090-ti` → `a30-pcie`, имена на `*-a30`, `nodeSelector` на `k8s-w3-gpu.apiac.ru`.
 
@@ -503,21 +508,21 @@ metadata:
   name: nvidia-rtx-3090-ti-mps
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical" &&
-        device.attributes["gpu.deckhouse.io/device"] == "geforce-rtx-3090-ti"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
   config:
-  - opaque:
-      driver: gpu.deckhouse.io
-      parameters:
-        apiVersion: resource.gpu.deckhouse.io/v1alpha1
-        kind: GpuConfig
-        sharing:
-          strategy: MPS
-          mpsConfig:
-            defaultActiveThreadPercentage: 50
+    - opaque:
+        driver: gpu.deckhouse.io
+        parameters:
+          apiVersion: resource.gpu.deckhouse.io/v1alpha1
+          kind: GpuConfig
+          sharing:
+            strategy: MPS
+            mpsConfig:
+              defaultActiveThreadPercentage: 50
 ```
 
 ```yaml
@@ -530,13 +535,13 @@ spec:
   spec:
     devices:
       requests:
-      - name: gpu
-        exactly:
-          deviceClassName: nvidia-rtx-3090-ti-mps
-          count: 1
-          capacity:
-            requests:
-              sharePercent: "50"
+        - name: gpu
+          exactly:
+            deviceClassName: nvidia-rtx-3090-ti-mps
+            count: 1
+            capacity:
+              requests:
+                sharePercent: "50"
 ```
 
 ```yaml
@@ -547,20 +552,22 @@ metadata:
   name: cuda-mps-3090ti
 spec:
   resourceClaims:
-  - name: gpu
-    resourceClaimTemplateName: rct-mps-3090ti
+    - name: gpu
+      resourceClaimTemplateName: rct-mps-3090ti
   nodeSelector:
     kubernetes.io/hostname: k8s-w1-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","env | rg CUDA_MPS; mount | rg nvidia-mps; sleep 3600"]
-    resources:
-      claims:
-      - name: gpu
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command:
+        ["bash", "-lc", "env | rg CUDA_MPS; mount | rg nvidia-mps; sleep 3600"]
+      resources:
+        claims:
+          - name: gpu
 ```
 
 Повторить для остальных карт:
+
 - RTX 3090: заменить `geforce-rtx-3090-ti` → `geforce-rtx-3090`, имена на `*-3090`, `nodeSelector` на `k8s-w2-gpu.apiac.ru`.
 - A30: заменить `geforce-rtx-3090-ti` → `a30-pcie`, имена на `*-a30`, `nodeSelector` на `k8s-w3-gpu.apiac.ru`.
 
@@ -584,22 +591,22 @@ metadata:
   name: nvidia-a30-mig-2g12-mps
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
-        device.attributes["gpu.deckhouse.io/device"] == "a30-pcie" &&
-        device.attributes["gpu.deckhouse.io/migProfile"] == "2g.12gb"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"
   config:
-  - opaque:
-      driver: gpu.deckhouse.io
-      parameters:
-        apiVersion: resource.gpu.deckhouse.io/v1alpha1
-        kind: MigDeviceConfig
-        sharing:
-          strategy: MPS
-          mpsConfig:
-            defaultActiveThreadPercentage: 50
+    - opaque:
+        driver: gpu.deckhouse.io
+        parameters:
+          apiVersion: resource.gpu.deckhouse.io/v1alpha1
+          kind: MigDeviceConfig
+          sharing:
+            strategy: MPS
+            mpsConfig:
+              defaultActiveThreadPercentage: 50
 ```
 
 ```yaml
@@ -612,13 +619,13 @@ spec:
   spec:
     devices:
       requests:
-      - name: mig
-        exactly:
-          deviceClassName: nvidia-a30-mig-2g12-mps
-          count: 1
-          capacity:
-            requests:
-              sharePercent: "50"
+        - name: mig
+          exactly:
+            deviceClassName: nvidia-a30-mig-2g12-mps
+            count: 1
+            capacity:
+              requests:
+                sharePercent: "50"
 ```
 
 ```yaml
@@ -629,17 +636,18 @@ metadata:
   name: cuda-mig-mps
 spec:
   resourceClaims:
-  - name: mig
-    resourceClaimTemplateName: rct-mig-mps
+    - name: mig
+      resourceClaimTemplateName: rct-mig-mps
   nodeSelector:
     kubernetes.io/hostname: k8s-w3-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","env | rg CUDA_MPS; mount | rg nvidia-mps; sleep 3600"]
-    resources:
-      claims:
-      - name: mig
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command:
+        ["bash", "-lc", "env | rg CUDA_MPS; mount | rg nvidia-mps; sleep 3600"]
+      resources:
+        claims:
+          - name: mig
 ```
 
 ### S7. Динамическая нарезка MIG + негативные кейсы (A30)
@@ -666,12 +674,12 @@ metadata:
   name: nvidia-a30-mig-1g6
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
-        device.attributes["gpu.deckhouse.io/device"] == "a30-pcie" &&
-        device.attributes["gpu.deckhouse.io/migProfile"] == "1g.6gb"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io/migProfile"].string == "1g.6gb"
 ```
 
 ```yaml
@@ -683,10 +691,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: mig
-      exactly:
-        deviceClassName: nvidia-a30-mig-1g6
-        count: 1
+      - name: mig
+        exactly:
+          deviceClassName: nvidia-a30-mig-1g6
+          count: 1
 ```
 
 ```yaml
@@ -697,17 +705,17 @@ metadata:
   name: cuda-mig-1g6
 spec:
   resourceClaims:
-  - name: mig
-    resourceClaimName: claim-mig-1g6
+    - name: mig
+      resourceClaimName: claim-mig-1g6
   nodeSelector:
     kubernetes.io/hostname: k8s-w3-gpu.apiac.ru
   containers:
-  - name: app
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","nvidia-smi -L; sleep 3600"]
-    resources:
-      claims:
-      - name: mig
+    - name: app
+      image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+      command: ["bash", "-lc", "nvidia-smi -L; sleep 3600"]
+      resources:
+        claims:
+          - name: mig
 ```
 
 **Проверки:**
@@ -767,11 +775,11 @@ metadata:
   name: nvidia-rtx-3090-mig
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
-        device.attributes["gpu.deckhouse.io/device"] == "geforce-rtx-3090"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090"
 ```
 
 ```yaml
@@ -783,10 +791,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: mig
-      exactly:
-        deviceClassName: nvidia-rtx-3090-mig
-        count: 1
+      - name: mig
+        exactly:
+          deviceClassName: nvidia-rtx-3090-mig
+          count: 1
 ```
 
 Ожидаемое: `ResourceClaim` остаётся без `status.allocation`.
@@ -801,12 +809,12 @@ metadata:
   name: nvidia-a30-mig-bad
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "MIG" &&
-        device.attributes["gpu.deckhouse.io/device"] == "a30-pcie" &&
-        device.attributes["gpu.deckhouse.io/migProfile"] == "3g.20gb"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
+          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io/migProfile"].string == "3g.20gb"
 ```
 
 ```yaml
@@ -818,10 +826,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: mig
-      exactly:
-        deviceClassName: nvidia-a30-mig-bad
-        count: 1
+      - name: mig
+        exactly:
+          deviceClassName: nvidia-a30-mig-bad
+          count: 1
 ```
 
 Ожидаемое: аллокация не происходит, claim без `status.allocation`.
@@ -837,10 +845,10 @@ metadata:
 spec:
   devices:
     requests:
-    - name: mig
-      exactly:
-        deviceClassName: nvidia-a30-mig-2g12
-        count: 3
+      - name: mig
+        exactly:
+          deviceClassName: nvidia-a30-mig-2g12
+          count: 3
 ```
 
 Ожидаемое: аллокация не происходит (maxInstances=2 для 2g.12gb).
@@ -867,6 +875,7 @@ kubectl get resourceclaim <claim> -o yaml | rg -n "status:|devices:|conditions:"
 ```
 
 Ожидаемое:
+
 - Для подготовленных устройств выставлены `Ready` + binding conditions.
 - После Unprepare записи удаляются.
 
@@ -889,20 +898,20 @@ metadata:
   name: nvidia-a30-invalid
 spec:
   selectors:
-  - cel:
-      expression: |
-        device.attributes["gpu.deckhouse.io/vendor"] == "nvidia" &&
-        device.attributes["gpu.deckhouse.io/deviceType"] == "Physical"
+    - cel:
+        expression: |
+          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
+          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical"
   config:
-  - opaque:
-      driver: gpu.deckhouse.io
-      parameters:
-        apiVersion: resource.gpu.deckhouse.io/v1alpha1
-        kind: GpuConfig
-        sharing:
-          strategy: TimeSlicing
-          timeSlicingConfig:
-            interval: "UltraFast"
+    - opaque:
+        driver: gpu.deckhouse.io
+        parameters:
+          apiVersion: resource.gpu.deckhouse.io/v1alpha1
+          kind: GpuConfig
+          sharing:
+            strategy: TimeSlicing
+            timeSlicingConfig:
+              interval: "UltraFast"
 ```
 
 Ожидаемое: `kubectl apply -f deviceclass-invalid.yaml` завершается ошибкой валидации.
