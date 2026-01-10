@@ -44,6 +44,9 @@ func (b *bootstrapService) Start(ctx context.Context, notify func()) (*bootstrap
 
 	featureGates := b.initFeatureGates(kubeClient, builder, recorder, notify)
 	deviceStatusEnabled := b.resolveDeviceStatus(kubeClient)
+	if builder != nil {
+		builder.SetBindingConditionsEnabled(deviceStatusEnabled)
+	}
 
 	draDriver, err := b.startDriver(ctx, kubeClient, deviceStatusEnabled, featureGates.HandleError, notify)
 	if err != nil {

@@ -25,15 +25,17 @@ import (
 
 // DeviceRenderOptions controls rendering of optional device fields.
 type DeviceRenderOptions struct {
-	IncludeCapacity         bool
-	IncludeMultiAllocations bool
+	IncludeCapacity          bool
+	IncludeMultiAllocations  bool
+	IncludeBindingConditions bool
 }
 
 // RenderDevices converts domain devices into API devices.
 func RenderDevices(devices []domain.Device) []resourceapi.Device {
 	return RenderDevicesWithOptions(devices, DeviceRenderOptions{
-		IncludeCapacity:         true,
-		IncludeMultiAllocations: true,
+		IncludeCapacity:          true,
+		IncludeMultiAllocations:  true,
+		IncludeBindingConditions: true,
 	})
 }
 
@@ -63,16 +65,18 @@ func renderDeviceWithOptions(spec domain.DeviceSpec, opts DeviceRenderOptions) r
 	if opts.IncludeMultiAllocations && spec.AllowMultipleAllocations {
 		device.AllowMultipleAllocations = ptr.To(true)
 	}
-	if len(spec.BindingConditions) > 0 {
-		device.BindingConditions = cloneStrings(spec.BindingConditions)
-		if len(spec.BindingFailureConditions) > 0 {
-			device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
-		} else {
-			device.BindingFailureConditions = []string{}
+	if opts.IncludeBindingConditions {
+		if len(spec.BindingConditions) > 0 {
+			device.BindingConditions = cloneStrings(spec.BindingConditions)
+			if len(spec.BindingFailureConditions) > 0 {
+				device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
+			} else {
+				device.BindingFailureConditions = []string{domain.DeviceConditionBindingFailed}
+			}
 		}
-	}
-	if len(spec.BindingFailureConditions) > 0 && len(spec.BindingConditions) == 0 {
-		device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
+		if len(spec.BindingFailureConditions) > 0 && len(spec.BindingConditions) == 0 {
+			device.BindingFailureConditions = cloneStrings(spec.BindingFailureConditions)
+		}
 	}
 	return device
 }

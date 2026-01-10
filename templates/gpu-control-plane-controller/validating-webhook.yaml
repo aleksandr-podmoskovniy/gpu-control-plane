@@ -65,7 +65,7 @@ webhooks:
   - name: pod.gpu-control-plane.deckhouse.io
     admissionReviewVersions: ["v1"]
     sideEffects: None
-    failurePolicy: Fail
+    failurePolicy: Ignore
     {{- if and $kubeVersion (semverCompare ">=1.26.0" $kubeVersion) }}
     namespaceSelector:
       matchExpressions:
@@ -88,7 +88,7 @@ webhooks:
       service:
         namespace: {{ $ns }}
         name: {{ include "gpuControlPlane.controllerName" . }}
-        path: /validate-v1-pod
+        path: /validate--v1-pod
         port: 443
       caBundle: |
         {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}

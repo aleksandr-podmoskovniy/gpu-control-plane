@@ -50,3 +50,14 @@ func (b *Builder) SetSharedCountersLayout(layout k8sresourceslice.SharedCounters
 	}
 	return changed
 }
+
+// SetBindingConditionsEnabled toggles binding conditions rendering.
+func (b *Builder) SetBindingConditionsEnabled(enabled bool) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	updated, changed := b.features.WithBindingConditions(enabled)
+	if changed {
+		b.features = updated
+	}
+	return changed
+}

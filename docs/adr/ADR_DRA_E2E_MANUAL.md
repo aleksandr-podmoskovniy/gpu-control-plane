@@ -5,7 +5,7 @@
 
 ## 1. Предусловия
 
-- Kubernetes >= 1.34 (для 1.35+ отличается формат ResourceSlice counters).
+- Kubernetes >= 1.34 (с 1.34 используется отдельный counters‑slice).
 - Включены feature gates:
   - `DRAPartitionableDevices`
   - `DRAConsumableCapacity`
@@ -114,9 +114,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical" &&
+          device.attributes["gpu.deckhouse.io"].device == "geforce-rtx-3090-ti"
   extendedResourceName: gpu.deckhouse.io/rtx3090ti
 ---
 apiVersion: resource.k8s.io/v1
@@ -127,9 +127,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical" &&
+          device.attributes["gpu.deckhouse.io"].device == "geforce-rtx-3090"
   extendedResourceName: gpu.deckhouse.io/rtx3090
 ---
 apiVersion: resource.k8s.io/v1
@@ -140,9 +140,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie"
   extendedResourceName: gpu.deckhouse.io/a30
 ```
 
@@ -356,10 +356,10 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
-          device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io"].migProfile == "2g.12gb"
 ```
 
 ```yaml
@@ -410,7 +410,7 @@ kubectl exec -it cuda-claim-mig -- nvidia-smi -L
 
 Ожидаемое:
 
-- Для 1.35+: отдельный counters‑slice и devices‑slice.
+- Для 1.34+: отдельный counters‑slice и devices‑slice.
 - У MIG‑устройств `consumesCounters` ссылается на `sharedCounters` того же pool/generation.
 
 ### S4. TimeSlicing (KEP‑5075) через ResourceClaimTemplate для всех карт
@@ -427,9 +427,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical" &&
+          device.attributes["gpu.deckhouse.io"].device == "geforce-rtx-3090-ti"
   config:
     - opaque:
         driver: gpu.deckhouse.io
@@ -510,9 +510,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090-ti"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical" &&
+          device.attributes["gpu.deckhouse.io"].device == "geforce-rtx-3090-ti"
   config:
     - opaque:
         driver: gpu.deckhouse.io
@@ -593,10 +593,10 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
-          device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io"].migProfile == "2g.12gb"
   config:
     - opaque:
         driver: gpu.deckhouse.io
@@ -676,10 +676,10 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
-          device.attributes["gpu.deckhouse.io/migProfile"].string == "1g.6gb"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io"].migProfile == "1g.6gb"
 ```
 
 ```yaml
@@ -777,9 +777,9 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "geforce-rtx-3090"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "geforce-rtx-3090"
 ```
 
 ```yaml
@@ -811,10 +811,10 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
-          device.attributes["gpu.deckhouse.io/migProfile"].string == "3g.20gb"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io"].migProfile == "3g.20gb"
 ```
 
 ```yaml
@@ -900,8 +900,8 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "Physical"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "Physical"
   config:
     - opaque:
         driver: gpu.deckhouse.io

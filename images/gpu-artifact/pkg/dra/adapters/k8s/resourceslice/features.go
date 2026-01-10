@@ -28,6 +28,7 @@ const (
 type FeatureSet struct {
 	PartitionableDevices bool
 	ConsumableCapacity   bool
+	BindingConditions    bool
 	SharedCountersLayout SharedCountersLayout
 }
 
@@ -36,6 +37,7 @@ func DefaultFeatures() FeatureSet {
 	return FeatureSet{
 		PartitionableDevices: true,
 		ConsumableCapacity:   false,
+		BindingConditions:    false,
 		SharedCountersLayout: SharedCountersInline,
 	}
 }
@@ -47,6 +49,16 @@ func (f FeatureSet) WithSharedCountersLayout(layout SharedCountersLayout) (Featu
 	}
 	updated := f
 	updated.SharedCountersLayout = layout
+	return updated, true
+}
+
+// WithBindingConditions returns a copy with binding conditions enabled or disabled.
+func (f FeatureSet) WithBindingConditions(enabled bool) (FeatureSet, bool) {
+	if f.BindingConditions == enabled {
+		return f, false
+	}
+	updated := f
+	updated.BindingConditions = enabled
 	return updated, true
 }
 
@@ -64,6 +76,11 @@ func (f FeatureSet) Enable(features []string) (FeatureSet, bool) {
 		case "DRAConsumableCapacity":
 			if !updated.ConsumableCapacity {
 				updated.ConsumableCapacity = true
+				changed = true
+			}
+		case "DRADeviceBindingConditions":
+			if !updated.BindingConditions {
+				updated.BindingConditions = true
 				changed = true
 			}
 		}
@@ -85,6 +102,11 @@ func (f FeatureSet) Disable(features []string) (FeatureSet, bool) {
 		case "DRAConsumableCapacity":
 			if updated.ConsumableCapacity {
 				updated.ConsumableCapacity = false
+				changed = true
+			}
+		case "DRADeviceBindingConditions":
+			if updated.BindingConditions {
+				updated.BindingConditions = false
 				changed = true
 			}
 		}

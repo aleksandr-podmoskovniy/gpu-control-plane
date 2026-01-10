@@ -18,45 +18,15 @@ package featuregates
 
 import (
 	"fmt"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/kubernetes"
 )
 
-type consumableCapacityMode string
+const extendedResourceMinVersion = "v1.34.0"
 
-const (
-	consumableCapacityAuto     consumableCapacityMode = "auto"
-	consumableCapacityEnabled  consumableCapacityMode = "enabled"
-	consumableCapacityDisabled consumableCapacityMode = "disabled"
-)
-
-const consumableCapacityMinVersion = "v1.34.0"
-
-func parseConsumableCapacityMode(raw string) (consumableCapacityMode, error) {
-	value := strings.TrimSpace(strings.ToLower(raw))
-	switch value {
-	case "", "auto":
-		return consumableCapacityAuto, nil
-	case "true", "enabled", "enable", "on", "1", "yes":
-		return consumableCapacityEnabled, nil
-	case "false", "disabled", "disable", "off", "0", "no":
-		return consumableCapacityDisabled, nil
-	default:
-		return consumableCapacityAuto, fmt.Errorf("unsupported consumable capacity mode %q", raw)
-	}
-}
-
-func resolveConsumableCapacity(kubeClient kubernetes.Interface, mode consumableCapacityMode) (bool, string, string, error) {
-	switch mode {
-	case consumableCapacityEnabled:
-		return true, "config", "", nil
-	case consumableCapacityDisabled:
-		return false, "config", "", nil
-	default:
-	}
-
+// ResolveExtendedResource reports whether the DRA extended resource feature is supported.
+func ResolveExtendedResource(kubeClient kubernetes.Interface) (bool, string, string, error) {
 	if kubeClient == nil {
 		return false, "auto", "", fmt.Errorf("kube client is nil")
 	}
@@ -71,6 +41,6 @@ func resolveConsumableCapacity(kubeClient kubernetes.Interface, mode consumableC
 		return false, "auto", serverVersion.GitVersion, fmt.Errorf("parse server version %q: %w", serverVersion.GitVersion, err)
 	}
 
-	minVersion := version.MustParseGeneric(consumableCapacityMinVersion)
+	minVersion := version.MustParseGeneric(extendedResourceMinVersion)
 	return parsed.AtLeast(minVersion), "auto", serverVersion.GitVersion, nil
 }

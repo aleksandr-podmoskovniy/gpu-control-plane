@@ -38,8 +38,9 @@ type DefaultRenderer struct {
 func (r DefaultRenderer) Render(inv allocatable.Inventory) []resourcesliceapi.Slice {
 	inv = filterInventory(inv, r.Features)
 	renderOpts := allocatablek8s.DeviceRenderOptions{
-		IncludeCapacity:         r.Features.ConsumableCapacity,
-		IncludeMultiAllocations: r.Features.ConsumableCapacity,
+		IncludeCapacity:          r.Features.ConsumableCapacity,
+		IncludeMultiAllocations:  r.Features.ConsumableCapacity,
+		IncludeBindingConditions: r.Features.BindingConditions,
 	}
 
 	if len(inv.CounterSets) == 0 {

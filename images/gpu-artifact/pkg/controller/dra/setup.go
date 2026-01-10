@@ -62,6 +62,14 @@ func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger, 
 	if log != nil {
 		log.Info("DRA device status support resolved", "mode", deviceStatusMode, "enabled", deviceStatusEnabled, "source", source, "apiserverVersion", serverVersion)
 	}
+
+	extendedResourceEnabled, extSource, extServerVersion, extErr := featuregates.ResolveExtendedResource(kubeClient)
+	if extErr != nil && log != nil {
+		log.Warn("failed to resolve DRA extended resource support", "source", extSource, "apiserverVersion", extServerVersion, logger.SlogErr(extErr))
+	}
+	if log != nil {
+		log.Info("DRA extended resource support resolved", "enabled", extendedResourceEnabled, "source", extSource, "apiserverVersion", extServerVersion)
+	}
 	allocator.SetAllocationOptions(k8sallocator.AllocationOptions{
 		IncludeBindingConditions:   deviceStatusEnabled,
 		IncludeAllocationTimestamp: deviceStatusEnabled,
@@ -72,7 +80,7 @@ func SetupController(ctx context.Context, mgr manager.Manager, log *log.Logger, 
 		WithLogging(log.With(logger.SlogController(ControllerName)))
 
 	handlers := []Handler{
-		handler.NewFeatureGateHandler(classes, recorder),
+		handler.NewFeatureGateHandler(classes, recorder, extendedResourceEnabled),
 		handler.NewAllocateHandler(allocator, recorder),
 		handler.NewPersistHandler(writer, recorder),
 	}

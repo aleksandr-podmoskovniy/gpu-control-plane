@@ -36,11 +36,12 @@ const reasonFeatureGateDisabled = "FeatureGateDisabled"
 type FeatureGateHandler struct {
 	classes  *service.DeviceClassService
 	recorder eventrecord.EventRecorderLogger
+	enabled  bool
 }
 
 // NewFeatureGateHandler constructs a feature gate handler.
-func NewFeatureGateHandler(classes *service.DeviceClassService, recorder eventrecord.EventRecorderLogger) *FeatureGateHandler {
-	return &FeatureGateHandler{classes: classes, recorder: recorder}
+func NewFeatureGateHandler(classes *service.DeviceClassService, recorder eventrecord.EventRecorderLogger, extendedResourceEnabled bool) *FeatureGateHandler {
+	return &FeatureGateHandler{classes: classes, recorder: recorder, enabled: extendedResourceEnabled}
 }
 
 // Name returns the handler name.
@@ -54,16 +55,20 @@ func (h *FeatureGateHandler) Handle(ctx context.Context, st *state.DRAState) (re
 		return reconcile.Result{}, nil
 	}
 
+	if h.enabled {
+		return reconcile.Result{}, nil
+	}
+
 	classes, err := h.classes.Load(ctx, st.Resource.Current())
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 
 	for _, class := range classes {
-		if class.Spec.ExtendedResourceName != nil && *class.Spec.ExtendedResourceName != "" {
+		if class.Spec.ExtendedResourceName == nil || *class.Spec.ExtendedResourceName == "" {
 			continue
 		}
-		msg := fmt.Sprintf("DeviceClass %q has empty extendedResourceName; DRAExtendedResource is disabled or misconfigured", class.Name)
+		msg := fmt.Sprintf("DeviceClass %q sets extendedResourceName while DRAExtendedResource is disabled", class.Name)
 		log := logger.FromContext(ctx).With("deviceClass", class.Name)
 		h.recorder.WithLogging(log).Event(class, corev1.EventTypeWarning, reasonFeatureGateDisabled, msg)
 	}

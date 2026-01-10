@@ -78,7 +78,7 @@ func splitFeatures(features []string) ([]string, []string) {
 	var unknown []string
 	for _, feature := range features {
 		switch feature {
-		case featurePartitionable, featureConsumableCapacity:
+		case featurePartitionable, featureConsumableCapacity, featureBindingConditions:
 			known = append(known, feature)
 		default:
 			unknown = append(unknown, feature)

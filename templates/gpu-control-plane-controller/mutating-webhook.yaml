@@ -57,7 +57,7 @@ webhooks:
           values: ["true"]
     objectSelector:
       matchExpressions:
-        # не трогаем собственные поды и системные сервисы
+        # Do not touch module pods and system services.
         - key: module
           operator: NotIn
           values: ["gpu-control-plane", "deckhouse"]
@@ -71,7 +71,7 @@ webhooks:
       service:
         namespace: {{ $ns }}
         name: {{ include "gpuControlPlane.controllerName" . }}
-        path: /mutate-v1-pod
+        path: /mutate--v1-pod
         port: 443
       caBundle: |
         {{ .Values.gpuControlPlane.internal.controller.cert.ca | b64enc }}

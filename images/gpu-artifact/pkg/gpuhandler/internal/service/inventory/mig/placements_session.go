@@ -47,9 +47,10 @@ func (s *nvmlMigPlacementSession) ReadPlacements(pciAddress string, profileIDs [
 
 	target := make(map[uint32]struct{}, len(profileIDs))
 	for _, id := range profileIDs {
-		if id > 0 {
-			target[uint32(id)] = struct{}{}
+		if id < 0 {
+			continue
 		}
+		target[uint32(id)] = struct{}{}
 	}
 
 	placements := make(map[int32][]invtypes.MigPlacement)

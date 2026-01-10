@@ -21,4 +21,5 @@ const (
 	reasonExclusiveFallback   = "ExclusiveFallback"
 	featurePartitionable      = "DRAPartitionableDevices"
 	featureConsumableCapacity = "DRAConsumableCapacity"
+	featureBindingConditions  = "DRADeviceBindingConditions"
 )

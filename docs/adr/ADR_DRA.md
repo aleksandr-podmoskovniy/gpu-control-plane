@@ -17,7 +17,7 @@
 
 ### 0.2 Факты и ограничения (из вводных)
 
-- Kubernetes **с 1.34** (partitionable devices с раздельными slices — только **1.35+**).
+- Kubernetes **с 1.34** (partitionable devices с раздельными slices — **1.34+**).
 - DRA API: `resource.k8s.io/v1`. Extended resources (KEP‑5004) **используем в v0**.
   - включаем `DeviceClass.spec.extendedResourceName` и опираемся на scheduler‑создаваемые ResourceClaim.
 - Включены feature gates: `DRAPartitionableDevices` (KEP‑4815), `DRAConsumableCapacity` (KEP‑5075), `DRAExtendedResource` (KEP‑5004).
@@ -41,8 +41,7 @@
 2. **Единый механизм выдачи**: DRA (ResourceSlice/DeviceClass/ResourceClaim).
 3. **Partitionable devices (KEP‑4815)**:
    - для MIG — shared counters (v0: `memory`, `memory-slice-0..N`) и набор “виртуальных устройств‑оферов” под профили;
-   - **Kubernetes 1.34**: `sharedCounters` публикуем **inline** вместе с устройствами (иначе API не валиден);
-   - **Kubernetes 1.35+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
+   - **Kubernetes 1.34+**: `sharedCounters` публикуем отдельным ResourceSlice (resourceSliceCount=2), а устройства с `consumesCounters` — отдельным;
    - если фича отключена или поля дропаются, деградируем до exclusive Physical без MIG.
 4. **Collaborative sharing (KEP‑5075)**:
    - TimeSlicing/MPS реализуем через consumable capacity `sharePercent` + `allowMultipleAllocations`;
@@ -567,8 +566,7 @@ spec:
 - На device уровне: **attributes + capacity <= 32** ключа суммарно.
 - В одном ResourceSlice: **devices <= 128**.
 - `consumesCounters.counterSet` ссылается на counterSet, опубликованный в `sharedCounters` для того же `pool`/`generation`.
-- Kubernetes 1.34: `sharedCounters` публикуем inline вместе с устройствами.
-- Kubernetes 1.35+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
+- Kubernetes 1.34+: `sharedCounters` публикуем отдельным ResourceSlice (counters‑slice), а устройства с `consumesCounters` — отдельным ResourceSlice (devices‑slice).
 - `pool.resourceSliceCount` учитывает **все** ResourceSlice одного `pool`/`generation`, включая counters‑slice и devices‑slice.
 
 **Что такое counters‑slice, partitionable devices‑slice и physical‑slice:**
@@ -581,34 +579,34 @@ spec:
 
 ### 7.2 Стандартные ключи (общие для всех вендоров)
 
-| Категория      | Ключ                          |      Тип | Пример           | Назначение                          | Пример CEL‑селектора                                                              |
-| -------------- | ----------------------------- | -------: | ---------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
-| attribute      | `gpu.deckhouse.io/vendor`     |   string | `"nvidia"`       | Фильтр вендора                      | `device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia"`                 |
-| attribute      | `gpu.deckhouse.io/deviceType` |   string | `"MIG"`          | Physical/MIG                        | `device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG"`                |
-| attribute      | `gpu.deckhouse.io/device`     |   string | `"a30-pcie"`     | нормализованная модель              | `device.attributes["gpu.deckhouse.io/device"].string in ["a30-pcie","a100-pcie"]` |
-| attribute      | `gpu.deckhouse.io/pciAddress` |   string | `"0000:02:00.0"` | Диагностика/трейсинг                | `device.attributes["gpu.deckhouse.io/pciAddress"].string.matches("0000:.*")`      |
-| capacity       | `memory`                      | quantity | `24576Mi`        | VRAM минимум                        | `device.capacity["memory"].compareTo(quantity("12Gi")) >= 0`                      |
-| capacity       | `sharePercent`                | quantity | `50`             | доля для TimeSlicing/MPS (KEP‑5075) | `device.capacity["sharePercent"] >= 10`                                           |
-| shared counter | `memory`                      | quantity | `40Gi`           | общий пул памяти                    | (используется при подсчете)                                                       |
-| shared counter | `memory-slice-<N>`            |      int | `1`              | MIG‑слайсы (KEP‑4815)               | (используется при подсчете)                                                       |
+| Категория      | Ключ                          |      Тип | Пример           | Назначение                          | Пример CEL‑селектора                                                       |
+| -------------- | ----------------------------- | -------: | ---------------- | ----------------------------------- | -------------------------------------------------------------------------- |
+| attribute      | `gpu.deckhouse.io/vendor`     |   string | `"nvidia"`       | Фильтр вендора                      | `device.attributes["gpu.deckhouse.io"].vendor == "nvidia"`                 |
+| attribute      | `gpu.deckhouse.io/deviceType` |   string | `"MIG"`          | Physical/MIG                        | `device.attributes["gpu.deckhouse.io"].deviceType == "MIG"`                |
+| attribute      | `gpu.deckhouse.io/device`     |   string | `"a30-pcie"`     | нормализованная модель              | `device.attributes["gpu.deckhouse.io"].device in ["a30-pcie","a100-pcie"]` |
+| attribute      | `gpu.deckhouse.io/pciAddress` |   string | `"0000:02:00.0"` | Диагностика/трейсинг                | `device.attributes["gpu.deckhouse.io"].pciAddress.matches("0000:.*")`      |
+| capacity       | `memory`                      | quantity | `24576Mi`        | VRAM минимум                        | `device.capacity["memory"].compareTo(quantity("12Gi")) >= 0`               |
+| capacity       | `sharePercent`                | quantity | `50`             | доля для TimeSlicing/MPS (KEP‑5075) | `device.capacity["sharePercent"] >= 10`                                    |
+| shared counter | `memory`                      | quantity | `40Gi`           | общий пул памяти                    | (используется при подсчете)                                                |
+| shared counter | `memory-slice-<N>`            |      int | `1`              | MIG‑слайсы (KEP‑4815)               | (используется при подсчете)                                                |
 
 _Примечание:_ `sharePercent` используется только при `allowMultipleAllocations` (TimeSlicing/MPS) и задаётся в claim через `capacity.requests`.
 
 ### 7.3 NVIDIA‑специфика (nvidia.\*)
 
-| Категория      | Ключ                             |    Тип | Пример      | Назначение                   | CEL                                                                            |     |                                                                                                                     |
-| -------------- | -------------------------------- | -----: | ----------- | ---------------------------- | ------------------------------------------------------------------------------ | --- | ------------------------------------------------------------------------------------------------------------------- |
-| attribute      | `gpu.deckhouse.io/gpuUUID`       | string | `"GPU-..."` | трассировка                  | `has(device.attributes["gpu.deckhouse.io/gpuUUID"].string)`                    |     |                                                                                                                     |
-| attribute      | `gpu.deckhouse.io/driverVersion` | string | `"565.77"`  | диагностика                  | `device.attributes["gpu.deckhouse.io/driverVersion"].string.startsWith("565")` |     |                                                                                                                     |
-| attribute      | `gpu.deckhouse.io/ccMajor`       |    int | `8`         | compute capability           | `device.attributes["gpu.deckhouse.io/ccMajor"].int >= 8`                       |     |                                                                                                                     |
-| attribute      | `gpu.deckhouse.io/ccMinor`       |    int | `0`         | compute capability           | `device.attributes["gpu.deckhouse.io/ccMajor"].int > 8                         |     | (device.attributes["gpu.deckhouse.io/ccMajor"].int == 8 && device.attributes["gpu.deckhouse.io/ccMinor"].int >= 6)` |
-| attribute      | `gpu.deckhouse.io/migProfile`    | string | `"2g.12gb"` | фильтр профиля               | `device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"`         |     |                                                                                                                     |
-| shared counter | `multiprocessors`                |    int | `98`        | SMs (KEP‑4815)               | (используется при подсчете)                                                    |     |                                                                                                                     |
-| shared counter | `copy-engines`                   |    int | `7`         | копирующие движки (KEP‑4815) | (используется при подсчете)                                                    |     |                                                                                                                     |
-| shared counter | `decoders`                       |    int | `5`         | декодеры (KEP‑4815)          | (используется при подсчете)                                                    |     |                                                                                                                     |
-| shared counter | `encoders`                       |    int | `0`         | энкодеры (KEP‑4815)          | (используется при подсчете)                                                    |     |                                                                                                                     |
-| shared counter | `jpeg-engines`                   |    int | `1`         | JPEG (KEP‑4815)              | (используется при подсчете)                                                    |     |                                                                                                                     |
-| shared counter | `ofa-engines`                    |    int | `1`         | OFA (KEP‑4815)               | (используется при подсчете)                                                    |     |                                                                                                                     |
+| Категория      | Ключ                             |    Тип | Пример      | Назначение                   | CEL                                                                     |     |                                                                                                             |
+| -------------- | -------------------------------- | -----: | ----------- | ---------------------------- | ----------------------------------------------------------------------- | --- | ----------------------------------------------------------------------------------------------------------- |
+| attribute      | `gpu.deckhouse.io/gpuUUID`       | string | `"GPU-..."` | трассировка                  | `has(device.attributes["gpu.deckhouse.io"].gpuUUID)`                    |     |                                                                                                             |
+| attribute      | `gpu.deckhouse.io/driverVersion` | string | `"565.77"`  | диагностика                  | `device.attributes["gpu.deckhouse.io"].driverVersion.startsWith("565")` |     |                                                                                                             |
+| attribute      | `gpu.deckhouse.io/ccMajor`       |    int | `8`         | compute capability           | `device.attributes["gpu.deckhouse.io"].ccMajor >= 8`                    |     |                                                                                                             |
+| attribute      | `gpu.deckhouse.io/ccMinor`       |    int | `0`         | compute capability           | `device.attributes["gpu.deckhouse.io"].ccMajor > 8                      |     | (device.attributes["gpu.deckhouse.io"].ccMajor == 8 && device.attributes["gpu.deckhouse.io"].ccMinor >= 6)` |
+| attribute      | `gpu.deckhouse.io/migProfile`    | string | `"2g.12gb"` | фильтр профиля               | `device.attributes["gpu.deckhouse.io"].migProfile == "2g.12gb"`         |     |                                                                                                             |
+| shared counter | `multiprocessors`                |    int | `98`        | SMs (KEP‑4815)               | (используется при подсчете)                                             |     |                                                                                                             |
+| shared counter | `copy-engines`                   |    int | `7`         | копирующие движки (KEP‑4815) | (используется при подсчете)                                             |     |                                                                                                             |
+| shared counter | `decoders`                       |    int | `5`         | декодеры (KEP‑4815)          | (используется при подсчете)                                             |     |                                                                                                             |
+| shared counter | `encoders`                       |    int | `0`         | энкодеры (KEP‑4815)          | (используется при подсчете)                                             |     |                                                                                                             |
+| shared counter | `jpeg-engines`                   |    int | `1`         | JPEG (KEP‑4815)              | (используется при подсчете)                                             |     |                                                                                                             |
+| shared counter | `ofa-engines`                    |    int | `1`         | OFA (KEP‑4815)               | (используется при подсчете)                                             |     |                                                                                                             |
 
 ### 7.4 DeviceClass selectors (v0)
 
@@ -620,10 +618,10 @@ spec:
   selectors:
     - cel:
         expression: |
-          device.attributes["gpu.deckhouse.io/vendor"].string == "nvidia" &&
-          device.attributes["gpu.deckhouse.io/deviceType"].string == "MIG" &&
-          device.attributes["gpu.deckhouse.io/device"].string == "a30-pcie" &&
-          device.attributes["gpu.deckhouse.io/migProfile"].string == "2g.12gb"
+          device.attributes["gpu.deckhouse.io"].vendor == "nvidia" &&
+          device.attributes["gpu.deckhouse.io"].deviceType == "MIG" &&
+          device.attributes["gpu.deckhouse.io"].device == "a30-pcie" &&
+          device.attributes["gpu.deckhouse.io"].migProfile == "2g.12gb"
 ```
 
 > Для классов с TimeSlicing/MPS можно добавить селектор `device.allowMultipleAllocations == true`.
@@ -645,8 +643,7 @@ spec:
 
 - Публикуем офферы **только** для `PhysicalGPU` с `DriverReady=True` и `HardwareHealthy=True`.
 - Physical‑офферы публикуем отдельным **physical‑slice** (только devices).
-- Kubernetes 1.34: `sharedCounters` публикуем inline вместе с MIG‑офферами.
-- Kubernetes 1.35+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
+- Kubernetes 1.34+: `sharedCounters` публикуем отдельным **counters‑slice**; MIG‑офферы — отдельным **partitionable devices‑slice**.
 - Публикуем **потенциальные оферы** для Physical/MIG одновременно,
   если карта поддерживает эти режимы.
 - `sharedCounters` и устройства, которые на них ссылаются, публикуем раздельно
